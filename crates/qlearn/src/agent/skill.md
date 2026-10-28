@@ -5,8 +5,8 @@ write the pages of the course. The learner reads them and presses **Next**
 when they want the next page. Everything goes through `qlearn` commands.
 Never edit the files under `.learn/` by hand.
 
-This release knows pages of text, callouts, excerpts of the code, and the
-**Next** button. It has no quiz and no syllabus yet.
+This release knows pages of text, callouts, excerpts of the code,
+diagrams, and the **Next** button. It has no quiz and no syllabus yet.
 
 ## Start
 
@@ -55,7 +55,8 @@ Repeat until the learner says that the course is over:
 2. When it returns, read the JSON:
    - `events`: the requests of the learner. A request of kind `next` says
      that the learner pressed **Next**. Its `detail.left` names the page
-     that they left, with its id and its title.
+     that they left, with its id and its title. A request of kind `broken`
+     says that the page cannot draw a diagram (see "Diagrams").
    - `next`: pass it to the next `wait`, so that no request is lost
      between two waits.
    - `"reset": true`: the server restarted. Wait again with the new
@@ -66,7 +67,8 @@ Repeat until the learner says that the course is over:
      learner once, then wait again. A `wait` attaches to the server as soon
      as the learner starts one. If the server stops during a `wait`, the
      `wait` looks for it again, and a new server answers `"reset": true`.
-3. Answer each request. For `next`, push the next page.
+3. Answer each request. For `next`, push the next page. For `broken`,
+   fix the diagram and push its page again.
 4. Go back to step 1.
 
 Writing a page takes minutes. Before a long piece of work, say what you do,
@@ -120,10 +122,11 @@ A page is Markdown. This release takes:
   path and no commit, so use it for a command or a sketch.
 - Callouts (see "Callouts").
 - Excerpts of the repository (see "Show the code").
+- Diagrams (see "Diagrams").
 
 This release refuses these blocks, with an error at their line:
 
-- A fence with the info string `mermaid`, `chart` or `steps`.
+- A fence with the info string `chart` or `steps`.
 - An image, `![alt](path)`, alone in a paragraph.
 
 The server escapes raw HTML, so it shows as text. Write no HTML.
@@ -189,6 +192,55 @@ mark: 127, 130-131
   quote.
 - Read the file before you write the fence, so that `lines` names the code
   that you explain.
+
+## Diagrams
+
+A fence with the info string `mermaid` is a diagram. The page draws it with
+Mermaid, in the colors of its theme.
+
+````
+```mermaid
+flowchart LR
+  F[Follower] -- times out --> C[Candidate]
+  C -- wins the vote --> L[Leader]
+```
+````
+
+- A diagram holds 200 lines at most. The server refuses an empty one.
+- Put a diagram at the top level of the page, not inside a list or a quote.
+- Write no `%%{init}%%` line and no style: the page sets the colors.
+- A diagram loads nothing from the network: put no image in a shape. The
+  page blocks the load, and the diagram comes back to you as broken.
+- Mermaid runs in its strict mode, so a `click` does nothing. Write no
+  HTML in a label.
+- Use a diagram for a structure or a sequence of messages. Show code with
+  an excerpt.
+
+The server cannot run Mermaid, so it cannot check the syntax. If Mermaid
+refuses the source, the page shows the error in place of the diagram, and
+your `wait` returns a request of kind `broken`:
+
+```json
+{
+  "kind": "broken",
+  "page": "3",
+  "detail": {
+    "block": { "id": "6495234d4654", "kind": "diagram", "source": "graph LR\n  A -->\n" },
+    "error": "Parse error on line 2: ..."
+  }
+}
+```
+
+The learner sees the broken diagram until you fix it. Answer the request
+before any other:
+
+1. Find the diagram in the source of page `page`: `detail.block.source` is
+   its text.
+2. Fix the source with the help of `detail.error`.
+3. Push the whole page again with `qlearn page`, then wait again.
+
+The fixed diagram gets a new block id. You hear of a broken diagram once
+for each push of its page, even when the learner opens the page again.
 
 ## Next
 

@@ -117,6 +117,40 @@ A candidate asks every other server for its vote. A server gives one vote
 per term, to the first candidate that asks.
 `;
 
+/** A diagram that Mermaid refuses: the arrow leads nowhere. */
+export const BROKEN_DIAGRAM = 'graph LR\n  Follower -->\n';
+
+/** A page with a diagram that Mermaid draws, and one that it refuses. */
+export const PAGE_DIAGRAMS = `# The states of a server
+
+A server is a follower, a candidate, or the leader. It changes state on a
+timeout or on a message.
+
+\`\`\`mermaid
+flowchart LR
+  F[Follower] -- times out --> C[Candidate]
+  C -- wins the vote --> L[Leader]
+  C -- hears a leader --> F
+  L -- hears a higher term --> F
+\`\`\`
+
+## One vote
+
+\`\`\`mermaid
+${BROKEN_DIAGRAM}\`\`\`
+`;
+
+/** The same page, once the agent fixed the diagram that Mermaid refused. */
+export const PAGE_DIAGRAMS_FIXED = PAGE_DIAGRAMS.replace(
+  BROKEN_DIAGRAM,
+  `sequenceDiagram
+  participant C as Candidate
+  participant S as Server
+  C->>S: RequestVote(term 6)
+  S-->>C: vote granted
+`,
+);
+
 export class Agent {
   private readonly fixture: Fixture;
   private readonly waits = new Set<ChildProcess>();

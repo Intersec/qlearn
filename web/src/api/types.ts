@@ -96,7 +96,17 @@ export interface ExcerptBlock {
   excerpt: Excerpt;
 }
 
-export type Block = TextBlock | CalloutBlock | ExcerptBlock;
+/**
+ * A Mermaid source, as the agent wrote it. The page draws it, because the
+ * server cannot run Mermaid, and reports a source that Mermaid refuses.
+ */
+export interface DiagramBlock {
+  id: string;
+  kind: 'diagram';
+  source: string;
+}
+
+export type Block = TextBlock | CalloutBlock | ExcerptBlock | DiagramBlock;
 
 export interface Excerpt {
   /** From the top level directory of the worktree. */
@@ -178,6 +188,8 @@ export interface EventBatch {
   agent: boolean;
   /** The agent works on a request, and has not waited again since. */
   working: boolean;
+  /** That work holds a Next request: the agent writes a page. */
+  preparing: boolean;
   /** An agent was present on this server, and is present no more. */
   left: boolean;
   /** What the agent says it does, until its next wait. */

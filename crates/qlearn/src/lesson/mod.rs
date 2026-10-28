@@ -59,6 +59,10 @@ const FENCES: [(&str, &str); 4] = [
     ("steps", "steps"),
 ];
 
+/// The most lines that a diagram holds. Mermaid draws a larger one too
+/// small to read, and the server cannot run Mermaid to check it.
+pub const DIAGRAM_LINES: usize = 200;
+
 /// One event of the parser, with the bytes of the source that it covers.
 type Item<'a> = (Event<'a>, Range<usize>);
 
@@ -203,6 +207,21 @@ fn split(source: &str, highlighter: &Highlighter) -> (Vec<Piece>, Option<String>
                     Err(found) => faults.extend(found),
                 }
             }
+            Role::Diagram => {
+                page.close();
+                let line = line_of(range.start);
+                let body = fence_body(node);
+                // The blank lines after a fence are not part of it.
+                let fence_source = source[range].trim_end();
+                match check_diagram(&body, line) {
+                    Ok(()) => {
+                        let id = page.id("diagram", fence_source);
+                        page.blocks
+                            .push(Piece::Block(Block::Diagram { id, source: body }));
+                    }
+                    Err(fault) => faults.push(fault),
+                }
+            }
             Role::Refused(kind) => {
                 page.close();
                 faults.push(refused(line_of(range.start), kind));
@@ -241,16 +260,41 @@ fn refused(line: usize, kind: &'static str) -> Fault {
 
 /// A fence of a block kind inside a list or a quote.
 fn nested(line: usize, kind: &'static str) -> Fault {
-    match kind {
-        "excerpt" => Fault {
-            line,
-            kind,
-            message: "an excerpt cannot sit inside a list or a quote: put it at the top \
-                      level of the page"
-                .to_owned(),
-        },
-        _ => refused(line, kind),
+    let block = match kind {
+        "excerpt" => "an excerpt",
+        "diagram" => "a diagram",
+        _ => return refused(line, kind),
+    };
+    Fault {
+        line,
+        kind,
+        message: format!(
+            "{block} cannot sit inside a list or a quote: put it at the top level of the page"
+        ),
     }
+}
+
+/// The checks of a diagram that need no Mermaid: the page draws it, and
+/// reports a source that Mermaid refuses.
+fn check_diagram(body: &str, line: usize) -> Result<(), Fault> {
+    let fault = |message: String| Fault {
+        line,
+        kind: "diagram",
+        message,
+    };
+    if body.trim().is_empty() {
+        return Err(fault(
+            "the fence holds no Mermaid source: write the diagram inside it".to_owned(),
+        ));
+    }
+    let lines = body.lines().count();
+    if lines > DIAGRAM_LINES {
+        return Err(fault(format!(
+            "the diagram holds {lines} lines, and a diagram has {DIAGRAM_LINES} at most: \
+             split it in two"
+        )));
+    }
+    Ok(())
 }
 
 /// A quote in the form of a callout inside a list or a quote.
@@ -317,6 +361,7 @@ enum Role {
     Text,
     Callout(Opening),
     Excerpt,
+    Diagram,
     /// A block of a kind that this release does not draw yet.
     Refused(&'static str),
 }
@@ -326,6 +371,7 @@ fn role(source: &str, node: &[Item]) -> Role {
         Event::Start(Tag::Heading { .. }) => Role::Heading,
         event @ Event::Start(Tag::CodeBlock(_)) => match fence_kind(event) {
             Some("excerpt") => Role::Excerpt,
+            Some("diagram") => Role::Diagram,
             Some(kind) => Role::Refused(kind),
             None => Role::Text,
         },
@@ -938,6 +984,9 @@ bool grant_vote(struct server *s, int term, int candidate)
                         Block::Excerpt { id, excerpt } => {
                             out.push_str(&excerpt_outcome(id, excerpt, parsed.hidden.get(id)))
                         }
+                        Block::Diagram { id, source } => {
+                            out.push_str(&format!("\ndiagram {id}\n{source}"))
+                        }
                     }
                 }
                 out
@@ -1102,15 +1151,7 @@ bool grant_vote(struct server *s, int term, int candidate)
             .await
             .unwrap();
 
-        let kinds: Vec<_> = parsed
-            .blocks
-            .iter()
-            .map(|block| match block {
-                Block::Text { .. } => "text",
-                Block::Callout { .. } => "callout",
-                Block::Excerpt { .. } => "excerpt",
-            })
-            .collect();
+        let kinds: Vec<_> = parsed.blocks.iter().map(Block::kind).collect();
         assert_eq!(kinds, ["text", "excerpt", "text"]);
     }
 
@@ -1128,7 +1169,7 @@ bool grant_vote(struct server *s, int term, int candidate)
             .map(|block| match block {
                 Block::Text { html, .. } => format!("text {html}"),
                 Block::Callout { marker, html, .. } => format!("{} {html}", marker.as_str()),
-                Block::Excerpt { .. } => "excerpt".to_owned(),
+                other => other.kind().to_owned(),
             })
             .collect();
         assert_eq!(
@@ -1149,6 +1190,56 @@ bool grant_vote(struct server *s, int term, int candidate)
         assert_eq!(
             ids(&source).await,
             [block_id("callout", quote, 1), block_id("callout", quote, 2)]
+        );
+    }
+
+    #[tokio::test]
+    async fn the_id_of_a_diagram_is_the_hash_of_its_fence() {
+        let fence = "```mermaid\ngraph LR\n  A --> B\n```";
+        let source = format!("One.\n\n{fence}\n\n{fence}\n");
+
+        let parsed = plain().await.parse(&source).await.unwrap();
+
+        let shape: Vec<_> = parsed
+            .blocks
+            .iter()
+            .map(|block| (block.kind(), block.id().to_owned()))
+            .collect();
+        assert_eq!(
+            shape[1..],
+            [
+                ("diagram", block_id("diagram", fence, 1)),
+                ("diagram", block_id("diagram", fence, 2)),
+            ]
+        );
+        assert_eq!(
+            parsed.blocks[1],
+            Block::Diagram {
+                id: block_id("diagram", fence, 1),
+                source: "graph LR\n  A --> B\n".to_owned(),
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn a_diagram_of_the_largest_size_passes_and_one_line_more_does_not() {
+        let fence = |lines: usize| {
+            let body: String = (0..lines).map(|n| format!("  A{n} --> B{n}\n")).collect();
+            format!("# Big\n\n```mermaid\ngraph LR\n{body}```\n")
+        };
+        let corpus = plain().await;
+
+        assert!(corpus.parse(&fence(DIAGRAM_LINES - 1)).await.is_ok());
+        let faults = corpus.parse(&fence(DIAGRAM_LINES)).await.unwrap_err();
+        assert_eq!(
+            faults,
+            [Fault {
+                line: 3,
+                kind: "diagram",
+                message: "the diagram holds 201 lines, and a diagram has 200 at most: \
+                          split it in two"
+                    .to_owned(),
+            }]
         );
     }
 

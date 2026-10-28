@@ -73,14 +73,14 @@ onBeforeUnmount(() => {
 
     <main class="course">
       <template v-if="page">
-        <PageView :page="page" />
+        <PageView :page="page" @broken="store.broken" />
         <footer class="page-end">
           <p v-if="ending === 'preparing'" role="status" class="preparing">
             The agent prepares the next page<template v-if="status">: {{ status }}</template>
           </p>
           <p v-else-if="ending === 'asked'" role="status" class="asked">
             You asked for the next page.
-            <template v-if="presence === 'connected'">
+            <template v-if="presence === 'connected' || presence === 'working'">
               The agent gets the request when it waits again.
             </template>
             <template v-else>

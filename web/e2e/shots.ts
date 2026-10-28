@@ -7,7 +7,7 @@ import { chromium } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import config from '../playwright.config.ts';
-import { PAGE_1, PAGE_2 } from './agent.ts';
+import { PAGE_1, PAGE_2, PAGE_DIAGRAMS, PAGE_DIAGRAMS_FIXED } from './agent.ts';
 import { start } from './server.ts';
 
 const OUT = join(import.meta.dirname, '.shots');
@@ -76,6 +76,22 @@ for (const scheme of ['light', 'dark'] as const) {
     await page.getByRole('button', { name: 'Next' }).click();
     await page.getByRole('heading', { name: 'The vote' }).waitFor();
     await page.screenshot({ path: join(OUT, `${scheme}-page-2.png`) });
+
+    // A diagram that Mermaid draws, and one that it refuses: the page shows
+    // the error with the source, and sends it to the agent.
+    await agent.page('3', PAGE_DIAGRAMS);
+    await page.locator('.ready').getByRole('link', { name: 'Read it' }).click();
+    await page.locator('.diagram-svg svg').waitFor();
+    await page.screenshot({ path: join(OUT, `${scheme}-diagram.png`) });
+    const broken = page.locator('.diagram-broken');
+    await broken.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: join(OUT, `${scheme}-diagram-broken.png`) });
+
+    // The agent fixed it.
+    await agent.page('3', PAGE_DIAGRAMS_FIXED);
+    await broken.waitFor({ state: 'detached' });
+    await page.locator('.diagram-svg svg').nth(1).scrollIntoViewIfNeeded();
+    await page.screenshot({ path: join(OUT, `${scheme}-diagram-fixed.png`) });
   } finally {
     if (complaints.length) {
       console.log(`${scheme}: the page complained\n  ${complaints.join('\n  ')}`);

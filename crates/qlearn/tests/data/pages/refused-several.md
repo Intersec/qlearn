@@ -18,7 +18,6 @@ lines: 1-10
   ```
 
 ```mermaid
-graph LR
 ```
 
 > [!tip]

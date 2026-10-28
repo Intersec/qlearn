@@ -7,7 +7,7 @@
 
 import { defineStore } from 'pinia';
 import { computed, ref, toRaw } from 'vue';
-import { api, serverGone } from '@/api/client';
+import { ApiError, api, serverGone } from '@/api/client';
 import type { Course, Event, EventBatch, Page, PageRef } from '@/api/types';
 import { format, parse } from '@/place';
 
@@ -17,7 +17,8 @@ export type Presence = 'absent' | 'connected' | 'working' | 'left';
 /**
  * What the end of the page offers. `next` asks for the next page, or opens
  * it when the agent wrote it already. `asked` waits for an agent that has
- * not taken the request yet. `preparing` says that the agent writes.
+ * not taken the request yet. `preparing` says that the agent writes the
+ * next page.
  */
 export type Ending = 'next' | 'asked' | 'preparing';
 
@@ -39,12 +40,14 @@ export const useCourse = defineStore('course', () => {
   const ready = ref<string | null>(null);
   /**
    * The Next request that the agent has not answered yet. `taken` once the
-   * agent works since the request: a wait handed it over.
+   * agent prepares a page since the request: a wait handed it over.
    */
   const asked = ref<{ page: string; taken: boolean } | null>(null);
 
   const agent = ref(false);
   const working = ref(false);
+  /** The agent works on a Next request, where `working` may be a fix. */
+  const preparing = ref(false);
   const left = ref(false);
   const status = ref<string | null>(null);
   /** The server stopped. A new server has a new token, so the page is dead. */
@@ -84,7 +87,7 @@ export const useCourse = defineStore('course', () => {
     if (following.value) {
       return 'next';
     }
-    if (working.value) {
+    if (preparing.value) {
       return 'preparing';
     }
     return asked.value && asked.value.page === page.value?.id ? 'asked' : 'next';
@@ -95,6 +98,36 @@ export const useCourse = defineStore('course', () => {
    * that overlap, and the older one must not land over the newer one.
    */
   let moves = 0;
+
+  /**
+   * How many times the agent pushed each page since this tab opened. A
+   * broken block is reported once per version of its page.
+   */
+  const pushes = new Map<string, number>();
+  const reported = new Set<string>();
+
+  /**
+   * Tell the agent that the page cannot draw a block. A page draws a
+   * diagram again on a theme change or a visit, and the agent needs to
+   * hear of it once per version.
+   */
+  async function broken(id: string, block: string, error: string) {
+    const key = `${id} ${pushes.get(id) ?? 0} ${block}`;
+    if (reported.has(key)) {
+      return;
+    }
+    reported.add(key);
+    try {
+      await api.broken(id, block, error);
+    } catch (e) {
+      // A newer push took the block away: the agent has nothing to fix.
+      if (e instanceof ApiError && e.code === 'notFound') {
+        return;
+      }
+      reported.delete(key);
+      fail(e);
+    }
+  }
 
   /** Show a page. `none` leaves the address alone: the browser holds it. */
   async function show(id: string, move: Move | 'none'): Promise<Shown> {
@@ -257,17 +290,18 @@ export const useCourse = defineStore('course', () => {
 
   function hear(batch: EventBatch) {
     // The page cannot see a wait hand the request over, but the agent
-    // works from then until its next wait. An idle event is no sign: the
-    // wait that takes the request pushes one as it opens.
+    // prepares a page from then until its next wait. An idle event is no
+    // sign: the wait that takes the request pushes one as it opens.
     if (asked.value) {
-      if (batch.working && !working.value) {
+      if (batch.preparing && !preparing.value) {
         asked.value.taken = true;
-      } else if (!batch.working && asked.value.taken) {
+      } else if (!batch.preparing && asked.value.taken) {
         asked.value = null;
       }
     }
     agent.value = batch.agent;
     working.value = batch.working;
+    preparing.value = batch.preparing;
     left.value = batch.left;
     status.value = batch.status;
   }
@@ -298,7 +332,12 @@ export const useCourse = defineStore('course', () => {
 
       // A pushed page joins the syllabus, with its title.
       session = true;
-      asked.value = null;
+      pushes.set(event.page, (pushes.get(event.page) ?? 0) + 1);
+      // A push of the page that the learner left fixes it, and answers no
+      // Next.
+      if (asked.value?.page !== event.page) {
+        asked.value = null;
+      }
       if (event.page === page.value?.id) {
         again = true;
       } else if (!page.value) {
@@ -399,6 +438,7 @@ export const useCourse = defineStore('course', () => {
     open,
     follow,
     next,
+    broken,
     listen,
   };
 });

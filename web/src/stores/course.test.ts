@@ -44,6 +44,7 @@ function batch(fields: Partial<EventBatch> = {}): EventBatch {
     reset: false,
     agent: false,
     working: false,
+    preparing: false,
     left: false,
     status: null,
     ...fields,
@@ -70,6 +71,10 @@ class FakeServer {
   waits: (number | undefined)[] = [];
   /** The pages that a Next was sent from. */
   nexts: string[] = [];
+  /** Each block that the page reported broken: its page, its id, the error. */
+  broken: [string, string, string][] = [];
+  /** The error that the next report gets, if any. */
+  refuse: ApiError | null = null;
   reads = { session: 0, page: [] as string[] };
   /** Reads of a page that wait until the test lets them answer. */
   private gates = new Map<string, Promise<void>>();
@@ -95,6 +100,21 @@ class FakeServer {
     vi.spyOn(api, 'next').mockImplementation(async (id) => {
       this.nexts.push(id);
       return { seq: 40 + this.nexts.length, kind: 'next', author: 'learner', page: id, id: null };
+    });
+    vi.spyOn(api, 'broken').mockImplementation(async (id, block, error) => {
+      const refused = this.refuse;
+      this.refuse = null;
+      if (refused) {
+        throw refused;
+      }
+      this.broken.push([id, block, error]);
+      return {
+        seq: 50 + this.broken.length,
+        kind: 'broken',
+        author: 'learner',
+        page: id,
+        id: null,
+      };
     });
     vi.spyOn(api, 'events').mockImplementation((after) => {
       this.waits.push(after);
@@ -392,10 +412,20 @@ describe('next', () => {
     await store.next();
     expect(server.nexts).toEqual(['1']);
 
-    server.send(batch({ next: 42, agent: true, working: true, status: 'Writing page 2' }));
+    server.send(
+      batch({ next: 42, agent: true, working: true, preparing: true, status: 'Writing page 2' }),
+    );
     await vi.waitFor(() => expect(store.ending).toBe('preparing'));
 
-    server.send(batch({ next: 43, agent: true, working: true, events: [server.push('2', 43)] }));
+    server.send(
+      batch({
+        next: 43,
+        agent: true,
+        working: true,
+        preparing: true,
+        events: [server.push('2', 43)],
+      }),
+    );
     await vi.waitFor(() => expect(store.ready).toBe('2'));
     expect(store.page?.id).toBe('1');
     expect(store.asked).toBeNull();
@@ -457,7 +487,7 @@ describe('next', () => {
     const store = await started();
     await store.next();
 
-    server.send(batch({ next: 41, agent: true, working: true }));
+    server.send(batch({ next: 41, agent: true, working: true, preparing: true }));
     await vi.waitFor(() => expect(store.ending).toBe('preparing'));
     // The agent ends the course: it writes, so its wait says it is idle.
     server.send(batch({ next: 43, agent: true, events: [idle(43)] }));
@@ -471,7 +501,7 @@ describe('next', () => {
     const store = await started();
     await store.next();
 
-    server.send(batch({ next: 41, agent: true, working: true }));
+    server.send(batch({ next: 41, agent: true, working: true, preparing: true }));
     await vi.waitFor(() => expect(store.ending).toBe('preparing'));
     // No write: the wait pushes no idle, and only the work ends.
     server.send(batch({ next: 41, agent: true }));
@@ -492,5 +522,75 @@ describe('next', () => {
     await vi.waitFor(() => expect(store.status).toBe('Reading the request'));
 
     expect(store.ending).toBe('asked');
+  });
+});
+
+describe('a block that the page cannot draw', () => {
+  it('is reported once per version of its page', async () => {
+    server.push('1', 1);
+    const store = await started();
+
+    // A theme change or a visit draws the diagram again.
+    await store.broken('1', 'd1', 'Parse error');
+    await store.broken('1', 'd1', 'Parse error');
+    await store.broken('1', 'd2', 'Parse error');
+    expect(server.broken).toEqual([
+      ['1', 'd1', 'Parse error'],
+      ['1', 'd2', 'Parse error'],
+    ]);
+
+    // The agent pushes the page again, with the same diagram.
+    server.send(batch({ next: 11, events: [server.push('1', 11)] }));
+    await vi.waitFor(() => expect(server.reads.page).toEqual(['1', '1']));
+    await store.broken('1', 'd1', 'Parse error');
+    await store.broken('1', 'd1', 'Parse error');
+
+    expect(server.broken).toHaveLength(3);
+    expect(server.broken[2]).toEqual(['1', 'd1', 'Parse error']);
+  });
+
+  it('is reported again when the report failed', async () => {
+    server.push('1', 1);
+    const store = await started();
+    server.refuse = new ApiError('failed', 'the disk is full');
+
+    await store.broken('1', 'd1', 'Parse error');
+    expect(store.error).toBe('the disk is full');
+    await store.broken('1', 'd1', 'Parse error');
+
+    expect(server.broken).toEqual([['1', 'd1', 'Parse error']]);
+  });
+
+  it('leaves Next to the learner while the agent fixes it', async () => {
+    server.push('1', 1);
+    const store = await started();
+    await store.broken('1', 'd1', 'Parse error');
+
+    // A wait hands the broken request over: the agent works, on this page.
+    server.send(batch({ next: 51, agent: true, working: true }));
+    await vi.waitFor(() => expect(store.presence).toBe('working'));
+    expect(store.ending).toBe('next');
+
+    await store.next();
+    expect(server.nexts).toEqual(['1']);
+    expect(store.ending).toBe('asked');
+
+    // The agent pushes the fix and waits again: the wait takes the Next.
+    server.send(batch({ next: 52, agent: true, events: [server.push('1', 52)] }));
+    await vi.waitFor(() => expect(store.presence).toBe('connected'));
+    expect(store.ending).toBe('asked');
+    server.send(batch({ next: 52, agent: true, working: true, preparing: true }));
+    await vi.waitFor(() => expect(store.ending).toBe('preparing'));
+  });
+
+  it('says nothing when a newer push took the block away', async () => {
+    server.push('1', 1);
+    const store = await started();
+    server.refuse = new ApiError('notFound', 'page 1 holds no block "d1"');
+
+    await store.broken('1', 'd1', 'Parse error');
+
+    expect(store.error).toBeNull();
+    expect(server.broken).toEqual([]);
   });
 });

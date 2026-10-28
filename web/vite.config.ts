@@ -32,6 +32,10 @@ export default defineConfig({
     // The binary embeds this directory. See crates/qlearn/src/assets.rs.
     outDir: 'dist',
     emptyOutDir: true,
+    // Mermaid loads each part on demand, in a chunk of its own. The largest,
+    // its ELK layout, is near 1.5 MB, and only a diagram that asks for it
+    // loads it.
+    chunkSizeWarningLimit: 2000,
   },
   server: {
     proxy: {

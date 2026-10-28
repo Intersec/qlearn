@@ -97,6 +97,9 @@ struct Presence {
     wrote: bool,
     /// When a wait handed over a request that the agent has not finished.
     working: Option<Instant>,
+    /// That work holds a Next request: the agent writes a page, where a
+    /// broken diagram only needs a fix.
+    next: bool,
     /// What the agent says it does. Its next wait clears it.
     status: Option<String>,
     /// An agent waited once on this server.
@@ -112,6 +115,10 @@ impl Presence {
 
     fn works(&self) -> bool {
         self.working.is_some_and(|at| at.elapsed() < WORKS_FOR)
+    }
+
+    fn prepares(&self) -> bool {
+        self.next && self.works()
     }
 }
 
@@ -138,6 +145,10 @@ impl AgentWaits<'_> {
                 .lock()
                 .expect("the agent state is poisoned");
             agent.working = Some(Instant::now());
+            agent.next = batch
+                .events
+                .iter()
+                .any(|event| event.kind == EventKind::Next);
             agent.changes += 1;
         }
         // The page shows that the agent works, and its wait would hold the
@@ -192,6 +203,7 @@ impl Events {
             agent.open += 1;
             agent.seen = true;
             let worked = agent.working.take().is_some();
+            agent.next = false;
             agent.status = None;
             if arrived || worked {
                 agent.changes += 1;
@@ -373,12 +385,13 @@ impl Events {
     }
 
     fn since(&self, after: Option<u64>) -> (Batch, u64) {
-        let (agent, working, left, status, changes) = {
+        let (agent, working, preparing, left, status, changes) = {
             let presence = self.agent.lock().expect("the agent state is poisoned");
             let listens = presence.listens();
             (
                 listens,
                 presence.works(),
+                presence.prepares(),
                 presence.seen && !listens,
                 presence.status.clone(),
                 presence.changes,
@@ -391,6 +404,7 @@ impl Events {
             reset: false,
             agent,
             working,
+            preparing,
             left,
             status,
         };
@@ -639,6 +653,40 @@ mod tests {
         let waits = events.agent_waits();
         assert!(!events.agent_works(), "a wait ends the work");
         drop(waits);
+    }
+
+    /// The page says that the agent prepares the next page only when it
+    /// does: a broken diagram is work on the page of the learner.
+    #[tokio::test(start_paused = true)]
+    async fn only_a_next_request_handed_over_prepares_a_page() {
+        let events = Events::default();
+        events.push(EventKind::Broken, Author::Learner, Some("1"), None);
+        hand_over(&events).await;
+        let batch = events.after(None, HOLD).await;
+        assert!(batch.working);
+        assert!(!batch.preparing, "the agent fixes a diagram");
+
+        events.push(EventKind::Next, Author::Learner, Some("1"), None);
+        let mut waits = events.agent_waits();
+        let batch = events.after(Some(1), SHORT).await;
+        waits.answered(&batch);
+        let batch = events.after(None, HOLD).await;
+        assert!(batch.working);
+        assert!(batch.preparing);
+
+        drop(waits);
+        let waits = events.agent_waits();
+        let batch = events.after(None, HOLD).await;
+        assert!(!batch.preparing, "a wait ends the work");
+        drop(waits);
+
+        events.push(EventKind::Next, Author::Learner, Some("1"), None);
+        hand_over(&events).await;
+        tokio::time::advance(WORKS_FOR).await;
+        assert!(
+            !events.after(None, HOLD).await.preparing,
+            "the agent is gone"
+        );
     }
 
     #[tokio::test(start_paused = true)]

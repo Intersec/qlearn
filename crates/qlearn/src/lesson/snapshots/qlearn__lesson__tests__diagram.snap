@@ -1,0 +1,26 @@
+---
+source: crates/qlearn/src/lesson/mod.rs
+assertion_line: 1077
+description: "# The states of a server\n\nA server is a follower, a candidate, or the leader.\n\n```mermaid\nstateDiagram-v2\n  [*] --> Follower\n  Follower --> Candidate: times out\n  Candidate --> Leader: wins the vote\n  Candidate --> Follower: hears a leader\n  Leader --> Follower: hears a higher term\n```\n\nThe text after a diagram opens a new block. The source of a diagram is\nkept as the agent typed it, `<` and `&` included: Mermaid escapes it.\n\n```mermaid\ngraph LR\n  A[\"term < 6 & no vote\"] --> B[votes]\n```\n"
+---
+title: The states of a server
+
+text cbb6776cd982
+<h1>The states of a server</h1>
+<p>A server is a follower, a candidate, or the leader.</p>
+
+diagram 3e8988a142b1
+stateDiagram-v2
+  [*] --> Follower
+  Follower --> Candidate: times out
+  Candidate --> Leader: wins the vote
+  Candidate --> Follower: hears a leader
+  Leader --> Follower: hears a higher term
+
+text b72d0525e36c
+<p>The text after a diagram opens a new block. The source of a diagram is
+kept as the agent typed it, <code>&lt;</code> and <code>&amp;</code> included: Mermaid escapes it.</p>
+
+diagram 55bde288c8c3
+graph LR
+  A["term < 6 & no vote"] --> B[votes]

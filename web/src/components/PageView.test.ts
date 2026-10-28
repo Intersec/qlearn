@@ -1,8 +1,22 @@
 // @vitest-environment jsdom
-import { describe, expect, it } from 'vitest';
-import { mount } from '@vue/test-utils';
+import { describe, expect, it, vi } from 'vitest';
+import { flushPromises, mount } from '@vue/test-utils';
 import PageView from './PageView.vue';
 import type { Page } from '@/api/types';
+
+// The real Mermaid runs in the browser tests.
+vi.mock('mermaid', () => ({
+  default: {
+    initialize: () => {},
+    parse: async (source: string) => {
+      if (source.includes('-->\n')) {
+        throw new Error('Parse error on line 2');
+      }
+      return { diagramType: 'flowchart-v2' };
+    },
+    render: async () => ({ svg: '<svg xmlns="http://www.w3.org/2000/svg"><text>A</text></svg>' }),
+  },
+}));
 
 function view(...html: string[]) {
   const page: Page = {
@@ -85,5 +99,34 @@ describe('PageView', () => {
     expect(blocks.map((block) => block.attributes('data-block'))).toEqual(['a', 'b', 'c']);
     expect(blocks[1].find('.excerpt-path').text()).toBe('src/raft.c:1');
     expect(blocks[1].find('.excerpt-text').text()).toBe('int x;');
+  });
+
+  it('draws a diagram between the text blocks', async () => {
+    const page: Page = {
+      id: '1',
+      blocks: [
+        { id: 'a', kind: 'text', html: '<p>Before.</p>' },
+        { id: 'b', kind: 'diagram', source: 'graph LR\n  A --> B\n' },
+        { id: 'c', kind: 'text', html: '<p>After.</p>' },
+      ],
+    };
+    const wrapper = mount(PageView, { props: { page } });
+    await flushPromises();
+
+    const blocks = wrapper.findAll('[data-block]');
+    expect(blocks.map((block) => block.attributes('data-block'))).toEqual(['a', 'b', 'c']);
+    expect(blocks[1].find('.diagram-svg text').text()).toBe('A');
+    expect(wrapper.emitted('broken')).toBeUndefined();
+  });
+
+  it('names its page when a diagram cannot be drawn', async () => {
+    const page: Page = {
+      id: '7a',
+      blocks: [{ id: 'b', kind: 'diagram', source: 'graph LR\n  A -->\n' }],
+    };
+    const wrapper = mount(PageView, { props: { page } });
+    await flushPromises();
+
+    expect(wrapper.emitted('broken')).toEqual([['7a', 'b', 'Parse error on line 2']]);
   });
 });

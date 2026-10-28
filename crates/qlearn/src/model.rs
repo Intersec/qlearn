@@ -426,12 +426,28 @@ pub enum Block {
     },
     /// Lines of the repository, read by the server at the push.
     Excerpt { id: String, excerpt: Excerpt },
+    /// A Mermaid source, as the agent wrote it. The page draws it: the
+    /// server cannot run Mermaid.
+    Diagram { id: String, source: String },
 }
 
 impl Block {
     pub fn id(&self) -> &str {
         match self {
-            Self::Text { id, .. } | Self::Callout { id, .. } | Self::Excerpt { id, .. } => id,
+            Self::Text { id, .. }
+            | Self::Callout { id, .. }
+            | Self::Excerpt { id, .. }
+            | Self::Diagram { id, .. } => id,
+        }
+    }
+
+    /// The kind, as the contract spells it.
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Self::Text { .. } => "text",
+            Self::Callout { .. } => "callout",
+            Self::Excerpt { .. } => "excerpt",
+            Self::Diagram { .. } => "diagram",
         }
     }
 }
@@ -591,6 +607,27 @@ pub struct Event {
 pub enum Detail {
     /// `next`: the page that the learner left.
     Next { left: PageName },
+    /// `broken`: the block that the page cannot draw, and why. The event
+    /// names the page.
+    Broken { block: BlockSource, error: String },
+}
+
+/// A block as the agent wrote it, so that it finds the block in its file.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct BlockSource {
+    pub id: String,
+    pub kind: String,
+    pub source: String,
+}
+
+/// The body of `POST /api/pages/:id/broken`: a block that the page cannot
+/// draw, and the error of the page.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Broken {
+    pub block: String,
+    pub error: String,
 }
 
 /// A page as the agent names it to the learner.
@@ -615,9 +652,11 @@ pub struct Batch {
     /// or handed over a request that the agent works on.
     pub agent: bool,
     /// The agent works on a request that a wait handed over, and has not
-    /// waited again since. The page says that the agent prepares the next
-    /// page.
+    /// waited again since.
     pub working: bool,
+    /// The work holds a Next request. The page says that the agent
+    /// prepares the next page.
+    pub preparing: bool,
     /// An agent was present on this server, and is present no more. The
     /// page asks the learner to start it again.
     pub left: bool,
@@ -871,6 +910,47 @@ mod tests {
                 serde_json::to_value(marker).unwrap(),
                 json!(marker.as_str())
             );
+        }
+    }
+
+    #[test]
+    fn a_diagram_block_has_the_shape_of_the_contract() {
+        let block = Block::Diagram {
+            id: "0123456789ab".to_owned(),
+            source: "graph LR\n  A --> B\n".to_owned(),
+        };
+
+        assert_eq!(
+            serde_json::to_value(&block).unwrap(),
+            json!({ "id": "0123456789ab", "kind": "diagram", "source": "graph LR\n  A --> B\n" })
+        );
+        assert_eq!(block.kind(), "diagram");
+    }
+
+    /// The detail carries no tag, so the wait of the agent must still read
+    /// each kind back as itself.
+    #[test]
+    fn each_detail_reads_back_as_itself() {
+        let details = [
+            Detail::Next {
+                left: PageName {
+                    id: "1".to_owned(),
+                    title: "Two leaders".to_owned(),
+                },
+            },
+            Detail::Broken {
+                block: BlockSource {
+                    id: "0123456789ab".to_owned(),
+                    kind: "diagram".to_owned(),
+                    source: "graph LR\n".to_owned(),
+                },
+                error: "Parse error on line 1".to_owned(),
+            },
+        ];
+
+        for detail in details {
+            let text = serde_json::to_string(&detail).unwrap();
+            assert_eq!(serde_json::from_str::<Detail>(&text).unwrap(), detail);
         }
     }
 

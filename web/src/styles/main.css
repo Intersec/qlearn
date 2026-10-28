@@ -650,3 +650,60 @@ body {
   color: var(--tok-invalid-ink);
   background: var(--tok-invalid);
 }
+
+/* --------------------------------------------------------- the diagram */
+
+/* A diagram that Mermaid drew, on the page color: Mermaid takes the colors
+   of the theme. */
+.diagram {
+  margin: 0 0 0.9em;
+  padding: 12px;
+  overflow-x: auto;
+  border: 1px solid var(--edge-soft);
+  border-radius: 4px;
+  background: var(--page);
+}
+.diagram-svg svg {
+  max-width: 100%;
+  height: auto;
+  margin: 0 auto;
+}
+.diagram-drawing {
+  color: var(--ink-faint);
+  font-size: 13px;
+  text-align: center;
+}
+/* A diagram that Mermaid refused: the error, then the source, until the
+   agent fixes the page. */
+.diagram-broken {
+  margin: -12px;
+  padding: 10px 14px;
+  border-left: 4px solid var(--waiting-edge);
+  border-radius: 4px;
+  background: var(--error);
+  color: var(--error-ink);
+}
+.diagram-broken-head {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.diagram-error,
+.diagram-source {
+  overflow-x: auto;
+  margin: 0 0 8px;
+  padding: 6px 10px;
+  border-radius: 3px;
+  font-family: var(--code-font);
+  font-size: 12px;
+  line-height: var(--code-line);
+  white-space: pre;
+}
+.diagram-error {
+  background: var(--page);
+  color: var(--error-ink);
+}
+.diagram-source {
+  background: var(--pane);
+  color: var(--ink);
+}

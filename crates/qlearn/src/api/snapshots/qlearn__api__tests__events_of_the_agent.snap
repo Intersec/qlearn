@@ -21,6 +21,7 @@ expression: agent
   ],
   "left": false,
   "next": 1,
+  "preparing": false,
   "reset": false,
   "status": null,
   "working": false

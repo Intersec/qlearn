@@ -5,9 +5,15 @@ import { computed } from 'vue';
 import type { Page } from '@/api/types';
 import { clean } from '@/html';
 import CalloutView from './CalloutView.vue';
+import DiagramView from './DiagramView.vue';
 import ExcerptView from './ExcerptView.vue';
 
 const props = defineProps<{ page: Page }>();
+
+const emit = defineEmits<{
+  /** A block of the page that the page cannot draw. */
+  broken: [page: string, block: string, error: string];
+}>();
 
 // Cleaned once per page, not at every render.
 const blocks = computed(() =>
@@ -31,8 +37,11 @@ const blocks = computed(() =>
       <section v-else-if="block.kind === 'callout'" class="block" :data-block="block.id">
         <CalloutView :marker="block.marker" :html="block.html" />
       </section>
-      <section v-else class="block" :data-block="block.id">
+      <section v-else-if="block.kind === 'excerpt'" class="block" :data-block="block.id">
         <ExcerptView :excerpt="block.excerpt" />
+      </section>
+      <section v-else class="block" :data-block="block.id">
+        <DiagramView :block="block" @broken="(id, error) => emit('broken', page.id, id, error)" />
       </section>
     </template>
   </article>

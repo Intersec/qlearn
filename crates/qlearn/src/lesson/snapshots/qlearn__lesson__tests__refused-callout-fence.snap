@@ -1,7 +1,8 @@
 ---
 source: crates/qlearn/src/lesson/mod.rs
+assertion_line: 1077
 description: "> [!note]\n> A callout holds no block of its own:\n>\n> ```excerpt\n> path: src/raft.c\n> lines: 1-10\n> ```\n>\n> ```mermaid\n> graph LR\n> ```\n>\n> A fence of code stays:\n>\n> ```sh\n> make check\n> ```\n"
 ---
 refused
 refused-callout-fence.md:4: excerpt: an excerpt cannot sit inside a list or a quote: put it at the top level of the page
-refused-callout-fence.md:9: diagram: this release of qlearn does not support diagram blocks yet
+refused-callout-fence.md:9: diagram: a diagram cannot sit inside a list or a quote: put it at the top level of the page

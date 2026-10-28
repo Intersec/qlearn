@@ -127,6 +127,52 @@ async fn an_agent_changes_the_course_pushes_a_page_and_waits_for_next() {
     assert!(interrupt(server).await.success());
 }
 
+/// The page reports a diagram that Mermaid refuses. The wait hands the
+/// agent the source and the error, so it fixes the page with no second
+/// command.
+#[tokio::test]
+async fn a_diagram_that_the_page_cannot_draw_reaches_the_wait() {
+    let repo = build_repo();
+    let root = repo.path();
+    let mut server = qlearn(root, &["raft", "--no-open"]).spawn().unwrap();
+    read_url(&mut server).await;
+
+    let source = "# States\n\n```mermaid\ngraph LR\n  A --> \n```\n";
+    let page = json_of(&run(root, &["page", "1", "--file", "-"], Some(source)).await);
+    let block = page["blocks"][1]["id"].as_str().unwrap().to_owned();
+    assert_eq!(page["blocks"][1]["kind"], "diagram");
+
+    let waiting = tokio::spawn({
+        let root = root.to_owned();
+        async move { run(&root, &["wait", "--after", "0", "--timeout", "20"], None).await }
+    });
+    let client = page_of(root);
+    until_the_agent_waits(&client).await;
+    let error = "Parse error on line 2:\ngraph LR  A -->\nExpecting 'NODE_STRING', got 'EOF'";
+    client
+        .post(
+            "/api/pages/1/broken",
+            &json!({ "block": block, "error": error }),
+        )
+        .await
+        .unwrap();
+
+    let batch = json_of(&waiting.await.unwrap());
+    let events = batch["events"].as_array().unwrap();
+    assert_eq!(events.len(), 1, "{batch}");
+    assert_eq!(events[0]["kind"], "broken");
+    assert_eq!(events[0]["page"], "1");
+    assert_eq!(
+        events[0]["detail"],
+        json!({
+            "block": { "id": block, "kind": "diagram", "source": "graph LR\n  A --> \n" },
+            "error": error,
+        })
+    );
+
+    assert!(interrupt(server).await.success());
+}
+
 #[tokio::test]
 async fn a_wait_stays_attached_across_a_restart_of_the_server() {
     let repo = build_repo();

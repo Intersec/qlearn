@@ -48,6 +48,17 @@ export const api = {
     call<Event>(`/api/pages/${encodeURIComponent(id)}/next`, { method: 'POST' }),
 
   /**
+   * Report a block that the page cannot draw. The agent gets its source
+   * and the error, and pushes the page again. Answers the request.
+   */
+  broken: (id: string, block: string, error: string) =>
+    call<Event>(`/api/pages/${encodeURIComponent(id)}/broken`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ block, error }),
+    }),
+
+  /**
    * The writes to the store after a number, held until one comes. A wait
    * names the page, so the server knows whether a page is open. With no
    * number, the server answers at once with the number to start from.

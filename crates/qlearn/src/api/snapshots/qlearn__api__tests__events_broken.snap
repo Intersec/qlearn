@@ -1,0 +1,30 @@
+---
+source: crates/qlearn/src/api/mod.rs
+expression: agent
+---
+{
+  "agent": true,
+  "events": [
+    {
+      "author": "learner",
+      "detail": {
+        "block": {
+          "id": "6495234d4654",
+          "kind": "diagram",
+          "source": "stateDiagram-v2\n  Follower --> Candidat e\n"
+        },
+        "error": "Parse error on line 2:\n...ollower --> Candidat e\nExpecting 'EOF', got 'ID'"
+      },
+      "id": null,
+      "kind": "broken",
+      "page": "1",
+      "seq": 3
+    }
+  ],
+  "left": false,
+  "next": 3,
+  "preparing": false,
+  "reset": false,
+  "status": null,
+  "working": false
+}

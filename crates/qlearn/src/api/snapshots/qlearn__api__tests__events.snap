@@ -15,6 +15,7 @@ expression: body
   ],
   "left": false,
   "next": 2,
+  "preparing": false,
   "reset": false,
   "status": null,
   "working": false

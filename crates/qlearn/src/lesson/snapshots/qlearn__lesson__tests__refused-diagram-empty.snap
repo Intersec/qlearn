@@ -1,0 +1,8 @@
+---
+source: crates/qlearn/src/lesson/mod.rs
+assertion_line: 1077
+description: "A diagram with no source:\n\n```mermaid\n```\n\nA diagram of blank lines:\n\n```mermaid\n\n\n```\n"
+---
+refused
+refused-diagram-empty.md:3: diagram: the fence holds no Mermaid source: write the diagram inside it
+refused-diagram-empty.md:8: diagram: the fence holds no Mermaid source: write the diagram inside it

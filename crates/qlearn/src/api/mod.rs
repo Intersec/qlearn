@@ -5,6 +5,7 @@
 
 pub mod auth;
 
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use axum::extract::rejection::{JsonRejection, PathRejection, QueryRejection, StringRejection};
@@ -22,8 +23,8 @@ use crate::git::exec::Git;
 use crate::highlight::Highlighter;
 use crate::lesson::{self, Fault};
 use crate::model::{
-    AgentStatus, Author, Batch, Course, CourseChange, Detail, Event, EventKind, Page, PageKind,
-    Session, StatusText,
+    AgentStatus, Author, Batch, Block, BlockSource, Broken, Course, CourseChange, Detail, Event,
+    EventKind, Page, PageKind, Session, StatusText,
 };
 use crate::store::{self, PageFile, Store};
 
@@ -42,6 +43,9 @@ pub struct AppState {
     /// The repository that the excerpts are read in.
     pub git: Git,
     pub events: Arc<Events>,
+    /// The broken blocks that the agent heard of, by page and block, with
+    /// the request. A push of the page forgets its own.
+    pub broken: Arc<Mutex<HashMap<(String, String), Event>>>,
 }
 
 impl AppState {
@@ -62,6 +66,7 @@ impl AppState {
             store: Arc::new(store),
             git,
             events: Arc::new(Events::default()),
+            broken: Arc::default(),
         }
     }
 
@@ -86,6 +91,7 @@ pub fn app(state: AppState) -> Router {
         .route("/api/status", put(set_status))
         .route("/api/pages/{id}", get(page).put(push_page))
         .route("/api/pages/{id}/next", post(next))
+        .route("/api/pages/{id}/broken", post(broken))
         .method_not_allowed_fallback(method_not_allowed)
         .fallback(interface)
         .layer(middleware::from_fn_with_state(state.clone(), auth::guard))
@@ -126,11 +132,24 @@ fn without_token(uri: &axum::http::Uri) -> String {
     }
 }
 
+/// What the interface may load: its own files, and the images of a `data:`
+/// address. A lesson loads nothing from the network (section 4.1 of the
+/// design), and Mermaid fetches the image of a shape, or the `url()` of a
+/// style, before DOMPurify sees its SVG. Mermaid writes its styles inline.
+const POLICY: &str = "default-src 'self'; img-src 'self' data:; \
+                      style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'none'";
+
 async fn interface(uri: axum::http::Uri) -> Response {
     match crate::assets::get(uri.path()) {
         Some((body, mime)) => (
             StatusCode::OK,
-            [(axum::http::header::CONTENT_TYPE, mime)],
+            [
+                (axum::http::header::CONTENT_TYPE, mime),
+                (
+                    axum::http::header::CONTENT_SECURITY_POLICY,
+                    POLICY.to_owned(),
+                ),
+            ],
             axum::body::Body::from(body),
         )
             .into_response(),
@@ -230,6 +249,12 @@ async fn push_page(
     }
     *course = changed;
     *state.current.lock().expect("the current page is poisoned") = Some(id.clone());
+    // A new version of the page: a block that is still broken is news.
+    state
+        .broken
+        .lock()
+        .expect("the broken blocks are poisoned")
+        .retain(|(page, _), _| *page != id);
     // Under the lock, so the events come in the order of the writes.
     state
         .events
@@ -297,6 +322,75 @@ async fn next(
     let mut event = state
         .events
         .request(EventKind::Next, Some(&id), None, Detail::Next { left });
+    drop(course);
+
+    event.detail = None;
+    Ok(Json(event))
+}
+
+/// The page cannot draw a block. Answers the request, which hands the agent
+/// the source of the block and the error of the page.
+///
+/// Only a diagram can fail: the server checks every other block before it
+/// stores the page.
+async fn broken(
+    State(state): State<AppState>,
+    path: Result<Path<String>, PathRejection>,
+    body: Result<Json<Broken>, JsonRejection>,
+) -> Result<Json<Event>, ApiError> {
+    let Path(id) = path.map_err(bad_path)?;
+    let Json(body) = body.map_err(bad_json)?;
+
+    // Held while the request is pushed, so the events come in the order of
+    // the writes, and a push cannot change the block under the check.
+    let course = state.course.read().await;
+    let no_content = || ApiError::not_found(format!("page {id} has no content yet"));
+    // The page reports a block that it shows, so a page with no content is
+    // a request that went astray.
+    if !course.has_content(&id) {
+        return Err(no_content());
+    }
+    let file = state
+        .store
+        .load_page(&course.slug, &id)?
+        .ok_or_else(no_content)?;
+    // A block that a later push took away: the agent has nothing to fix.
+    let block = file
+        .blocks
+        .iter()
+        .find(|block| block.id() == body.block)
+        .ok_or_else(|| ApiError::not_found(format!("page {id} holds no block {:?}", body.block)))?;
+    let Block::Diagram { source, .. } = block else {
+        return Err(ApiError::bad_request(format!(
+            "block {} of page {id} is a {} block, which the server checked: only a diagram \
+             can fail to draw",
+            body.block,
+            block.kind()
+        )));
+    };
+    // A reload, a visit or a second tab reports the block again. The agent
+    // hears of it once for each push of the page.
+    let mut heard = state.broken.lock().expect("the broken blocks are poisoned");
+    let key = (id.clone(), body.block.clone());
+    let mut event = match heard.get(&key) {
+        Some(event) => event.clone(),
+        None => {
+            let detail = Detail::Broken {
+                block: BlockSource {
+                    id: body.block.clone(),
+                    kind: block.kind().to_owned(),
+                    source: source.clone(),
+                },
+                error: body.error,
+            };
+            let event = state
+                .events
+                .request(EventKind::Broken, Some(&id), None, detail);
+            heard.insert(key, event.clone());
+            event
+        }
+    };
+    drop(heard);
     drop(course);
 
     event.detail = None;
@@ -728,6 +822,29 @@ mod tests {
         assert!(String::from_utf8_lossy(&bytes).contains("<html"));
     }
 
+    /// A lesson loads nothing from the network (section 4.1 of the
+    /// design), and Mermaid fetches the image of a shape, or the `url()` of
+    /// a style, before any sanitizer sees its output.
+    #[tokio::test]
+    async fn the_interface_loads_nothing_from_another_origin() {
+        let response = server()
+            .oneshot(get(&format!("/?t={TOKEN}")))
+            .await
+            .unwrap();
+
+        let policy = response.headers()[header::CONTENT_SECURITY_POLICY]
+            .to_str()
+            .unwrap();
+        let directives: Vec<&str> = policy.split(';').map(str::trim).collect();
+        for directive in [
+            "default-src 'self'",
+            "img-src 'self' data:",
+            "style-src 'self' 'unsafe-inline'",
+        ] {
+            assert!(directives.contains(&directive), "{directive}: {policy}");
+        }
+    }
+
     #[tokio::test]
     async fn a_route_that_does_not_exist_gets_the_error_shape() {
         let app = server();
@@ -834,6 +951,7 @@ mod tests {
             page["working"], true,
             "the agent works until it waits again"
         );
+        assert_eq!(page["preparing"], true, "a Next request asks for a page");
     }
 
     #[tokio::test]
@@ -1418,6 +1536,185 @@ mod tests {
             assert_eq!(body["error"]["code"], "notFound", "{uri}");
         }
         assert_eq!(state.events.after(None, events::HOLD).await.next, 0);
+    }
+
+    const DIAGRAM: &str = "# The states\n\nA server changes state.\n\n\
+                           ```mermaid\nstateDiagram-v2\n  Follower --> Candidat e\n```\n";
+
+    /// The id of the diagram of `DIAGRAM`, and a page that holds it.
+    async fn with_diagram() -> (Repo, AppState, String) {
+        let dir = repo().await;
+        let state = state_in(dir.path());
+        let (status, pushed) = json(app(state.clone()), put("/api/pages/1", DIAGRAM)).await;
+        assert_eq!(status, StatusCode::OK, "{pushed}");
+        assert_eq!(pushed["blocks"][1]["kind"], "diagram");
+        let block = pushed["blocks"][1]["id"].as_str().unwrap().to_owned();
+
+        (dir, state, block)
+    }
+
+    #[tokio::test]
+    async fn the_broken_route_hands_the_agent_the_source_and_the_error() {
+        let (_dir, state, block) = with_diagram().await;
+        let body = serde_json::json!({
+            "block": block,
+            "error": "Parse error on line 2:\n...ollower --> Candidat e\nExpecting 'EOF', got 'ID'",
+        });
+        // The agent waited since its push, so its idle event is behind.
+        let (_, waited) = json(
+            app(state.clone()),
+            get_with_cookie("/api/events?who=agent", TOKEN),
+        )
+        .await;
+        let after = waited["next"].as_u64().unwrap();
+
+        let (status, answer) = json(
+            app(state.clone()),
+            send_json("POST", "/api/pages/1/broken", &body.to_string()),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK, "{answer}");
+        insta::assert_json_snapshot!("broken", answer);
+
+        let (_, agent) = json(
+            app(state.clone()),
+            get_with_cookie(&format!("/api/events?after={after}&who=agent"), TOKEN),
+        )
+        .await;
+        insta::assert_json_snapshot!("events_broken", agent);
+        assert!(
+            state.events.agent_works(),
+            "the wait handed the request over"
+        );
+
+        let (_, page) = json(
+            app(state),
+            get_with_cookie(&format!("/api/events?after={after}&who=page"), TOKEN),
+        )
+        .await;
+        assert_eq!(page["events"][0]["kind"], "broken");
+        assert!(
+            page["events"][0].get("detail").is_none(),
+            "the page needs no detail: {page}"
+        );
+        // The agent fixes the page on the screen, and prepares no other.
+        assert_eq!(page["working"], true);
+        assert_eq!(page["preparing"], false);
+    }
+
+    /// A reload or a second tab reports the block again, and the agent must
+    /// not get the same request twice.
+    #[tokio::test]
+    async fn a_broken_block_is_passed_on_once_for_each_push_of_its_page() {
+        let (_dir, state, block) = with_diagram().await;
+        let after = state.events.after(None, events::HOLD).await.next;
+        let body = serde_json::json!({ "block": block, "error": "bad" }).to_string();
+        let report = || async {
+            let (status, answer) = json(
+                app(state.clone()),
+                send_json("POST", "/api/pages/1/broken", &body),
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK, "{answer}");
+            answer
+        };
+
+        let first = report().await;
+        let again = report().await;
+
+        assert_eq!(again, first, "the repeat answers the first request");
+        let batch = state.events.after(Some(after), events::HOLD).await;
+        assert_eq!(batch.events.len(), 1, "{:?}", batch.events);
+
+        // A push of the same page, with the same broken diagram, is a new
+        // version that the agent hears of.
+        let (status, _) = json(app(state.clone()), put("/api/pages/1", DIAGRAM)).await;
+        assert_eq!(status, StatusCode::OK);
+        let third = report().await;
+        assert!(third["seq"].as_u64() > first["seq"].as_u64(), "{third}");
+        let batch = state.events.after(Some(after), events::HOLD).await;
+        let kinds: Vec<_> = batch.events.iter().map(|event| event.kind).collect();
+        assert_eq!(
+            kinds,
+            [EventKind::Broken, EventKind::Page, EventKind::Broken]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_broken_block_that_the_page_does_not_hold_is_refused() {
+        let (_dir, state, block) = with_diagram().await;
+        let text = state.store.load_page("raft", "1").unwrap().unwrap().blocks[0]
+            .id()
+            .to_owned();
+        state.course.write().await.parts[0].pages.push(PageRef {
+            id: "2".to_owned(),
+            kind: PageKind::Lesson,
+            title: "The vote".to_owned(),
+            state: PageState::Planned,
+            score: None,
+        });
+        let after = state.events.after(None, events::HOLD).await.next;
+        let report =
+            |block: &str| serde_json::json!({ "block": block, "error": "bad" }).to_string();
+
+        for (uri, body, code) in [
+            ("/api/pages/2/broken", report(&block), "notFound"),
+            ("/api/pages/9/broken", report(&block), "notFound"),
+            ("/api/pages/x/broken", report(&block), "notFound"),
+            ("/api/pages/..%2Fcourse/broken", report(&block), "notFound"),
+            ("/api/pages/1/broken", report("000000000000"), "notFound"),
+            ("/api/pages/1/broken", report(&text), "badRequest"),
+            ("/api/pages/1/broken", "{}".to_owned(), "badRequest"),
+            (
+                "/api/pages/1/broken",
+                serde_json::json!({ "block": block }).to_string(),
+                "badRequest",
+            ),
+            (
+                "/api/pages/1/broken",
+                serde_json::json!({ "block": block, "error": "bad", "page": "1" }).to_string(),
+                "badRequest",
+            ),
+            ("/api/pages/1/broken", "not json".to_owned(), "badRequest"),
+        ] {
+            let (status, answer) = json(app(state.clone()), send_json("POST", uri, &body)).await;
+
+            let expected = match code {
+                "notFound" => StatusCode::NOT_FOUND,
+                _ => StatusCode::BAD_REQUEST,
+            };
+            assert_eq!(status, expected, "{uri} {body}: {answer}");
+            assert_eq!(answer["error"]["code"], code, "{uri} {body}");
+            assert!(answer["error"]["message"].is_string(), "{answer}");
+        }
+        assert_eq!(state.events.after(None, events::HOLD).await.next, after);
+    }
+
+    /// Another local site could otherwise send the agent a request, with the
+    /// error text of its choice.
+    #[tokio::test]
+    async fn a_broken_report_from_another_site_is_forbidden() {
+        let (_dir, state, block) = with_diagram().await;
+        let after = state.events.after(None, events::HOLD).await.next;
+        let body = serde_json::json!({ "block": block, "error": "bad" }).to_string();
+        let request = Request::builder()
+            .method("POST")
+            .uri("/api/pages/1/broken")
+            .header(
+                header::COOKIE,
+                format!("{}={TOKEN}", auth::cookie_name(PORT)),
+            )
+            .header(header::CONTENT_TYPE, "application/json")
+            .header(header::ORIGIN, "http://127.0.0.1:3000")
+            .body(Body::from(body))
+            .unwrap();
+
+        let (status, answer) = json(app(state.clone()), request).await;
+
+        assert_eq!(status, StatusCode::FORBIDDEN, "{answer}");
+        assert_eq!(answer["error"]["code"], "forbidden");
+        assert_eq!(state.events.after(None, events::HOLD).await.next, after);
     }
 
     /// A trace goes into a log or a bug report. The token must not.

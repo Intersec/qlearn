@@ -1,0 +1,7 @@
+---
+source: crates/qlearn/src/lesson/mod.rs
+assertion_line: 1077
+description: "A diagram stands at the top level of the page:\n\n- In a list:\n\n  ```mermaid\n  graph LR\n    A --> B\n  ```\n"
+---
+refused
+refused-diagram-nested.md:5: diagram: a diagram cannot sit inside a list or a quote: put it at the top level of the page
