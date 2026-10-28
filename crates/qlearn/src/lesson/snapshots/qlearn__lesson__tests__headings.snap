@@ -1,0 +1,21 @@
+---
+source: crates/qlearn/src/lesson/mod.rs
+description: "Some text before the first heading.\n\n# Two leaders, one term\n\nThe first section.\n\n## The vote\n\nThe second section, with a list:\n\n- one\n- two\n\n### A detail\n\nThe third section.\n"
+---
+title: Two leaders, one term
+
+text 1f0897b48477
+<p>Some text before the first heading.</p>
+
+text 06d0a3f542b5
+<h1>Two leaders, one term</h1>
+<p>The first section.</p>
+
+text a5505e76aed3
+<h2>The vote</h2>
+<p>The second section, with a list:</p>
+<ul><li>one</li><li>two</li></ul>
+
+text 6cc6c3b83a79
+<h3>A detail</h3>
+<p>The third section.</p>

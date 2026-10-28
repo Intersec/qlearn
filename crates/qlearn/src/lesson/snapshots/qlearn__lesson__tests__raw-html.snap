@@ -1,0 +1,17 @@
+---
+source: crates/qlearn/src/lesson/mod.rs
+description: "<script>alert(\"page\")</script>\n\n<style>body { display: none }</style>\n\nA <b>bold</b> word, an <img src=x onerror=\"alert(1)\"> image, and a\n[link](javascript:alert(1)).\n\n<div>\na block of *HTML*\n</div>\n"
+---
+title: (none)
+
+text aa807650801e
+<pre class="md-html">&lt;script&gt;alert(&quot;page&quot;)&lt;/script&gt;
+</pre>
+<pre class="md-html">&lt;style&gt;body { display: none }&lt;/style&gt;
+</pre>
+<p>A &lt;b&gt;bold&lt;/b&gt; word, an &lt;img src=x onerror=&quot;alert(1)&quot;&gt; image, and a
+<span class="md-link" title="javascript:alert(1)">link</span>.</p>
+<pre class="md-html">&lt;div&gt;
+a block of *HTML*
+&lt;/div&gt;
+</pre>

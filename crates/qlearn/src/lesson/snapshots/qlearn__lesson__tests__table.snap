@@ -1,0 +1,9 @@
+---
+source: crates/qlearn/src/lesson/mod.rs
+description: "# Timeouts\n\n| Range (ms) | Median | Note |\n|:-----------|-------:|:----:|\n| 150-300    | 283    | the default |\n| 150-151    | 1520   | `split` votes |\n"
+---
+title: Timeouts
+
+text 9e001ad933b7
+<h1>Timeouts</h1>
+<table><thead><tr><th class="md-left">Range (ms)</th><th class="md-right">Median</th><th class="md-center">Note</th></tr></thead><tbody><tr><td class="md-left">150-300</td><td class="md-right">283</td><td class="md-center">the default</td></tr><tr><td class="md-left">150-151</td><td class="md-right">1520</td><td class="md-center"><code>split</code> votes</td></tr></tbody></table>

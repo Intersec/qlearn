@@ -1,0 +1,16 @@
+---
+source: crates/qlearn/src/lesson/mod.rs
+description: "# Build the tree\n\nRun this:\n\n```sh\nmake check\n```\n\nThe loop, as a sketch:\n\n```c\n/* not the code of the repository */\nint main(void) {\n    return \"hi\"[0];\n}\n```\n\n```rust title=\"sketch\"\nfn main() { println!(\"<b>\"); }\n```\n"
+---
+title: Build the tree
+
+text d7f8f0c4d1e0
+<h1>Build the tree</h1>
+<p>Run this:</p>
+<pre class="md-code"><code><span class="tok-variable tok-function">make</span> check</code></pre>
+<p>The loop, as a sketch:</p>
+<pre class="md-code"><code><span class="tok-punctuation tok-definition">/*</span><span class="tok-comment tok-block"> not the code of the repository </span><span class="tok-punctuation tok-definition">*/</span>
+<span class="tok-storage tok-type">int</span> <span class="tok-entity tok-name">main</span><span class="tok-punctuation tok-section">(</span><span class="tok-storage tok-type">void</span><span class="tok-punctuation tok-section">)</span> <span class="tok-punctuation tok-section">{</span>
+    <span class="tok-keyword tok-control">return</span> <span class="tok-punctuation tok-definition">&quot;</span><span class="tok-string tok-quoted">hi</span><span class="tok-punctuation tok-definition">&quot;</span><span class="tok-punctuation tok-section">[</span><span class="tok-constant tok-numeric">0</span><span class="tok-punctuation tok-section">]</span><span class="tok-punctuation tok-terminator">;</span>
+<span class="tok-punctuation tok-section">}</span></code></pre>
+<pre class="md-code"><code><span class="tok-storage tok-type">fn</span> <span class="tok-entity tok-name">main</span><span class="tok-punctuation tok-section">()</span> <span class="tok-punctuation tok-section">{</span> <span class="tok-support tok-macro">println!</span><span class="tok-punctuation tok-section">(</span><span class="tok-punctuation tok-definition">&quot;</span><span class="tok-string tok-quoted">&lt;b&gt;</span><span class="tok-punctuation tok-definition">&quot;</span><span class="tok-punctuation tok-section">)</span><span class="tok-punctuation tok-terminator">;</span> <span class="tok-punctuation tok-section">}</span></code></pre>

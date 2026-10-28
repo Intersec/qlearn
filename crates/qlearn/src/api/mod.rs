@@ -5,19 +5,23 @@
 
 pub mod auth;
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
-use axum::extract::rejection::QueryRejection;
-use axum::extract::{Query, State};
+use axum::extract::rejection::{PathRejection, QueryRejection, StringRejection};
+use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::{Json, Router, middleware};
 use serde::{Deserialize, Serialize};
+use time::OffsetDateTime;
 use tokio::sync::RwLock;
 
 use crate::events::{self, Events};
-use crate::model::{Batch, Course, Session};
+use crate::highlight::Highlighter;
+use crate::lesson::{self, Fault};
+use crate::model::{Author, Batch, Course, EventKind, Page, PageKind, Session};
+use crate::store::{self, PageFile, Store};
 
 #[derive(Clone)]
 pub struct AppState {
@@ -27,17 +31,37 @@ pub struct AppState {
     /// The course of this server. The server is the only writer of the
     /// store, so the copy in memory is the course.
     pub course: Arc<RwLock<Course>>,
+    /// The page that the agent pushed last. It changes under the write
+    /// lock of the course.
+    pub current: Arc<Mutex<Option<String>>>,
+    pub store: Arc<Store>,
     pub events: Arc<Events>,
 }
 
 impl AppState {
-    pub fn new(course: Course, token: String, port: u16) -> Self {
+    /// `current` is the page that the agent pushed last, as the store says.
+    pub fn new(
+        store: Store,
+        course: Course,
+        current: Option<String>,
+        token: String,
+        port: u16,
+    ) -> Self {
         Self {
             token: Arc::new(token),
             port,
             course: Arc::new(RwLock::new(course)),
+            current: Arc::new(Mutex::new(current)),
+            store: Arc::new(store),
             events: Arc::new(Events::default()),
         }
+    }
+
+    fn current(&self) -> Option<String> {
+        self.current
+            .lock()
+            .expect("the current page is poisoned")
+            .clone()
     }
 }
 
@@ -50,6 +74,7 @@ pub fn app(state: AppState) -> Router {
     Router::new()
         .route("/api/session", get(session))
         .route("/api/events", get(wait_events))
+        .route("/api/pages/{id}", get(page).put(push_page))
         .method_not_allowed_fallback(method_not_allowed)
         .fallback(interface)
         .layer(middleware::from_fn_with_state(state.clone(), auth::guard))
@@ -110,12 +135,107 @@ async fn method_not_allowed(method: axum::http::Method, uri: axum::http::Uri) ->
 }
 
 async fn session(State(state): State<AppState>) -> Json<Session> {
-    let course = state.course.read().await.clone();
+    let course = state.course.read().await;
 
     Json(Session {
-        course,
+        course: course.clone(),
+        current: state.current(),
         version: crate::version::LONG.to_owned(),
     })
+}
+
+/// The blocks of a page. A page with no content yet names nothing.
+async fn page(
+    State(state): State<AppState>,
+    path: Result<Path<String>, PathRejection>,
+) -> Result<Json<Page>, ApiError> {
+    let Path(id) = path.map_err(bad_path)?;
+    let no_content = || ApiError::not_found(format!("page {id} has no content yet"));
+    if PageKind::of_id(&id).is_none() {
+        return Err(no_content());
+    }
+
+    // Held while the file is read, so a read never sees a push halfway
+    // through.
+    let course = state.course.read().await;
+    // `course.json` is written last, so a file that it does not back is
+    // the trace of a push that failed.
+    if !course.has_content(&id) {
+        return Err(no_content());
+    }
+    let Some(file) = state.store.load_page(&course.slug, &id)? else {
+        return Err(no_content());
+    };
+
+    Ok(Json(Page {
+        id,
+        blocks: file.blocks,
+    }))
+}
+
+/// Push the blocks of a page. The body is the source.
+///
+/// The whole page is checked before anything is stored, and a refused page
+/// gets every error at once, so the agent fixes them in one pass.
+async fn push_page(
+    State(state): State<AppState>,
+    path: Result<Path<String>, PathRejection>,
+    body: Result<String, StringRejection>,
+) -> Result<Json<Page>, ApiError> {
+    let Path(id) = path.map_err(bad_path)?;
+    let kind = store::check_page_id(&id).map_err(|e| ApiError::bad_request(e.to_string()))?;
+    let source = body.map_err(|rejection| ApiError {
+        status: rejection.status(),
+        code: "badRequest",
+        message: rejection.body_text(),
+    })?;
+
+    let started = crate::trace::start();
+    let parsed = lesson::parse(&source, Highlighter::shared())
+        .map_err(|faults| ApiError::invalid_page(&id, &faults))?;
+    crate::trace::since(started, || {
+        format!("parse page {id}, {} bytes", source.len())
+    });
+
+    let mut course = state.course.write().await;
+    // The copy in memory changes only once every file is written, and a
+    // write that fails puts the page back, so a push that answers an error
+    // leaves the course and the page as they were.
+    let mut changed = course.clone();
+    changed.push_page(
+        &id,
+        kind,
+        parsed.title.as_deref(),
+        OffsetDateTime::now_utc(),
+    );
+    let file = PageFile {
+        blocks: parsed.blocks,
+    };
+    let undo = state.store.save_page(&changed.slug, &id, &source, &file)?;
+    if let Err(error) = state.store.save(&changed) {
+        return Err(undo.after(error).into());
+    }
+    *course = changed;
+    *state.current.lock().expect("the current page is poisoned") = Some(id.clone());
+    // Under the lock, so the events come in the order of the writes.
+    state
+        .events
+        .push(EventKind::Page, Author::Agent, Some(&id), None);
+    drop(course);
+
+    Ok(Json(Page {
+        id,
+        blocks: file.blocks,
+    }))
+}
+
+/// An extractor answers a path that it cannot read with plain text.
+fn bad_path(rejection: PathRejection) -> ApiError {
+    ApiError {
+        status: rejection.status(),
+        code: "badRequest",
+        message: rejection.body_text(),
+    }
 }
 
 #[derive(Deserialize)]
@@ -185,6 +305,20 @@ impl ApiError {
         }
     }
 
+    /// A page that fails a check. The message holds one line per error,
+    /// in the format of section 4.7 of the design. The file is the one of
+    /// the store, `pages/<id>.md`.
+    fn invalid_page(id: &str, faults: &[Fault]) -> Self {
+        let file = format!("{id}.md");
+        let lines: Vec<String> = faults.iter().map(|fault| fault.display(&file)).collect();
+
+        Self {
+            status: StatusCode::BAD_REQUEST,
+            code: "invalidPage",
+            message: lines.join("\n"),
+        }
+    }
+
     fn unauthorized(message: String) -> Self {
         Self {
             status: StatusCode::UNAUTHORIZED,
@@ -236,7 +370,7 @@ mod tests {
     use time::OffsetDateTime;
     use tower::ServiceExt;
 
-    use crate::model::{Author, EventKind, PageKind, PageRef, PageState, Part};
+    use crate::model::{PageRef, PageState, Part};
 
     const TOKEN: &str = "0123456789abcdef";
     const PORT: u16 = 7420;
@@ -245,7 +379,13 @@ mod tests {
         app(state())
     }
 
+    /// A state whose store is never reached: the routes of these tests
+    /// read the course in memory only.
     fn state() -> AppState {
+        state_in(std::path::Path::new("/nonexistent/qlearn-test"))
+    }
+
+    fn state_in(root: &std::path::Path) -> AppState {
         let at_new_year = OffsetDateTime::from_unix_timestamp(1_767_225_600).unwrap();
         let mut course = Course::new("raft", at_new_year);
         course.title = "Raft, the leader election".to_owned();
@@ -260,7 +400,7 @@ mod tests {
             }],
         }];
 
-        AppState::new(course, TOKEN.to_owned(), PORT)
+        AppState::new(Store::at(root), course, None, TOKEN.to_owned(), PORT)
     }
 
     fn get(uri: &str) -> Request<Body> {
@@ -277,6 +417,43 @@ mod tests {
             .body(Body::empty())
             .unwrap()
     }
+
+    fn put(uri: &str, body: impl Into<Body>) -> Request<Body> {
+        Request::builder()
+            .method("PUT")
+            .uri(uri)
+            .header(
+                header::COOKIE,
+                format!("{}={TOKEN}", auth::cookie_name(PORT)),
+            )
+            .body(body.into())
+            .unwrap()
+    }
+
+    /// Every file under `dir`, relative to it.
+    fn files(dir: &std::path::Path) -> Vec<String> {
+        let mut out = Vec::new();
+        let mut todo = vec![dir.to_path_buf()];
+        while let Some(at) = todo.pop() {
+            let Ok(entries) = std::fs::read_dir(&at) else {
+                continue;
+            };
+            for entry in entries {
+                let path = entry.unwrap().path();
+                match path.is_dir() {
+                    true => todo.push(path),
+                    false => out.push(path.strip_prefix(dir).unwrap().display().to_string()),
+                }
+            }
+        }
+        out.sort();
+        out
+    }
+
+    const LESSON: &str = "# Two leaders, one term\n\n\
+                          A follower that hears nothing starts an election.\n\n\
+                          ```c\nint term = 1;\n```\n\n\
+                          ## The vote\n\nEach server votes once per term.\n";
 
     async fn json(app: Router, request: Request<Body>) -> (StatusCode, serde_json::Value) {
         let response = app.oneshot(request).await.unwrap();
@@ -509,6 +686,196 @@ mod tests {
             assert_eq!(body["error"]["code"], "badRequest");
             assert!(body["error"]["message"].is_string(), "{body}");
         }
+    }
+
+    #[tokio::test]
+    async fn the_push_route_stores_the_page_and_answers_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = state_in(dir.path());
+
+        let (status, body) = json(app(state.clone()), put("/api/pages/1", LESSON)).await;
+
+        assert_eq!(status, StatusCode::OK, "{body}");
+        insta::assert_json_snapshot!("push_page", body);
+        assert_eq!(
+            files(dir.path()),
+            [
+                ".learn/raft/course.json",
+                ".learn/raft/pages/1.json",
+                ".learn/raft/pages/1.md"
+            ]
+        );
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join(".learn/raft/pages/1.md")).unwrap(),
+            LESSON,
+            "the source is kept as pushed"
+        );
+
+        let batch = state.events.after(Some(0), events::HOLD).await;
+        assert_eq!(batch.events.len(), 1);
+        assert_eq!(batch.events[0].kind, EventKind::Page);
+        assert_eq!(batch.events[0].author, Author::Agent);
+        assert_eq!(batch.events[0].page.as_deref(), Some("1"));
+
+        let (_, session) = json(app(state), get_with_cookie("/api/session", TOKEN)).await;
+        assert_eq!(session["current"], "1");
+    }
+
+    #[tokio::test]
+    async fn the_page_route_answers_the_blocks_that_were_pushed() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = state_in(dir.path());
+        let (_, pushed) = json(app(state.clone()), put("/api/pages/1", LESSON)).await;
+
+        let (status, body) = json(app(state), get_with_cookie("/api/pages/1", TOKEN)).await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body, pushed);
+        insta::assert_json_snapshot!("page", body);
+    }
+
+    #[tokio::test]
+    async fn a_page_with_no_content_is_not_found() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = state_in(dir.path());
+        state.course.write().await.parts[0].pages[0].state = PageState::Planned;
+
+        for uri in [
+            "/api/pages/1",
+            "/api/pages/9",
+            "/api/pages/x",
+            "/api/pages/..%2Fcourse",
+        ] {
+            let (status, body) = json(app(state.clone()), get_with_cookie(uri, TOKEN)).await;
+
+            assert_eq!(status, StatusCode::NOT_FOUND, "{uri}");
+            assert_eq!(body["error"]["code"], "notFound", "{uri}");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_refused_page_gets_every_error_and_stores_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = state_in(dir.path());
+        let before = state.course.read().await.clone();
+        let source = "# Refused\n\nText.\n\n```excerpt\npath: a.c\n```\n\n\
+                      ![A figure](figure.png)\n";
+
+        let (status, body) = json(app(state.clone()), put("/api/pages/2", source)).await;
+
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        insta::assert_json_snapshot!("push_page_refused", body);
+        assert_eq!(files(dir.path()), Vec::<String>::new());
+        assert_eq!(*state.course.read().await, before);
+        assert_eq!(state.current(), None);
+        assert_eq!(state.events.after(None, events::HOLD).await.next, 0);
+    }
+
+    #[tokio::test]
+    async fn a_page_outside_the_syllabus_goes_at_the_end_of_the_last_part() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = state_in(dir.path());
+
+        let source = "Intro.\n\n# Checkpoint one\n\nWhat holds?\n";
+        let (status, _) = json(app(state.clone()), put("/api/pages/c1", source)).await;
+        assert_eq!(status, StatusCode::OK);
+        let (status, _) = json(app(state.clone()), put("/api/pages/7a", "No heading.\n")).await;
+        assert_eq!(status, StatusCode::OK);
+
+        let (_, session) = json(app(state.clone()), get_with_cookie("/api/session", TOKEN)).await;
+        assert_eq!(
+            session["course"]["parts"][0]["pages"],
+            serde_json::json!([
+                { "id": "1", "kind": "lesson", "title": "Two leaders, one term",
+                  "state": "taught", "score": null },
+                { "id": "c1", "kind": "checkpoint", "title": "Checkpoint one",
+                  "state": "taught", "score": null },
+                { "id": "7a", "kind": "lesson", "title": "7a", "state": "taught",
+                  "score": null },
+            ])
+        );
+        assert_eq!(session["current"], "7a", "the page pushed last");
+
+        let stored = Store::at(dir.path()).load("raft").unwrap().unwrap();
+        assert_eq!(
+            stored,
+            *state.course.read().await,
+            "course.json holds it too"
+        );
+    }
+
+    /// A push that answers an error must leave the page as it was, so the
+    /// agent can trust the error and push again.
+    #[tokio::test]
+    async fn a_push_that_cannot_write_the_course_leaves_the_pages_as_they_were() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = state_in(dir.path());
+        let (_, first) = json(app(state.clone()), put("/api/pages/1", LESSON)).await;
+        let course_file = dir.path().join(".learn/raft/course.json");
+        std::fs::remove_file(&course_file).unwrap();
+        std::fs::create_dir(&course_file).unwrap();
+        let before = state.course.read().await.clone();
+
+        for id in ["1", "2"] {
+            let uri = format!("/api/pages/{id}");
+            let (status, body) = json(app(state.clone()), put(&uri, "# Changed\n\nText.\n")).await;
+            assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR, "{body}");
+        }
+
+        let (status, body) = json(app(state.clone()), get_with_cookie("/api/pages/1", TOKEN)).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body, first);
+        let (status, _) = json(app(state.clone()), get_with_cookie("/api/pages/2", TOKEN)).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join(".learn/raft/pages/1.md")).unwrap(),
+            LESSON
+        );
+        assert_eq!(
+            files(dir.path()),
+            [".learn/raft/pages/1.json", ".learn/raft/pages/1.md"]
+        );
+        assert_eq!(*state.course.read().await, before);
+        assert_eq!(state.current().as_deref(), Some("1"));
+        assert_eq!(state.events.after(None, events::HOLD).await.next, 1);
+    }
+
+    /// A page file that `course.json` does not back is the trace of a push
+    /// that stopped halfway. It is not served.
+    #[tokio::test]
+    async fn a_page_file_that_the_course_does_not_hold_is_not_found() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = state_in(dir.path());
+        let page = PageFile {
+            blocks: lesson::parse(LESSON, Highlighter::shared()).unwrap().blocks,
+        };
+        state.store.save_page("raft", "2", LESSON, &page).unwrap();
+
+        let (status, body) = json(app(state), get_with_cookie("/api/pages/2", TOKEN)).await;
+
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(body["error"]["code"], "notFound");
+    }
+
+    #[tokio::test]
+    async fn a_push_with_a_bad_id_or_a_bad_body_gets_the_error_shape() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = state_in(dir.path());
+
+        for request in [
+            put("/api/pages/x1", "Text.\n"),
+            put("/api/pages/..%2Fcourse", "Text.\n"),
+            put("/api/pages/%FF", "Text.\n"),
+            put("/api/pages/1", vec![0xff, 0xfe]),
+            get_with_cookie("/api/pages/%FF", TOKEN),
+        ] {
+            let (status, body) = json(app(state.clone()), request).await;
+
+            assert_eq!(status, StatusCode::BAD_REQUEST);
+            assert_eq!(body["error"]["code"], "badRequest");
+            assert!(body["error"]["message"].is_string(), "{body}");
+        }
+        assert_eq!(files(dir.path()), Vec::<String>::new());
     }
 
     /// A trace goes into a log or a bug report. The token must not.

@@ -1,0 +1,6 @@
+---
+source: crates/qlearn/src/lesson/mod.rs
+description: "# The tick\n\nThe code:\n\n```excerpt\npath: src/raft.c\nlines: 120-135\n```\n"
+---
+refused
+refused-excerpt.md:5: excerpt: this release of qlearn does not support excerpt blocks yet

@@ -9,6 +9,8 @@ pub mod api;
 pub mod assets;
 pub mod events;
 pub mod git;
+pub mod highlight;
+pub mod lesson;
 pub mod model;
 pub mod report;
 pub mod status;

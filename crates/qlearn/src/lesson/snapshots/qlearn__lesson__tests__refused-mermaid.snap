@@ -1,0 +1,6 @@
+---
+source: crates/qlearn/src/lesson/mod.rs
+description: "```mermaid\ngraph LR\n  A --> B\n```\n"
+---
+refused
+refused-mermaid.md:1: diagram: this release of qlearn does not support diagram blocks yet

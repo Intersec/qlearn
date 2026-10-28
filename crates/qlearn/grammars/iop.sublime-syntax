@@ -1,0 +1,256 @@
+%YAML 1.2
+---
+# IOP (Intersec Object Packer) interface definition language.
+# Derived from https://github.com/Intersec/tree-sitter-iop (grammar.js and
+# queries/iop/highlights.scm).
+#
+# Kept mostly line-local on purpose: a diff viewer may start highlighting in
+# the middle of a block, so a field, an argument or an RPC is recognised by
+# its own line, not by the block it sits in. Only comments, strings,
+# attribute arguments and declaration headers push a context.
+#
+# Regexes stay within what both Oniguruma (bat) and fancy-regex (syntect's
+# pure-Rust engine, used by qlearn) accept.
+name: IOP
+file_extensions: [iop]
+scope: source.iop
+
+variables:
+  ident: '[A-Za-z][A-Za-z0-9_]*'
+  qualified: '[A-Za-z][A-Za-z0-9_.]*'
+  builtin: '\b(?:int|uint|long|ulong|byte|ubyte|short|ushort|bool|double|string|bytes|xml|void)\b'
+  tag_number: '(?:0x[0-9a-fA-F]+|[0-9]+)'
+  spec: '(?:\?|&|\[\])'
+  keywords: '\b(?:package|import|typedef|struct|union|class|enum|interface|module|snmpObj|snmpTbl|snmpIface|abstract|local|static|in|out|throw|null|void|true|false)\b'
+
+contexts:
+  prototype:
+    - include: comments
+
+  main:
+    - include: attributes
+    - include: package-import
+    - include: typedef
+    - include: declarations
+    - include: modifiers
+    - include: rpc-keywords
+    - include: tags
+    - include: variables
+    - include: rpc-names
+    - include: values
+    - include: punctuation
+
+  # -- Comments -------------------------------------------------------------
+
+  comments:
+    - match: '/\*'
+      scope: punctuation.definition.comment.begin.iop
+      push: block-comment
+    - match: '//'
+      scope: punctuation.definition.comment.iop
+      push: line-comment
+
+  block-comment:
+    - meta_include_prototype: false
+    - meta_scope: comment.block.iop
+    - match: '\*/'
+      scope: punctuation.definition.comment.end.iop
+      pop: true
+    - include: doc-refs
+
+  line-comment:
+    - meta_include_prototype: false
+    - meta_scope: comment.line.double-slash.iop
+    - match: '$\n?'
+      pop: true
+
+  doc-refs:
+    # \ref Foo, \p bar, \see pkg.Type ...
+    - match: '(\\(?:p|ref|see|a|c|class|struct|enum|typedef|union))[ \t]+({{qualified}})'
+      captures:
+        1: keyword.other.documentation.iop
+        2: entity.name.type.documentation.iop
+    - match: '\\[a-zA-Z]+\b'
+      scope: keyword.other.documentation.iop
+
+  # -- Attributes: @private, @ctype(foo_t), @(key:val, "args") --------------
+
+  attributes:
+    - match: '(@)({{qualified}})?'
+      captures:
+        0: meta.annotation.iop
+        1: punctuation.definition.annotation.iop
+        2: variable.annotation.iop
+      push: attribute-after
+
+  attribute-after:
+    - meta_include_prototype: false
+    - match: '\('
+      scope: meta.annotation.parameters.iop punctuation.section.parens.begin.iop
+      set: attribute-arguments
+    - match: ''
+      pop: true
+
+  attribute-arguments:
+    - meta_scope: meta.annotation.parameters.iop
+    - match: '\)'
+      scope: punctuation.section.parens.end.iop
+      pop: true
+    - match: '\('
+      scope: punctuation.section.parens.begin.iop
+      push: attribute-arguments
+    - include: values
+    - match: '{{qualified}}'
+      scope: variable.other.iop
+    - match: '[:,]'
+      scope: punctuation.separator.iop
+
+  # -- Top-level statements -------------------------------------------------
+
+  package-import:
+    - match: '\b(package)\s+({{qualified}})'
+      captures:
+        1: keyword.other.package.iop
+        2: entity.name.namespace.iop
+    - match: '\b(import)\s+([A-Za-z][A-Za-z0-9_.*]*)'
+      captures:
+        1: keyword.control.import.iop
+        2: entity.name.namespace.iop
+
+  typedef:
+    # typedef string[] MyStringArray;
+    - match: '\b(typedef)\s+(?:({{builtin}})|({{qualified}}))\s*({{spec}})?\s+({{ident}})'
+      captures:
+        1: keyword.declaration.typedef.iop storage.type.typedef.iop
+        2: storage.type.builtin.iop
+        3: support.type.iop
+        4: storage.modifier.iop
+        5: entity.name.type.typedef.iop
+    - match: '\btypedef\b'
+      scope: keyword.declaration.typedef.iop storage.type.typedef.iop
+
+  declarations:
+    # struct Foo {   class Child : 1 : Parent {   module M : A, B {
+    - match: '\b(struct|union|class|enum|interface|module|snmpObj|snmpTbl|snmpIface)\s+({{ident}})'
+      captures:
+        1: keyword.declaration.iop storage.type.iop
+        2: entity.name.type.iop
+      push: declaration-header
+    - match: '\b(?:struct|union|class|enum|interface|module|snmpObj|snmpTbl|snmpIface)\b'
+      scope: keyword.declaration.iop storage.type.iop
+
+  declaration-header:
+    # Everything between the name and the opening brace: class tags and parents.
+    - match: '(?=[{;])'
+      pop: true
+    - match: ':'
+      scope: punctuation.separator.inheritance.iop
+    - match: ','
+      scope: punctuation.separator.comma.iop
+    - match: '\b{{tag_number}}\b'
+      scope: constant.numeric.tag.iop
+    - match: '{{qualified}}'
+      scope: entity.other.inherited-class.iop
+    - include: attributes
+
+  modifiers:
+    - match: '\b(?:abstract|local|static)\b'
+      scope: storage.modifier.iop
+
+  rpc-keywords:
+    # throw exn;   in MyArgs   out MyResult
+    - match: '\b(in|out|throw)\s+(?!{{keywords}})({{qualified}})'
+      captures:
+        1: keyword.other.rpc.iop
+        2: support.type.iop
+    - match: '\b(?:in|out|throw)\b'
+      scope: keyword.other.rpc.iop
+    - match: '\bnull\b'
+      scope: constant.language.null.iop
+
+  # -- Fields, arguments, module members ------------------------------------
+
+  tags:
+    # 1: int a;   0x10: foo in (...);
+    - match: '^\s*({{tag_number}})\s*(:)'
+      captures:
+        1: constant.numeric.tag.iop
+        2: punctuation.separator.tag.iop
+
+  variables:
+    # int? a = 3;   string& login,   Bar bar;   MyIface iface;
+    # The spec shares its group with the spaces before it, and a type never
+    # starts after a `.`: without both, a crafted line costs 70 ms, and a file
+    # of them minutes.
+    - match: '(?:({{builtin}})|(?<![A-Za-z0-9_.])(?!{{keywords}})({{qualified}}))(?:\s*({{spec}}))?\s+(?!{{keywords}})({{ident}})\b(?=\s*(?:=|;|,|\)))'
+      captures:
+        1: storage.type.builtin.iop
+        2: support.type.iop
+        3: storage.modifier.iop
+        4: variable.other.member.iop
+    - match: '{{builtin}}'
+      scope: storage.type.builtin.iop
+
+  rpc-names:
+    # A lower-case name alone, or followed by in/out/throw: an RPC.
+    - match: '(?:^|(?<=:))\s*(?!{{keywords}})([a-z][A-Za-z0-9_]*)\s*(?=$|;|//|/\*|\b(?:in|out|throw)\b)'
+      captures:
+        1: entity.name.function.iop
+
+  # -- Values ---------------------------------------------------------------
+
+  values:
+    - include: strings
+    - include: numbers
+    - match: '\b(?:true|false)\b'
+      scope: constant.language.boolean.iop
+    - match: '\b[A-Z][A-Z0-9_]*\b'
+      scope: constant.other.iop
+    - match: '<<|>>|\*\*|[*+\-/&|~]'
+      scope: keyword.operator.arithmetic.iop
+    - match: '='
+      scope: keyword.operator.assignment.iop
+
+  strings:
+    # The `c` alone, so the push is the literal `"` below: once 100 contexts
+    # are open, every push regex is searched again at each token.
+    - match: '\bc(?=")'
+      scope: storage.modifier.char.iop
+    - match: '"'
+      scope: punctuation.definition.string.begin.iop
+      push: string-body
+
+  string-body:
+    - meta_include_prototype: false
+    - meta_scope: string.quoted.double.iop
+    - match: '"'
+      scope: punctuation.definition.string.end.iop
+      pop: true
+    - match: '\\.'
+      scope: constant.character.escape.iop
+
+  numbers:
+    - match: '\b0x[0-9a-fA-F]+[a-zA-Z]*\b'
+      scope: constant.numeric.hex.iop
+    - match: '(?:\b[0-9]+)?\.[0-9]+(?:[eE][+-]?[0-9]+)?\b'
+      scope: constant.numeric.float.iop
+    - match: '\b[0-9]+[a-zA-Z]*\b'
+      scope: constant.numeric.integer.iop
+
+  punctuation:
+    - match: '\{'
+      scope: punctuation.section.block.begin.iop
+    - match: '\}'
+      scope: punctuation.section.block.end.iop
+    - match: '\('
+      scope: punctuation.section.parens.begin.iop
+    - match: '\)'
+      scope: punctuation.section.parens.end.iop
+    - match: ';'
+      scope: punctuation.terminator.iop
+    - match: ','
+      scope: punctuation.separator.comma.iop
+    - match: ':'
+      scope: punctuation.separator.iop
+    - match: '\?|&|\[\]'
+      scope: storage.modifier.iop

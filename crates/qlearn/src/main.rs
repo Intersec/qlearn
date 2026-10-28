@@ -22,7 +22,6 @@ use qlearn::agent::{self, Claim, Home, socket};
 use qlearn::api::{self, AppState, auth};
 use qlearn::events::Events;
 use qlearn::git::exec::Git;
-use qlearn::model::Course;
 use qlearn::status::{self, Agent, Snapshot, Terminal};
 use qlearn::store::{self, Store};
 use qlearn::trace;
@@ -69,7 +68,10 @@ async fn main() -> Result<()> {
         println!();
     }
 
-    serve(cli.port, course, cli.no_open, &home, claim).await
+    let current = store.current(&course)?;
+    let state = |token, port| AppState::new(store, course, current, token, port);
+
+    serve(cli.port, state, cli.no_open, &home, claim).await
 }
 
 /// Print the server that holds the worktree, as a second qlearn does.
@@ -94,7 +96,16 @@ async fn report_running(home: &Home, asked: Option<&str>) -> Result<()> {
 
 /// The claim is a parameter, so it is dropped after `Leftovers`: no other
 /// server may start before the files of this one are gone.
-async fn serve(port: u16, course: Course, no_open: bool, home: &Home, _claim: Claim) -> Result<()> {
+///
+/// `state` makes the state of the server once the token and the port are
+/// known.
+async fn serve(
+    port: u16,
+    state: impl FnOnce(String, u16) -> AppState,
+    no_open: bool,
+    home: &Home,
+    _claim: Claim,
+) -> Result<()> {
     // First, before any file is made: a signal that came before the
     // handlers would kill the process and leave its files behind.
     let stopped = stop_signals()?;
@@ -110,7 +121,7 @@ async fn serve(port: u16, course: Course, no_open: bool, home: &Home, _claim: Cl
         .context("cannot listen on the loopback address")?;
     let addr = listener.local_addr()?;
     let token = auth::new_token();
-    let state = AppState::new(course, token.clone(), addr.port());
+    let state = state(token.clone(), addr.port());
     let events = state.events.clone();
     let app = api::app(state);
 

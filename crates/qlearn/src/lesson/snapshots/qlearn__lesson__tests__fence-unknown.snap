@@ -1,0 +1,13 @@
+---
+source: crates/qlearn/src/lesson/mod.rs
+description: "A fence with a language that no grammar knows:\n\n```no-such-language\n<raw> & text\n```\n\nA fence with no info string:\n\n```\nplain <text>\n```\n\nAn indented block:\n\n    indented & plain\n"
+---
+title: (none)
+
+text 5e0c6ada8144
+<p>A fence with a language that no grammar knows:</p>
+<pre class="md-code"><code>&lt;raw&gt; &amp; text</code></pre>
+<p>A fence with no info string:</p>
+<pre class="md-code"><code>plain &lt;text&gt;</code></pre>
+<p>An indented block:</p>
+<pre class="md-code"><code>indented &amp; plain</code></pre>

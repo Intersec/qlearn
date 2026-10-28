@@ -1,0 +1,11 @@
+---
+source: crates/qlearn/src/lesson/mod.rs
+description: "# Several errors\n\nSome text that is fine.\n\n```excerpt\npath: src/raft.c\nlines: 1-10\n```\n\n![A figure](docs/figure.svg)\n\n## A section\n\n- A list item with a fence:\n\n  ```chart\n  {}\n  ```\n\n```mermaid\ngraph LR\n```\n\n> [!pitfall]\n> Two leaders in one term.\n\n```steps\n{}\n```\n"
+---
+refused
+refused-several.md:5: excerpt: this release of qlearn does not support excerpt blocks yet
+refused-several.md:10: image: this release of qlearn does not support image blocks yet
+refused-several.md:16: chart: this release of qlearn does not support chart blocks yet
+refused-several.md:20: diagram: this release of qlearn does not support diagram blocks yet
+refused-several.md:24: callout: this release of qlearn does not support callout blocks yet
+refused-several.md:27: steps: this release of qlearn does not support steps blocks yet

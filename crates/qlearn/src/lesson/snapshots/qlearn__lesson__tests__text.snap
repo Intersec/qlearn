@@ -1,0 +1,20 @@
+---
+source: crates/qlearn/src/lesson/mod.rs
+description: "The leader sends a heartbeat every **50 ms**, and a follower that hears\nnothing for a *random* time starts an election.\n\n- A follower waits.\n- A candidate asks for votes.\n  1. It votes for itself.\n  2. It sends `RequestVote` to every peer.\n\nThe paper is at [the Raft site](https://raft.github.io), and the\nnotes of the course are in [notes](notes/raft.md).\nA line ends here,  \nand a hard break keeps the next one apart.\n\n- [x] Read the paper\n- [ ] Read the code\n\n~~The old rule~~ is gone.\n\n---\n\nAn image inside a line is not a block: ![the flow](img/flow.png) and\n![a logo](https://example.com/logo.png) both stay links.\n\n> [!WARNING]\n> A quote with a marker that is not a callout stays text.\n"
+---
+title: (none)
+
+text 1607b42aa2fb
+<p>The leader sends a heartbeat every <strong>50 ms</strong>, and a follower that hears
+nothing for a <em>random</em> time starts an election.</p>
+<ul><li>A follower waits.</li><li>A candidate asks for votes.<ol start="1"><li>It votes for itself.</li><li>It sends <code>RequestVote</code> to every peer.</li></ol></li></ul>
+<p>The paper is at <a href="https://raft.github.io" target="_blank" rel="noopener noreferrer">the Raft site</a>, and the
+notes of the course are in <span class="md-link" title="notes/raft.md">notes</span>.
+A line ends here,<br>and a hard break keeps the next one apart.</p>
+<ul><li><span class="md-task">☑</span> Read the paper</li><li><span class="md-task">☐</span> Read the code</li></ul>
+<p><del>The old rule</del> is gone.</p>
+<hr>
+<p>An image inside a line is not a block: <span class="md-image" title="img/flow.png">the flow</span> and
+<a class="md-image" href="https://example.com/logo.png" target="_blank" rel="noopener noreferrer">a logo</a> both stay links.</p>
+<blockquote><p>[!WARNING]
+A quote with a marker that is not a callout stays text.</p></blockquote>

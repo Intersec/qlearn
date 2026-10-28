@@ -1,0 +1,10 @@
+---
+source: crates/qlearn/src/api/mod.rs
+expression: body
+---
+{
+  "error": {
+    "code": "invalidPage",
+    "message": "2.md:5: excerpt: this release of qlearn does not support excerpt blocks yet\n2.md:9: image: this release of qlearn does not support image blocks yet"
+  }
+}

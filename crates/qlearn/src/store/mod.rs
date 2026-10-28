@@ -8,13 +8,14 @@ use std::fs;
 use std::io::{ErrorKind, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::SystemTime;
 
-use anyhow::{Context, Result, bail};
-use serde::Deserialize;
+use anyhow::{Context, Result, anyhow, bail};
+use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
 use crate::git::exec::Git;
-use crate::model::{self, Course};
+use crate::model::{self, Block, Course, PageKind};
 
 /// The name of the store, in the worktree and in `.git/info/exclude`.
 const DIR: &str = ".learn";
@@ -188,7 +189,10 @@ impl Store {
         let mut text = serde_json::to_string_pretty(course)?;
         text.push('\n');
 
-        write_atomic(&self.course_dir(&course.slug).join("course.json"), &text)
+        write_atomic(
+            &self.course_dir(&course.slug).join("course.json"),
+            text.as_bytes(),
+        )
     }
 
     /// The courses as `qlearn list` prints them.
@@ -217,6 +221,182 @@ impl Store {
     }
 }
 
+/// What `pages/<id>.json` holds.
+///
+/// The quizzes and the threads join it in later releases, each with
+/// `serde(default)`, so a file of this release still reads.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PageFile {
+    pub blocks: Vec<Block>,
+}
+
+impl Store {
+    /// The directory of the pages of a course.
+    fn pages_dir(&self, slug: &str) -> Result<PathBuf> {
+        let dir = self.course_dir(slug).join("pages");
+        // A link would take every write of the pages out of `.learn/`.
+        if fs::symlink_metadata(&dir).is_ok_and(|meta| meta.file_type().is_symlink()) {
+            bail!(
+                "{} is a symbolic link, and qlearn writes under {DIR}/ only. \
+                 Put a directory in its place",
+                dir.display()
+            );
+        }
+        Ok(dir)
+    }
+
+    /// Write a page: its source as the agent pushed it, and its blocks.
+    ///
+    /// The source is kept as it came, so a later release can parse it again.
+    /// The answer puts the files back as they were, for a push that fails
+    /// after this write. A write that fails here puts them back itself.
+    pub fn save_page(
+        &self,
+        slug: &str,
+        id: &str,
+        source: &str,
+        page: &PageFile,
+    ) -> Result<PageUndo> {
+        check_page_id(id)?;
+        let dir = self.pages_dir(slug)?;
+        let mut text = serde_json::to_string_pretty(page)?;
+        text.push('\n');
+
+        let source_path = dir.join(format!("{id}.md"));
+        let blocks_path = dir.join(format!("{id}.json"));
+        let undo = PageUndo {
+            files: vec![
+                (source_path.clone(), read_if_any(&source_path)?),
+                (blocks_path.clone(), read_if_any(&blocks_path)?),
+            ],
+        };
+
+        let written = write_atomic(&source_path, source.as_bytes())
+            .and_then(|()| write_atomic(&blocks_path, text.as_bytes()));
+        match written {
+            Ok(()) => Ok(undo),
+            Err(error) => Err(undo.after(error)),
+        }
+    }
+
+    /// Read the blocks of a page. None when the agent has not pushed it.
+    ///
+    /// A file that cannot be read is an error, and is never written over.
+    pub fn load_page(&self, slug: &str, id: &str) -> Result<Option<PageFile>> {
+        check_page_id(id)?;
+        let path = self.pages_dir(slug)?.join(format!("{id}.json"));
+        let text = match fs::read_to_string(&path) {
+            Ok(text) => text,
+            Err(e) if e.kind() == ErrorKind::NotFound => return Ok(None),
+            Err(e) => return Err(e).with_context(|| format!("cannot read {}", path.display())),
+        };
+
+        serde_json::from_str(&text).map(Some).with_context(|| {
+            format!(
+                "{} is not readable. It is left as it is: push the page again, \
+                 or repair it by hand",
+                path.display()
+            )
+        })
+    }
+
+    /// The page that the agent pushed last, or None before the first push.
+    ///
+    /// Only a push writes `pages/<id>.md`, so the newest source is the last
+    /// push. The `.json` would not do: an answer of the learner rewrites
+    /// it. A server that starts again opens the page where the course
+    /// stopped, and `course.json` needs no field for it.
+    pub fn current(&self, course: &Course) -> Result<Option<String>> {
+        let dir = self.pages_dir(&course.slug)?;
+        let entries = match fs::read_dir(&dir) {
+            Ok(entries) => entries,
+            Err(e) if e.kind() == ErrorKind::NotFound => return Ok(None),
+            Err(e) => return Err(e).with_context(|| format!("cannot read {}", dir.display())),
+        };
+
+        let mut newest: Option<(SystemTime, String)> = None;
+        for entry in entries.flatten() {
+            let Ok(name) = entry.file_name().into_string() else {
+                continue;
+            };
+            // A temporary file of a write ends in `.tmp`, so it never counts.
+            let Some(id) = name.strip_suffix(".md") else {
+                continue;
+            };
+            if !course.has_content(id) {
+                continue;
+            }
+            let Ok(modified) = entry.metadata().and_then(|meta| meta.modified()) else {
+                continue;
+            };
+            if newest.as_ref().is_none_or(|(at, _)| modified > *at) {
+                newest = Some((modified, id.to_owned()));
+            }
+        }
+        Ok(newest.map(|(_, id)| id))
+    }
+}
+
+/// The files of a page before a push, so that a push that fails after
+/// `save_page` leaves the page as it was.
+#[derive(Debug)]
+pub struct PageUndo {
+    /// Each file, with its bytes before the push, or None when it did not
+    /// exist.
+    files: Vec<(PathBuf, Option<Vec<u8>>)>,
+}
+
+impl PageUndo {
+    /// Put the files back as they were.
+    pub fn undo(self) -> Result<()> {
+        for (path, before) in self.files {
+            match before {
+                Some(bytes) => write_atomic(&path, &bytes)?,
+                None => match fs::remove_file(&path) {
+                    Ok(()) => {}
+                    Err(e) if e.kind() == ErrorKind::NotFound => {}
+                    Err(e) => {
+                        return Err(e).with_context(|| format!("cannot remove {}", path.display()));
+                    }
+                },
+            }
+        }
+        Ok(())
+    }
+
+    /// Put the files back after `error`, and give the error to answer.
+    pub fn after(self, error: anyhow::Error) -> anyhow::Error {
+        match self.undo() {
+            Ok(()) => error,
+            Err(undo) => anyhow!("{error:#}, and the page could not be put back: {undo:#}"),
+        }
+    }
+}
+
+/// The bytes of a file, or None when it does not exist.
+fn read_if_any(path: &Path) -> Result<Option<Vec<u8>>> {
+    match fs::read(path) {
+        Ok(bytes) => Ok(Some(bytes)),
+        Err(e) if e.kind() == ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e).with_context(|| format!("cannot read {}", path.display())),
+    }
+}
+
+/// The kind of a page id, or the error that the agent reads.
+///
+/// A page id names two files of the store, so it must never reach outside
+/// `pages/`.
+pub fn check_page_id(id: &str) -> Result<PageKind> {
+    match PageKind::of_id(id) {
+        Some(kind) => Ok(kind),
+        None => bail!(
+            "`{id}` is not a page id. Use a number with an optional letter, such as 7 \
+             or 7a, or c1 for a checkpoint, or f1 for a follow-up"
+        ),
+    }
+}
+
 /// What `Store::find()` sees in the directory of a course.
 enum Found {
     Course(Box<Course>),
@@ -235,7 +415,7 @@ enum Found {
 ///
 /// The write is atomic: a full file appears, or the old one stays. A
 /// half-written course is worse than none, because nobody notices.
-fn write_atomic(path: &Path, text: &str) -> Result<()> {
+fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
     let dir = path
         .parent()
         .context("a file of the store has a directory")?;
@@ -254,7 +434,7 @@ fn write_atomic(path: &Path, text: &str) -> Result<()> {
 
     let written = fs::File::create(&temp)
         .and_then(|mut handle| {
-            handle.write_all(text.as_bytes())?;
+            handle.write_all(bytes)?;
             handle.sync_all()
         })
         .with_context(|| format!("cannot write {}", temp.display()))
@@ -611,6 +791,207 @@ mod tests {
              raft  running  Raft elections\n\
              zab  (unreadable)\n"
         );
+    }
+
+    fn text_page(html: &str) -> PageFile {
+        PageFile {
+            blocks: vec![Block::Text {
+                id: "0123456789ab".to_owned(),
+                html: html.to_owned(),
+            }],
+        }
+    }
+
+    #[tokio::test]
+    async fn a_page_is_written_as_its_source_and_its_blocks() {
+        let repo = repo().await;
+        let store = Store::at(repo.path());
+        store.open(Some("raft"), at_new_year()).unwrap();
+        let page = text_page("<p>One.</p>");
+
+        store.save_page("raft", "7a", "One.\n", &page).unwrap();
+
+        assert_eq!(
+            fs::read_to_string(repo.path().join(".learn/raft/pages/7a.md")).unwrap(),
+            "One.\n"
+        );
+        assert_eq!(store.load_page("raft", "7a").unwrap(), Some(page));
+        assert_eq!(store.load_page("raft", "8").unwrap(), None);
+        assert_eq!(
+            files(repo.path()),
+            [
+                ".learn/raft/course.json",
+                ".learn/raft/pages/7a.json",
+                ".learn/raft/pages/7a.md",
+                "a.txt"
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_page_id_that_could_leave_the_store_is_refused() {
+        let repo = repo().await;
+        let store = Store::at(repo.path());
+        store.open(Some("raft"), at_new_year()).unwrap();
+
+        for id in ["../course", "", "1/2", "a"] {
+            let error = store.save_page("raft", id, "x", &PageFile::default());
+            assert!(error.is_err(), "{id:?}");
+            assert!(store.load_page("raft", id).is_err(), "{id:?}");
+        }
+        assert_eq!(files(repo.path()), [".learn/raft/course.json", "a.txt"]);
+    }
+
+    #[tokio::test]
+    async fn a_corrupt_page_is_an_error_and_stays_on_disk() {
+        let repo = repo().await;
+        let store = Store::at(repo.path());
+        let path = repo.path().join(".learn/raft/pages/1.json");
+        write(&path, "{ not json");
+
+        let error = store.load_page("raft", "1").unwrap_err().to_string();
+
+        assert!(error.contains("push the page again"), "{error}");
+        assert_eq!(fs::read_to_string(&path).unwrap(), "{ not json");
+    }
+
+    /// A page of a later release carries more than blocks. A missing field
+    /// reads as empty, and an unknown one is left aside.
+    #[tokio::test]
+    async fn a_page_file_reads_with_a_field_more_or_a_field_less() {
+        let repo = repo().await;
+        let store = Store::at(repo.path());
+        let dir = repo.path().join(".learn/raft/pages");
+        write(&dir.join("1.json"), r#"{ "blocks": [], "quizzes": [{}] }"#);
+        write(&dir.join("2.json"), "{}");
+
+        assert_eq!(
+            store.load_page("raft", "1").unwrap(),
+            Some(PageFile::default())
+        );
+        assert_eq!(
+            store.load_page("raft", "2").unwrap(),
+            Some(PageFile::default())
+        );
+    }
+
+    fn taught(course: &mut Course, ids: &[&str]) {
+        for id in ids {
+            let kind = PageKind::of_id(id).unwrap();
+            course.push_page(id, kind, None, at_new_year());
+        }
+    }
+
+    fn set_modified(path: &Path, at: SystemTime) {
+        fs::File::options()
+            .write(true)
+            .open(path)
+            .unwrap()
+            .set_modified(at)
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn the_current_page_is_the_one_pushed_last() {
+        let repo = repo().await;
+        let store = Store::at(repo.path());
+        let mut course = store.open(Some("raft"), at_new_year()).unwrap();
+        assert_eq!(store.current(&course).unwrap(), None);
+
+        taught(&mut course, &["1", "2"]);
+        let page = text_page("<p>One.</p>");
+        store.save_page("raft", "1", "One.\n", &page).unwrap();
+        store.save_page("raft", "2", "Two.\n", &page).unwrap();
+        // The clock of the file system may not move between two writes.
+        let now = SystemTime::now();
+        let pages = repo.path().join(".learn/raft/pages");
+        set_modified(
+            &pages.join("1.md"),
+            now - std::time::Duration::from_secs(120),
+        );
+        set_modified(
+            &pages.join("2.md"),
+            now - std::time::Duration::from_secs(60),
+        );
+        // An answer of the learner rewrites the blocks of page 1 later.
+        set_modified(&pages.join("1.json"), now);
+        // Neither a stray file nor a temporary one is a page.
+        write(&pages.join("notes.md"), "Notes.\n");
+
+        assert_eq!(store.current(&course).unwrap().as_deref(), Some("2"));
+    }
+
+    /// A push that stopped before `course.json` leaves page files that the
+    /// syllabus does not back. They name no page.
+    #[tokio::test]
+    async fn a_page_file_that_the_course_does_not_hold_is_not_current() {
+        let repo = repo().await;
+        let store = Store::at(repo.path());
+        let mut course = store.open(Some("raft"), at_new_year()).unwrap();
+        taught(&mut course, &["1"]);
+        let page = text_page("<p>One.</p>");
+        store.save_page("raft", "1", "One.\n", &page).unwrap();
+        store.save_page("raft", "2", "Two.\n", &page).unwrap();
+        let earlier = SystemTime::now() - std::time::Duration::from_secs(60);
+        set_modified(&repo.path().join(".learn/raft/pages/1.md"), earlier);
+
+        assert_eq!(store.current(&course).unwrap().as_deref(), Some("1"));
+    }
+
+    #[tokio::test]
+    async fn a_page_put_back_leaves_the_files_as_they_were() {
+        let repo = repo().await;
+        let store = Store::at(repo.path());
+        store.open(Some("raft"), at_new_year()).unwrap();
+        let one = text_page("<p>One.</p>");
+        store.save_page("raft", "1", "One.\n", &one).unwrap();
+
+        let undo = store
+            .save_page("raft", "1", "Changed.\n", &text_page("<p>Changed.</p>"))
+            .unwrap();
+        undo.undo().unwrap();
+        let undo = store.save_page("raft", "2", "Two.\n", &one).unwrap();
+        undo.undo().unwrap();
+
+        assert_eq!(store.load_page("raft", "1").unwrap(), Some(one));
+        assert_eq!(
+            fs::read_to_string(repo.path().join(".learn/raft/pages/1.md")).unwrap(),
+            "One.\n"
+        );
+        assert_eq!(
+            files(repo.path()),
+            [
+                ".learn/raft/course.json",
+                ".learn/raft/pages/1.json",
+                ".learn/raft/pages/1.md",
+                "a.txt"
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_link_in_place_of_the_pages_is_refused_and_left_alone() {
+        let repo = repo().await;
+        let store = Store::at(repo.path());
+        let mut course = store.open(Some("raft"), at_new_year()).unwrap();
+        taught(&mut course, &["1"]);
+        write(&repo.path().join("src/1.md"), "The code.\n");
+        std::os::unix::fs::symlink("../../src", repo.path().join(".learn/raft/pages")).unwrap();
+
+        let page = text_page("<p>One.</p>");
+        let error = store
+            .save_page("raft", "1", "One.\n", &page)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("symbolic link"), "{error}");
+        assert!(store.load_page("raft", "1").is_err());
+        assert!(store.current(&course).is_err());
+
+        assert_eq!(
+            fs::read_to_string(repo.path().join("src/1.md")).unwrap(),
+            "The code.\n"
+        );
+        assert_eq!(files(&repo.path().join("src")), ["1.md"]);
     }
 
     fn exclude_file(repo: &Repo) -> String {
