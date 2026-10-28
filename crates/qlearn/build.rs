@@ -23,6 +23,28 @@ fn main() {
     };
 
     println!("cargo::rustc-env=QLEARN_VERSION_LONG={long}");
+
+    watch_the_interface();
+}
+
+/// The binary embeds `web/dist`, and the tests do too. Cargo tracks each
+/// embedded file, but not a directory that is not there yet, so this script
+/// waits for it. A release without it would start and show no page, so it
+/// fails here, where the cause is plain.
+fn watch_the_interface() {
+    let crate_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_default();
+    let index = Path::new(&crate_dir).join("../../web/dist/index.html");
+    if index.exists() {
+        return;
+    }
+    // A path that does not exist runs this script, then the build of the
+    // crate, again on every build, until it does.
+    println!("cargo::rerun-if-changed={}", index.display());
+
+    if std::env::var("PROFILE").as_deref() == Ok("release") {
+        eprintln!("web/dist is missing: build the interface first, with `make build`");
+        std::process::exit(1);
+    }
 }
 
 /// The commit being built, short. Empty when git cannot say.

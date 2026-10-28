@@ -8,3 +8,10 @@ rust-version.workspace = true
 [dependencies]
 anyhow.workspace = true
 clap = { version = "4", features = ["derive"] }
+mime_guess = "2"
+rust-embed = "8"
+
+[dev-dependencies]
+# The tests embed the interface as a release does, rather than read it from
+# disk, so they check what a release carries.
+rust-embed = { version = "8", features = ["debug-embed"] }

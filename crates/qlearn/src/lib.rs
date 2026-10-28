@@ -4,4 +4,5 @@
 //! opens the course, and serves the interface. Everything the course needs
 //! lives here, so it can be tested without a process.
 
+pub mod assets;
 pub mod version;

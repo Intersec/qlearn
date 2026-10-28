@@ -1,0 +1,70 @@
+@import 'tailwindcss';
+
+/*
+ * The palette.
+ *
+ * A theme is this file alone: the components name a token, never a color.
+ */
+:root {
+  --page: #ffffff;
+  --pane: #f8f9fa;
+  --ink: #202124;
+  --ink-quiet: #5f6368;
+  --edge: #dadce0;
+}
+
+/*
+ * The dark tokens, said twice on purpose.
+ *
+ * The first block follows the system, unless the learner asked for light.
+ * The second is the learner asking for dark outright. A single block
+ * cannot do both: CSS cannot join a media condition and a selector with OR.
+ */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --page: #131416;
+    --pane: #1a1c1e;
+    --ink: #e8eaed;
+    --ink-quiet: #9aa0a6;
+    --edge: #2f3134;
+  }
+}
+
+:root[data-theme='dark'] {
+  --page: #131416;
+  --pane: #1a1c1e;
+  --ink: #e8eaed;
+  --ink-quiet: #9aa0a6;
+  --edge: #2f3134;
+}
+
+html,
+body {
+  background: var(--page);
+  color: var(--ink);
+}
+
+/* ---------------------------------------------------------------- shell */
+
+.shell {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+.top-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--edge);
+  background: var(--pane);
+}
+.top-bar h1 {
+  font-size: 14px;
+  font-weight: 600;
+}
+.course {
+  flex: 1;
+  overflow-y: auto;
+}
