@@ -169,6 +169,26 @@ model wrote them. Parsing them is not a contract.
 **Why.** Each step adds to a loop that already works. Step 1 is done when
 an agent teaches a lesson of two pages through the page.
 
+## 2026-10-28 — A fence of code is colored, and a page may come before the syllabus
+
+Two holes of the design, found before the code of step 1.
+
+**Decision.** A fence whose info string names no block kind stays in the
+`text` block, and the server colors it as it colors an excerpt. If the agent
+pushes a page that the syllabus does not hold, the server adds it at the end
+of the last part, with the kind of its id and the title of its first
+heading.
+
+**Why.** A lesson needs a command or a sketch of code that is not in the
+repository. The page shows such a fence with no path and no commit, so it
+does not pass for an excerpt. The syllabus comes in step 2, and a page of
+step 1 must still have a place.
+
+**Rejected: refuse every fence that is not a block kind.** A shell command
+would have no place in a lesson. **Rejected: show the fence without
+colors.** It would look broken beside an excerpt. **Rejected: refuse a page
+outside the syllabus.** The syllabus would then move into step 1.
+
 ## Open questions
 
 - **The URL of the repository.** The host is decided: a public repository

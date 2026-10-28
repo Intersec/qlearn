@@ -171,6 +171,12 @@ syllabus that drops a page with content, because that would delete answers
 of the learner. The state and the score of a page come from the store, never
 from the agent.
 
+**A page outside the syllabus.** If the agent pushes a page that the
+syllabus does not hold, the server adds it at the end of the last part. Its
+kind comes from its id. Its title is its first heading, or its id when it
+has no heading. A later syllabus moves it. So a course of step 1, with no
+syllabus, still works.
+
 ## 4. The format of a page
 
 The agent writes a page in Markdown, with typed blocks. A model writes
@@ -182,7 +188,7 @@ The server splits the source into blocks with `pulldown-cmark`:
 
 | Block | Source | What the page draws |
 |---|---|---|
-| `text` | Paragraphs, lists, tables, headings, inline code | Markdown, with the tables styled |
+| `text` | Paragraphs, lists, tables, headings, inline code, fences of code | Markdown, with the tables styled and the fences colored |
 | `callout` | `> [!hook]`, `> [!teaser]`, `> [!pitfall]`, `> [!note]` | A box with its marker: 🧠 for a hook, 🔭 for a teaser, ⚠️ for a pitfall |
 | `excerpt` | A fence with the info string `excerpt` | Lines of the repository, with colors, a header `path:from-to`, and a short commit hash |
 | `diagram` | A fence with the info string `mermaid` | An SVG drawn by Mermaid |
@@ -192,6 +198,12 @@ The server splits the source into blocks with `pulldown-cmark`:
 
 Consecutive text forms one `text` block. A heading starts a new one, so a
 thread can name a section.
+
+**A fence of code.** A fence whose info string names no block kind stays in
+the `text` block, for a command or a sketch of code. The server colors it
+with the language of its info string, as it colors an excerpt. The agent
+typed it, so the page shows it with no path and no commit. The procedure
+says to show the code of the repository with `excerpt` only.
 
 **No raw HTML.** The server escapes the HTML of the source, and the page
 passes every HTML string through DOMPurify. A lesson holds no script, no
