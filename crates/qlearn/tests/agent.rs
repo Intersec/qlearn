@@ -276,8 +276,67 @@ async fn an_agent_adds_a_quiz_and_reads_every_fault_of_a_refused_one() {
     assert_eq!(
         page["quizzes"][0]["choices"][0],
         json!({ "header": "Vote", "prompt": "Who wins?",
-                "options": ["The first to time out", "The highest id"] })
+                "options": ["The first to time out", "The highest id"], "graded": null })
     );
+    assert!(interrupt(server).await.success());
+}
+
+/// The learner answers a quiz, and the wait of the agent gets the answer
+/// with the questions, so the agent needs no second command to debrief.
+#[tokio::test]
+async fn an_answer_reaches_the_wait_with_its_detail() {
+    let repo = build_repo();
+    let root = repo.path();
+    let mut server = qlearn(root, &["raft", "--no-open"]).spawn().unwrap();
+    read_url(&mut server).await;
+    let quiz = r#"{ "open": { "prompt": "Why random?", "points": ["random-timeout"] },
+        "choices": [{ "header": "Vote", "prompt": "Who wins?",
+        "options": ["The first to time out", "The *highest* id"], "answer": 0,
+        "point": "random-timeout" }],
+        "points": { "random-timeout": { "label": "Why the timeout is random" } } }"#;
+    json_of(&run(root, &["page", "1", "--file", "-"], Some("# Two leaders\n")).await);
+    json_of(&run(root, &["quiz", "1", "--file", "-"], Some(quiz)).await);
+
+    let waiting = tokio::spawn({
+        let root = root.to_owned();
+        async move { run(&root, &["wait", "--after", "0", "--timeout", "20"], None).await }
+    });
+    let client = page_of(root);
+    until_the_agent_waits(&client).await;
+    client
+        .post(
+            "/api/pages/1/quizzes/1/open",
+            &json!({ "text": "Two followers rarely wake up at once." }),
+        )
+        .await
+        .unwrap();
+    client
+        .post(
+            "/api/pages/1/quizzes/1/choices",
+            &json!({ "choices": [{ "option": 1, "other": "Or the oldest?" }] }),
+        )
+        .await
+        .unwrap();
+
+    let batch = json_of(&waiting.await.unwrap());
+    let events = batch["events"].as_array().unwrap();
+    assert_eq!(events.len(), 1, "{batch}");
+    assert_eq!(events[0]["kind"], "answer");
+    assert_eq!(events[0]["page"], "1");
+    assert_eq!(events[0]["id"], "1");
+    assert_eq!(
+        events[0]["detail"],
+        json!({
+            "quiz": 1,
+            "open": { "prompt": "Why random?", "points": ["random-timeout"],
+                      "text": "Two followers rarely wake up at once." },
+            "choices": [{ "header": "Vote", "prompt": "Who wins?",
+                          "options": ["The first to time out", "The *highest* id"],
+                          "picked": 1, "answer": 0, "ok": false, "other": "Or the oldest?",
+                          "point": "random-timeout" }],
+        })
+    );
+
     assert!(interrupt(server).await.success());
 }
 

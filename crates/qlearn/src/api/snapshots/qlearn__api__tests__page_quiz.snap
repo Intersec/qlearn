@@ -88,6 +88,7 @@ expression: body
     {
       "choices": [
         {
+          "graded": null,
           "header": "Split vote",
           "options": [
             "The candidate with the higher id wins",
@@ -98,7 +99,8 @@ expression: body
         }
       ],
       "open": {
-        "prompt": "In 2 sentences: why is the timeout random?"
+        "prompt": "In 2 sentences: why is the timeout random?",
+        "sent": null
       }
     }
   ]

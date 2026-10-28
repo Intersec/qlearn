@@ -50,7 +50,8 @@ the page gets:
       "options": [
         "It moves to term 6",
         "It refuses the vote"
-      ]
+      ],
+      "graded": null
     },
     {
       "header": "Timer",
@@ -59,7 +60,8 @@ the page gets:
         "The first to time out",
         "The one with the lowest id",
         "The leader"
-      ]
+      ],
+      "graded": null
     }
   ]
 }

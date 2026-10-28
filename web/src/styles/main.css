@@ -47,6 +47,12 @@
   --note: #f1f3f4;
   --note-edge: #80868b;
 
+  /* A choice once graded. */
+  --right: #e6f4ea;
+  --right-edge: #1e8e3e;
+  --wrong: #fce8e6;
+  --wrong-edge: #d93025;
+
   --code-font:
     'Roboto Mono', ui-monospace, 'SF Mono', 'JetBrains Mono', 'Fira Code', Consolas, monospace;
   --code-size: 13px;
@@ -101,6 +107,11 @@
     --pitfall-edge: #fcad70;
     --note: #1f2124;
     --note-edge: #9aa0a6;
+
+    --right: #12291b;
+    --right-edge: #81c995;
+    --wrong: #3a1715;
+    --wrong-edge: #f28b82;
   }
 }
 
@@ -143,6 +154,11 @@
   --pitfall-edge: #fcad70;
   --note: #1f2124;
   --note-edge: #9aa0a6;
+
+  --right: #12291b;
+  --right-edge: #81c995;
+  --wrong: #3a1715;
+  --wrong-edge: #f28b82;
 }
 
 html,
@@ -963,4 +979,119 @@ a.syllabus-entry:focus-visible {
 .quiz-note {
   color: var(--ink-faint);
   font-size: 13px;
+}
+
+/* The open answer once sent: the learner reads it again with the choices. */
+.quiz-sent {
+  margin: 0 0 14px;
+}
+.quiz-sent-text {
+  margin: 0;
+  padding: 6px 10px;
+  border-left: 3px solid var(--edge);
+  color: var(--ink-quiet);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* The "Other" box of a choice, for free text. */
+.quiz-other {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 4px 0 0;
+  padding: 0 8px;
+}
+.quiz-other-label {
+  flex: none;
+  color: var(--ink-quiet);
+  font-size: 13px;
+}
+.quiz-other-text {
+  flex: 1;
+  min-width: 0;
+  padding: 3px 8px;
+  border: 1px solid var(--edge);
+  border-radius: 4px;
+  background: var(--page);
+  color: var(--ink);
+  font: inherit;
+  font-size: 14px;
+}
+.quiz-other-text:focus-visible {
+  outline: 2px solid var(--action);
+  outline-offset: 1px;
+}
+
+/* A graded choice: the right option in green, a wrong pick in red. The
+   sign says it too, for a reader who does not see the colors. */
+.quiz-verdict {
+  display: inline-block;
+  margin: 0 0 4px 6px;
+  padding: 0 6px;
+  border-radius: 3px;
+  font-size: 12px;
+  font-weight: 700;
+}
+.quiz-graded[data-ok='true'] .quiz-verdict {
+  background: var(--right);
+  color: var(--right-edge);
+}
+.quiz-graded[data-ok='false'] .quiz-verdict {
+  background: var(--wrong);
+  color: var(--wrong-edge);
+}
+.quiz-options {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.quiz-graded .quiz-option {
+  border-left: 3px solid transparent;
+  cursor: default;
+}
+.quiz-graded .quiz-option:hover {
+  background: none;
+}
+.quiz-graded .quiz-option[data-mark='right'] {
+  border-left-color: var(--right-edge);
+  background: var(--right);
+}
+.quiz-graded .quiz-option[data-mark='wrong'] {
+  border-left-color: var(--wrong-edge);
+  background: var(--wrong);
+}
+.quiz-sign {
+  flex: none;
+  width: 1em;
+  font-weight: 700;
+  text-align: center;
+}
+.quiz-option[data-mark='right'] .quiz-sign {
+  color: var(--right-edge);
+}
+.quiz-option[data-mark='wrong'] .quiz-sign {
+  color: var(--wrong-edge);
+}
+.quiz-tag {
+  flex: none;
+  margin-left: auto;
+  color: var(--ink-quiet);
+  font-size: 12px;
+  font-weight: 600;
+}
+.quiz-other-sent {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 4px 0 0;
+  padding: 0 8px;
+  overflow-wrap: anywhere;
+}
+.quiz-debrief {
+  margin: 12px 0 0;
+  color: var(--ink-quiet);
+  font-size: 13px;
+  font-style: italic;
 }

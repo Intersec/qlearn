@@ -8,7 +8,7 @@
 import { defineStore } from 'pinia';
 import { computed, ref, toRaw } from 'vue';
 import { ApiError, api, serverGone } from '@/api/client';
-import type { Course, Event, EventBatch, Page, PageRef } from '@/api/types';
+import type { Course, Event, EventBatch, Page, PageRef, QuizAnswer } from '@/api/types';
 import { format, parse } from '@/place';
 
 /** The agent, as the top bar names it. The states of the terminal line. */
@@ -127,6 +127,48 @@ export const useCourse = defineStore('course', () => {
       reported.delete(key);
       fail(e);
     }
+  }
+
+  /**
+   * Send a part of the answer to the quiz `n` of a page. Answers whether
+   * the server took it, so the quiz keeps what the learner typed when not.
+   *
+   * The server answers the page with the part in place, and the right
+   * options once the choices are sent. A quiz answered in full may answer
+   * the page, so the syllabus reads its state again.
+   */
+  async function answer(id: string, n: number, sent: QuizAnswer): Promise<boolean> {
+    const at = moves;
+    let read: Page;
+    try {
+      read =
+        'open' in sent ? await api.open(id, n, sent.open) : await api.choices(id, n, sent.choices);
+    } catch (e) {
+      fail(e);
+      // Another tab sent this part, and only the last part tells the
+      // others: the quiz moves to the step that the server holds.
+      if (e instanceof ApiError && e.code === 'conflict') {
+        await refresh(id);
+      }
+      return false;
+    }
+    if (at === moves && page.value?.id === id) {
+      page.value = read;
+      error.value = null;
+    }
+    const quiz = read.quizzes[n - 1];
+    const done =
+      quiz !== undefined &&
+      (quiz.open === null || quiz.open.sent !== null) &&
+      quiz.choices.every((choice) => choice.graded !== null);
+    if (done) {
+      try {
+        await readSession();
+      } catch (e) {
+        fail(e);
+      }
+    }
+    return true;
   }
 
   /** Show a page. `none` leaves the address alone: the browser holds it. */
@@ -320,6 +362,13 @@ export const useCourse = defineStore('course', () => {
     let fresh: string | null = null;
 
     for (const event of events) {
+      // An answer in another tab may answer its page, and shows its
+      // grades there.
+      if (event.kind === 'answer' && event.page) {
+        session = true;
+        again ||= event.page === page.value?.id;
+        continue;
+      }
       if (event.author !== 'agent') {
         continue;
       }
@@ -445,6 +494,7 @@ export const useCourse = defineStore('course', () => {
     open,
     follow,
     next,
+    answer,
     broken,
     listen,
   };

@@ -71,7 +71,8 @@ async fn main() -> Result<()> {
     };
 
     let started = trace::start();
-    let course = store.open(cli.slug.as_deref(), OffsetDateTime::now_utc())?;
+    let mut course = store.open(cli.slug.as_deref(), OffsetDateTime::now_utc())?;
+    api::settle(&store, &mut course)?;
     store::exclude(&git).await?;
     trace::since(started, || format!("open the course {}", course.slug));
 
@@ -264,8 +265,15 @@ async fn serve(
     // Printed after the address file and the socket, so whoever reads the
     // URL can reach the server at once.
     let url = format!("http://{addr}/?t={token}");
-    println!("qlearn is at {url}");
-    println!("Press Ctrl-C to stop.");
+    // One write, and its error ignored: a reader that closes the pipe once
+    // it has the URL must not kill the server with a broken pipe.
+    {
+        use std::io::Write;
+        let _ = write!(
+            std::io::stdout().lock(),
+            "qlearn is at {url}\nPress Ctrl-C to stop.\n"
+        );
+    }
     if !no_open {
         open_browser(&url);
     }

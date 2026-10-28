@@ -3,14 +3,21 @@
 // quizzes.
 
 import { computed } from 'vue';
-import type { Page } from '@/api/types';
+import type { Page, QuizAnswer } from '@/api/types';
 import { clean } from '@/html';
 import CalloutView from './CalloutView.vue';
 import DiagramView from './DiagramView.vue';
 import ExcerptView from './ExcerptView.vue';
 import QuizView from './QuizView.vue';
 
-const props = defineProps<{ page: Page }>();
+const props = withDefaults(
+  defineProps<{
+    page: Page;
+    /** Send a part of the answer to the quiz `n`. Answers whether the server took it. */
+    send?: (n: number, answer: QuizAnswer) => Promise<boolean>;
+  }>(),
+  { send: async () => false },
+);
 
 const emit = defineEmits<{
   /** A block of the page that the page cannot draw. */
@@ -53,6 +60,7 @@ const blocks = computed(() =>
       :key="`${page.id}-${at}`"
       :quiz="quiz"
       :n="at + 1"
+      :send="(answer) => send(at + 1, answer)"
     />
   </article>
 </template>

@@ -8,8 +8,8 @@ of `.learn/` is not readable, stop and show the error to the learner: the
 file may hold their answers, and only they repair it.
 
 This release knows the syllabus, pages of text, callouts, excerpts of the
-code, diagrams, quizzes, and the **Next** button. The page shows a quiz
-under its lesson, but the learner cannot send an answer yet.
+code, diagrams, quizzes, and the **Next** button. The learner answers a
+quiz in the page, and you get the answer. You cannot write the debrief yet.
 
 ## Start
 
@@ -113,7 +113,9 @@ Repeat until the learner says that the course is over:
    - `events`: the requests of the learner. A request of kind `next` says
      that the learner pressed **Next**. Its `detail.left` names the page
      that they left, with its id and its title. A request of kind `broken`
-     says that the page cannot draw a diagram (see "Diagrams").
+     says that the page cannot draw a diagram (see "Diagrams"). A request
+     of kind `answer` says that the learner answered a quiz (see "The
+     answer").
    - `next`: pass it to the next `wait`, so that no request is lost
      between two waits.
    - `"reset": true`: the server restarted. Wait again with the new
@@ -125,7 +127,8 @@ Repeat until the learner says that the course is over:
      as the learner starts one. If the server stops during a `wait`, the
      `wait` looks for it again, and a new server answers `"reset": true`.
 3. Answer each request. For `next`, push the next page. For `broken`,
-   fix the diagram and push its page again.
+   fix the diagram and push its page again. For `answer`, see "The
+   answer".
 4. Go back to step 1.
 
 Writing a page takes minutes. Before a long piece of work, say what you do,
@@ -243,9 +246,8 @@ mark: 127, 130-131
 - A path inside a submodule works. If the submodule does not hold the
   commit that the tree names, the error gives the command that fetches it.
 - The page shows a hidden line as a blank. The server keeps its text
-  until the learner answers every quiz of the page. In this release, the
-  learner cannot send an answer, so a hidden line never shows: do not use
-  `hide` yet.
+  until the learner answers every quiz of the page. A page with no quiz
+  keeps the line hidden, so add a quiz to a page that hides a line.
 - Put an excerpt at the top level of the page, not inside a list or a
   quote.
 - Read the file before you write the fence, so that `lines` names the code
@@ -372,6 +374,23 @@ choices[0].answer: 3 is out of range. The choice has 3 options, so answer takes 
 ```
 
 Fix every error, then run the command again.
+
+## The answer
+
+The learner sends the open answer, then the choices. Each choice also has
+an "Other" box for free text. The server grades the choices, and the page
+shows at once which ones are right. Once the learner has sent the last part
+of a quiz, your `wait` returns a request of kind `answer`. Its `page` and
+its `id` name the page and the number of the quiz. Its `detail` holds:
+
+- `quiz`: the number of the quiz in its page.
+- `open`: the open question, its `points`, and the `text` of the learner,
+  or `null` for a quiz of choices only.
+- `choices`: each choice as you wrote it, with the option that the learner
+  `picked`, the right `answer`, `ok`, and the `other` text, or `null`.
+
+The server adds the result of each choice to its point. You grade the open
+answer in the debrief, which this release cannot write yet. Wait again.
 
 ## Next
 

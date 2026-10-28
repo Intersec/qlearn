@@ -23,9 +23,11 @@ use crate::git::exec::Git;
 use crate::highlight::Highlighter;
 use crate::lesson::{self, Fault};
 use crate::model::{
-    self, AgentStatus, Author, Batch, Block, BlockSource, Broken, Course, CourseChange, Detail,
-    Event, EventKind, Page, PageKind, QuizNumber, Session, StatusText,
+    self, AgentStatus, Author, Batch, Block, BlockSource, Broken, ChoicesSent, Course,
+    CourseChange, Detail, Event, EventKind, Graded, OpenSent, Page, PageKind, PointResult,
+    QuizNumber, Session, StatusText,
 };
+use crate::quiz::Refusal;
 use crate::store::{self, PageFile, Store};
 
 #[derive(Clone)]
@@ -92,6 +94,8 @@ pub fn app(state: AppState) -> Router {
         .route("/api/syllabus", put(write_syllabus))
         .route("/api/pages/{id}", get(page).put(push_page))
         .route("/api/pages/{id}/quizzes", post(push_quiz))
+        .route("/api/pages/{id}/quizzes/{n}/open", post(send_open))
+        .route("/api/pages/{id}/quizzes/{n}/choices", post(send_choices))
         .route("/api/pages/{id}/next", post(next))
         .route("/api/pages/{id}/broken", post(broken))
         .method_not_allowed_fallback(method_not_allowed)
@@ -339,6 +343,194 @@ async fn push_quiz(
     Ok(Json(QuizNumber { page: id, n }))
 }
 
+/// The learner sends the open answer of a quiz. Answers the page.
+async fn send_open(
+    State(state): State<AppState>,
+    path: Result<Path<(String, String)>, PathRejection>,
+    body: Result<Json<OpenSent>, JsonRejection>,
+) -> Result<Json<Page>, ApiError> {
+    let Path((id, n)) = path.map_err(bad_path)?;
+    let Json(body) = body.map_err(bad_json)?;
+
+    send(&state, &id, &n, Part::Open(body.text)).await
+}
+
+/// The learner sends the choices of a quiz. The server grades them, and
+/// answers the page with the right options.
+async fn send_choices(
+    State(state): State<AppState>,
+    path: Result<Path<(String, String)>, PathRejection>,
+    body: Result<Json<ChoicesSent>, JsonRejection>,
+) -> Result<Json<Page>, ApiError> {
+    let Path((id, n)) = path.map_err(bad_path)?;
+    let Json(body) = body.map_err(bad_json)?;
+
+    send(&state, &id, &n, Part::Choices(body.choices)).await
+}
+
+/// A part of the answer to a quiz.
+enum Part {
+    Open(String),
+    Choices(Vec<model::Pick>),
+}
+
+/// Store a part of the answer to the quiz `n` of a page.
+///
+/// A choice adds its result to its point at once. Once the learner has
+/// sent the last part of the quiz, the agent gets an `answer` request, and
+/// the page is answered when no quiz of it is left without its answers.
+async fn send(state: &AppState, id: &str, n: &str, part: Part) -> Result<Json<Page>, ApiError> {
+    // Held for the whole change, so two tabs cannot send one part twice.
+    let mut course = state.course.write().await;
+    // The page answers a quiz that it shows, so a page with no content is
+    // a request that went astray.
+    let no_content = || ApiError::not_found(format!("page {id} has no content yet"));
+    if PageKind::of_id(id).is_none() || !course.has_content(id) {
+        return Err(no_content());
+    }
+    let mut file = state
+        .store
+        .load_page(&course.slug, id)?
+        .ok_or_else(no_content)?;
+    let count = file.quizzes.len();
+    // `+1` and `01` parse too, and name no quiz in the address.
+    let at = n
+        .parse::<usize>()
+        .ok()
+        .filter(|at| (1..=count).contains(at) && at.to_string() == n)
+        .ok_or_else(|| ApiError::not_found(format!("page {id} holds no quiz {n}")))?;
+    let quiz = &mut file.quizzes[at - 1];
+
+    let now = OffsetDateTime::now_utc();
+    let mut points = None;
+    match part {
+        Part::Open(text) => quiz.send_open(&text).map_err(refused)?,
+        Part::Choices(picks) => {
+            let stamp = model::stamp(now);
+            let grades = quiz.send_choices(&picks, &stamp).map_err(refused)?;
+            let mut known = state.store.load_points(&course.slug)?;
+            add_results(&mut known, grades, &stamp)?;
+            points = Some(known);
+        }
+    }
+    let done = quiz.answered().then(|| quiz.detail(at));
+
+    // The copy in memory changes only once every file is written, and a
+    // write that fails puts the others back, so an answer that gets an
+    // error leaves the store as it was and the learner sends it again.
+    let mut changed = course.clone();
+    if file.quizzes.iter().all(crate::quiz::StoredQuiz::answered) {
+        changed.answer_page(id, now);
+    }
+    // The page file goes first: it holds the answer, and the other files
+    // follow from it. A server killed before them writes them at its next
+    // start, in `settle`, so the learner never sends a part twice.
+    let mut undo = state.store.save_blocks(&changed.slug, id, &file)?;
+    if let Some(points) = &points {
+        match state.store.save_points(&changed.slug, points) {
+            Ok(later) => undo = undo.and(later),
+            Err(error) => return Err(undo.after(error).into()),
+        }
+    }
+    if changed != *course
+        && let Err(error) = state.store.save_undoable(&changed)
+    {
+        return Err(undo.after(error).into());
+    }
+    *course = changed;
+    // Under the lock, so the events come in the order of the writes.
+    if let Some(detail) = done {
+        state
+            .events
+            .request(EventKind::Answer, Some(id), Some(&at.to_string()), detail);
+    }
+    drop(course);
+
+    Ok(Json(file.page(id)))
+}
+
+/// Add the result of each graded choice to its point, at the stamp `at`.
+fn add_results(
+    points: &mut [model::Point],
+    grades: Vec<(String, model::Grade)>,
+    at: &str,
+) -> anyhow::Result<()> {
+    for (point, grade) in grades {
+        // The quiz wrote its points before itself, so a point that is
+        // missing was taken out of points.json by hand.
+        let held = points
+            .iter_mut()
+            .find(|known| known.id == point)
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "points.json holds no point {point}. Put it back by hand, with its label \
+                     and its lesson"
+                )
+            })?;
+        held.results.push(PointResult {
+            at: at.to_owned(),
+            result: grade,
+            how: Graded::Choice,
+        });
+    }
+    Ok(())
+}
+
+/// Write what the page files say and points.json or course.json does not.
+/// Called before the server starts.
+///
+/// An answer writes the page file first, so a server killed in the middle
+/// leaves graded choices with no results, or a page whose every quiz is
+/// answered and that is still taught.
+pub fn settle(store: &Store, course: &mut Course) -> anyhow::Result<()> {
+    let mut points = store.load_points(&course.slug)?;
+    let mut added = false;
+    let mut changed = course.clone();
+    let now = OffsetDateTime::now_utc();
+    let ids: Vec<String> = course
+        .parts
+        .iter()
+        .flat_map(|part| &part.pages)
+        .filter(|page| course.has_content(&page.id))
+        .map(|page| page.id.clone())
+        .collect();
+    for id in ids {
+        let Some(file) = store.load_page(&course.slug, &id)? else {
+            continue;
+        };
+        for quiz in &file.quizzes {
+            let Some(at) = &quiz.sent.graded else {
+                continue;
+            };
+            // One write of points.json holds every result of a grading, so
+            // one of them is enough to know.
+            let held = points.iter().any(|point| {
+                point
+                    .results
+                    .iter()
+                    .any(|result| result.how == Graded::Choice && result.at == *at)
+            });
+            if !held {
+                add_results(&mut points, quiz.grades(), at)?;
+                added = true;
+            }
+        }
+        if !file.quizzes.is_empty() && file.quizzes.iter().all(crate::quiz::StoredQuiz::answered) {
+            changed.answer_page(&id, now);
+        }
+    }
+
+    // points.json first: a page that is answered has its results.
+    if added {
+        store.save_points(&course.slug, &points)?;
+    }
+    if changed != *course {
+        store.save(&changed)?;
+        *course = changed;
+    }
+    Ok(())
+}
+
 /// Change the title, the goal, the profile, the quiz mode, the status or
 /// the follow-up date. Answers the course.
 async fn change_course(
@@ -497,6 +689,15 @@ async fn broken(
     Ok(Json(event))
 }
 
+/// An answer that the quiz does not take.
+fn refused(refusal: Refusal) -> ApiError {
+    match refusal {
+        Refusal::NotFound(message) => ApiError::not_found(message),
+        Refusal::Conflict(message) => ApiError::conflict(message),
+        Refusal::BadRequest(message) => ApiError::bad_request(message),
+    }
+}
+
 /// An extractor answers a body that it cannot read with plain text. Every
 /// refusal of a body is a bad request, whichever check of the extractor
 /// fails, so the agent reads one code.
@@ -576,6 +777,16 @@ impl ApiError {
         Self {
             status: StatusCode::NOT_FOUND,
             code: "notFound",
+            message,
+        }
+    }
+
+    /// A write that the state of the store does not allow now, such as an
+    /// answer sent twice.
+    fn conflict(message: String) -> Self {
+        Self {
+            status: StatusCode::CONFLICT,
+            code: "conflict",
             message,
         }
     }
@@ -2325,6 +2536,555 @@ mod tests {
         assert_eq!(files(dir.path()), Vec::<String>::new());
         assert_eq!(state.events.after(None, events::HOLD).await.next, 0);
         assert_eq!(outside(dir.path()), untouched, "a write outside .learn/");
+    }
+
+    /// A course whose page 1 holds `source` and the quiz `quiz`.
+    async fn with_quiz(source: &str, quiz: &str) -> (Repo, AppState) {
+        let dir = repo().await;
+        let state = state_in(dir.path());
+        let (status, pushed) =
+            json(app(state.clone()), put("/api/pages/1", source.to_owned())).await;
+        assert_eq!(status, StatusCode::OK, "{pushed}");
+        let (status, body) = json(
+            app(state.clone()),
+            send_json("POST", "/api/pages/1/quizzes", quiz),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        (dir, state)
+    }
+
+    const OPEN: &str = r#"{"text":"  So that two followers rarely wake up at once.\n"}"#;
+
+    /// The learner picks the wrong option, and says why in the Other box.
+    const CHOICES: &str = r#"{"choices":[{"option":0,"other":"Unless the ids tie too"}]}"#;
+
+    #[tokio::test]
+    async fn the_open_route_takes_the_open_answer_and_keeps_the_right_option() {
+        let (dir, state) = with_quiz(LESSON, QUIZ).await;
+        let untouched = outside(dir.path());
+        let after = state.events.after(None, events::HOLD).await.next;
+
+        let (status, body) = json(
+            app(state.clone()),
+            send_json("POST", "/api/pages/1/quizzes/1/open", OPEN),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK, "{body}");
+        insta::assert_json_snapshot!("open", body);
+        assert_eq!(
+            body["quizzes"][0]["open"]["sent"],
+            "So that two followers rarely wake up at once."
+        );
+        let (_, page) = json(app(state.clone()), get_with_cookie("/api/pages/1", TOKEN)).await;
+        assert_eq!(page, body);
+        assert!(!keys(&page).contains(&"answer".to_owned()), "{page}");
+        assert!(!keys(&page).contains(&"picked".to_owned()), "{page}");
+
+        // The choices are left, so the agent has nothing to answer yet.
+        assert_eq!(state.events.after(None, events::HOLD).await.next, after);
+        let (_, session) = json(app(state), get_with_cookie("/api/session", TOKEN)).await;
+        assert_eq!(session["course"]["parts"][0]["pages"][0]["state"], "taught");
+        let points = Store::at(dir.path()).load_points("raft").unwrap();
+        assert!(
+            points.iter().all(|point| point.results.is_empty()),
+            "the agent grades the open answer: {points:?}"
+        );
+        assert_eq!(outside(dir.path()), untouched, "a write outside .learn/");
+    }
+
+    #[tokio::test]
+    async fn the_choices_route_grades_the_choices_and_answers_the_right_option() {
+        let (dir, state) = with_quiz(LESSON, QUIZ).await;
+        let untouched = outside(dir.path());
+        json(
+            app(state.clone()),
+            send_json("POST", "/api/pages/1/quizzes/1/open", OPEN),
+        )
+        .await;
+        // The agent waits since its quiz.
+        let (_, waited) = json(
+            app(state.clone()),
+            get_with_cookie("/api/events?who=agent", TOKEN),
+        )
+        .await;
+        let after = waited["next"].as_u64().unwrap();
+
+        let (status, body) = json(
+            app(state.clone()),
+            send_json("POST", "/api/pages/1/quizzes/1/choices", CHOICES),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK, "{body}");
+        insta::assert_json_snapshot!("choices", body);
+        let (status, page) = json(app(state.clone()), get_with_cookie("/api/pages/1", TOKEN)).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(page, body);
+        insta::assert_json_snapshot!("page_answered", page);
+        assert_eq!(
+            page["quizzes"][0]["choices"][0]["graded"],
+            serde_json::json!({ "picked": 0, "answer": 1, "ok": false,
+                                "other": "Unless the ids tie too" })
+        );
+
+        let (_, agent) = json(
+            app(state.clone()),
+            get_with_cookie(&format!("/api/events?after={after}&who=agent"), TOKEN),
+        )
+        .await;
+        insta::assert_json_snapshot!("events_answer", agent);
+        assert!(
+            state.events.agent_works(),
+            "the wait handed the request over"
+        );
+        let (_, events) = json(
+            app(state.clone()),
+            get_with_cookie(&format!("/api/events?after={after}&who=page"), TOKEN),
+        )
+        .await;
+        assert_eq!(
+            events["events"],
+            serde_json::json!([
+                { "seq": after + 1, "kind": "answer", "author": "learner", "page": "1", "id": "1" }
+            ]),
+            "the page needs no detail"
+        );
+        assert_eq!(outside(dir.path()), untouched, "a write outside .learn/");
+    }
+
+    /// A choice adds its result at once. The open answer gets its grade
+    /// from the agent, in the debrief.
+    #[tokio::test]
+    async fn the_choices_add_their_results_to_points_json() {
+        let (dir, state) = with_quiz(LESSON, QUIZ).await;
+        json(
+            app(state.clone()),
+            send_json("POST", "/api/pages/1/quizzes/1/open", OPEN),
+        )
+        .await;
+        let second = r#"{"choices":[
+            {"header":"Timer","prompt":"Who starts?","options":["The first to time out","The leader"],
+             "answer":0,"point":"random-timeout"},
+            {"header":"Again","prompt":"And then?","options":["A new term","The same term"],
+             "answer":0,"point":"split-vote"}]}"#;
+        json(
+            app(state.clone()),
+            send_json("POST", "/api/pages/1/quizzes", second),
+        )
+        .await;
+
+        json(
+            app(state.clone()),
+            send_json("POST", "/api/pages/1/quizzes/1/choices", CHOICES),
+        )
+        .await;
+        let (status, body) = json(
+            app(state.clone()),
+            send_json(
+                "POST",
+                "/api/pages/1/quizzes/2/choices",
+                r#"{"choices":[{"option":0},{"option":0,"other":"  "}]}"#,
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(
+            body["quizzes"][1]["choices"][1]["graded"]["other"],
+            serde_json::Value::Null,
+            "an Other box of spaces is empty"
+        );
+
+        let text = std::fs::read_to_string(dir.path().join(".learn/raft/points.json")).unwrap();
+        let mut points: serde_json::Value = serde_json::from_str(&text).unwrap();
+        for point in points["points"].as_array_mut().unwrap() {
+            for result in point["results"].as_array_mut().unwrap() {
+                let at = result["at"].as_str().unwrap();
+                assert!(
+                    OffsetDateTime::parse(at, &time::format_description::well_known::Rfc3339)
+                        .is_ok(),
+                    "{at}"
+                );
+                result["at"] = "[at]".into();
+            }
+        }
+        assert_eq!(
+            points,
+            serde_json::json!({ "points": [
+                { "id": "random-timeout", "label": "Why the election timeout is random",
+                  "lesson": "1", "results": [
+                    { "at": "[at]", "result": "ok", "how": "choice" },
+                  ] },
+                { "id": "split-vote", "label": "How a split vote ends", "lesson": "1",
+                  "results": [
+                    { "at": "[at]", "result": "missed", "how": "choice" },
+                    { "at": "[at]", "result": "ok", "how": "choice" },
+                  ] },
+            ] })
+        );
+    }
+
+    /// A server killed in the middle of an answer completes it at its next
+    /// start: each result lands once, and the learner sends nothing again.
+    #[tokio::test]
+    async fn a_server_killed_in_an_answer_completes_it_at_its_next_start() {
+        // The kill comes after the page file, or after points.json too.
+        for put_back in [&["points.json", "course.json"][..], &["course.json"][..]] {
+            let (dir, state) = with_quiz(LESSON, QUIZ).await;
+            let course_dir = dir.path().join(".learn/raft");
+            json(
+                app(state.clone()),
+                send_json("POST", "/api/pages/1/quizzes/1/open", OPEN),
+            )
+            .await;
+            let before: Vec<_> = put_back
+                .iter()
+                .map(|name| (name, std::fs::read(course_dir.join(name)).unwrap()))
+                .collect();
+            let (status, body) = json(
+                app(state.clone()),
+                send_json("POST", "/api/pages/1/quizzes/1/choices", CHOICES),
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK, "{body}");
+            for (name, bytes) in before {
+                std::fs::write(course_dir.join(name), bytes).unwrap();
+            }
+
+            let store = Store::at(dir.path());
+            let mut course = store.load("raft").unwrap().unwrap();
+            assert_eq!(course.parts[0].pages[0].state, PageState::Taught);
+            settle(&store, &mut course).unwrap();
+            settle(&store, &mut course).unwrap();
+
+            assert_eq!(course.parts[0].pages[0].state, PageState::Answered);
+            assert_eq!(store.load("raft").unwrap().unwrap(), course);
+            let points = store.load_points("raft").unwrap();
+            let split = points
+                .iter()
+                .find(|point| point.id == "split-vote")
+                .unwrap();
+            assert_eq!(
+                split
+                    .results
+                    .iter()
+                    .map(|result| (result.result, result.how))
+                    .collect::<Vec<_>>(),
+                [(model::Grade::Missed, Graded::Choice)],
+                "{put_back:?}"
+            );
+
+            // The page holds the choices, so a resend changes nothing.
+            let restarted = AppState::new(
+                Git::at(dir.path()),
+                Store::at(dir.path()),
+                course,
+                None,
+                TOKEN.to_owned(),
+                PORT,
+            );
+            let (status, _) = json(
+                app(restarted),
+                send_json("POST", "/api/pages/1/quizzes/1/choices", CHOICES),
+            )
+            .await;
+            assert_eq!(status, StatusCode::CONFLICT);
+            assert_eq!(store.load_points("raft").unwrap(), points);
+        }
+    }
+
+    /// A page is answered when the learner answered every quiz of it, not
+    /// one of them.
+    #[tokio::test]
+    async fn a_page_goes_from_taught_to_answered_with_its_last_quiz() {
+        let only_choices = r#"{"choices":[{"header":"Timer","prompt":"Who starts?",
+            "options":["The first to time out","The leader"],"answer":0,
+            "point":"random-timeout"}]}"#;
+        let (dir, state) = with_quiz(LESSON, QUIZ).await;
+        json(
+            app(state.clone()),
+            send_json("POST", "/api/pages/1/quizzes", only_choices),
+        )
+        .await;
+        let state_of = || async {
+            let (_, session) =
+                json(app(state.clone()), get_with_cookie("/api/session", TOKEN)).await;
+            session["course"]["parts"][0]["pages"][0]["state"].clone()
+        };
+        let send = |uri: &'static str, body: &'static str| {
+            let state = state.clone();
+            async move {
+                let (status, answer) = json(app(state), send_json("POST", uri, body)).await;
+                assert_eq!(status, StatusCode::OK, "{uri}: {answer}");
+            }
+        };
+
+        // A quiz with no open question starts at its choices.
+        send(
+            "/api/pages/1/quizzes/2/choices",
+            r#"{"choices":[{"option":0}]}"#,
+        )
+        .await;
+        assert_eq!(state_of().await, "taught");
+        send("/api/pages/1/quizzes/1/open", OPEN).await;
+        assert_eq!(state_of().await, "taught");
+        send("/api/pages/1/quizzes/1/choices", CHOICES).await;
+        assert_eq!(state_of().await, "answered");
+
+        let stored = Store::at(dir.path()).load("raft").unwrap().unwrap();
+        assert_eq!(stored.parts[0].pages[0].state, PageState::Answered);
+        assert_eq!(stored, *state.course.read().await, "course.json holds it");
+        let kinds: Vec<_> = state
+            .events
+            .after(Some(0), events::HOLD)
+            .await
+            .events
+            .iter()
+            .filter(|event| event.kind.is_request())
+            .map(|event| event.id.clone())
+            .collect();
+        assert_eq!(
+            kinds,
+            [Some("2".to_owned()), Some("1".to_owned())],
+            "one request per quiz, once its last part is sent"
+        );
+    }
+
+    /// An exercise is a quiz with no choices: its open answer is the last
+    /// part, and the agent gets it at once.
+    #[tokio::test]
+    async fn a_quiz_with_no_choices_is_answered_by_its_open_answer() {
+        let exercise = r#"{"open":{"prompt":"Fix the timer.","points":["random-timeout"]},
+            "points":{"random-timeout":{"label":"Why the election timeout is random"}}}"#;
+        let (_dir, state) = with_quiz(LESSON, exercise).await;
+        let after = state.events.after(None, events::HOLD).await.next;
+
+        let (status, body) = json(
+            app(state.clone()),
+            send_json("POST", "/api/pages/1/quizzes/1/open", OPEN),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let batch = state.events.after(Some(after), events::HOLD).await;
+        assert_eq!(batch.events.len(), 1);
+        assert_eq!(batch.events[0].kind, EventKind::Answer);
+        assert_eq!(
+            batch.events[0].detail,
+            Some(Detail::Answer {
+                quiz: 1,
+                open: Some(model::OpenAnswer {
+                    prompt: "Fix the timer.".to_owned(),
+                    points: vec!["random-timeout".to_owned()],
+                    text: "So that two followers rarely wake up at once.".to_owned(),
+                }),
+                choices: Vec::new(),
+            })
+        );
+        assert_eq!(
+            state.course.read().await.parts[0].pages[0].state,
+            PageState::Answered
+        );
+    }
+
+    /// The text of a hidden line is the answer to "Complete the code", so
+    /// it waits for every quiz of the page.
+    #[tokio::test]
+    async fn the_hidden_line_shows_once_every_quiz_is_answered() {
+        let (_dir, state) = with_quiz(EXCERPT, QUIZ).await;
+        let line = || async {
+            let (_, page) = json(app(state.clone()), get_with_cookie("/api/pages/1", TOKEN)).await;
+            page["blocks"][1]["excerpt"]["lines"][3].clone()
+        };
+
+        assert_eq!(line().await, serde_json::Value::Null);
+        json(
+            app(state.clone()),
+            send_json("POST", "/api/pages/1/quizzes/1/open", OPEN),
+        )
+        .await;
+        assert_eq!(line().await, serde_json::Value::Null);
+        let (_, body) = json(
+            app(state.clone()),
+            send_json("POST", "/api/pages/1/quizzes/1/choices", CHOICES),
+        )
+        .await;
+
+        assert_eq!(line().await["text"], "    return base + rand() % base;");
+        assert_eq!(body["blocks"][1]["excerpt"]["lines"][3], line().await);
+    }
+
+    #[tokio::test]
+    async fn an_answer_that_the_quiz_does_not_take_is_refused_and_stores_nothing() {
+        let only_choices = r#"{"choices":[{"header":"Timer","prompt":"Who starts?",
+            "options":["The first to time out","The leader"],"answer":0,
+            "point":"random-timeout"}]}"#;
+        let exercise = r#"{"open":{"prompt":"Fix the timer.","points":["random-timeout"]}}"#;
+        let (dir, state) = with_quiz(LESSON, QUIZ).await;
+        for quiz in [only_choices, exercise] {
+            let (status, body) = json(
+                app(state.clone()),
+                send_json("POST", "/api/pages/1/quizzes", quiz),
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK, "{body}");
+        }
+        state.course.write().await.parts[0].pages.push(PageRef {
+            id: "2".to_owned(),
+            kind: PageKind::Lesson,
+            title: "The vote".to_owned(),
+            state: PageState::Planned,
+            score: None,
+        });
+        let untouched = outside(dir.path());
+        // Every file of the store, with its bytes.
+        let stored = |root: &std::path::Path| {
+            files(root)
+                .into_iter()
+                .map(|file| {
+                    let bytes = std::fs::read(root.join(&file)).unwrap();
+                    (file, bytes)
+                })
+                .collect::<Vec<_>>()
+        };
+        let check = |uri: &str, body: &str, code: &str| {
+            let state = state.clone();
+            let (uri, body, code) = (uri.to_owned(), body.to_owned(), code.to_owned());
+            async move {
+                let before = stored(state.git.root());
+                let course = state.course.read().await.clone();
+                let after = state.events.after(None, events::HOLD).await.next;
+
+                let (status, answer) =
+                    json(app(state.clone()), send_json("POST", &uri, &body)).await;
+
+                let expected = match code.as_str() {
+                    "notFound" => StatusCode::NOT_FOUND,
+                    "conflict" => StatusCode::CONFLICT,
+                    _ => StatusCode::BAD_REQUEST,
+                };
+                assert_eq!(status, expected, "{uri} {body}: {answer}");
+                assert_eq!(answer["error"]["code"], code.as_str(), "{uri} {body}");
+                assert!(answer["error"]["message"].is_string(), "{answer}");
+                assert_eq!(stored(state.git.root()), before, "{uri} {body}");
+                assert_eq!(*state.course.read().await, course, "{uri} {body}");
+                assert_eq!(state.events.after(None, events::HOLD).await.next, after);
+                answer
+            }
+        };
+
+        // An unknown page, or an unknown quiz of a known page.
+        for uri in [
+            "/api/pages/2/quizzes/1/open",
+            "/api/pages/9/quizzes/1/open",
+            "/api/pages/x/quizzes/1/open",
+            "/api/pages/..%2Fcourse/quizzes/1/open",
+            "/api/pages/1/quizzes/0/open",
+            "/api/pages/1/quizzes/4/open",
+            "/api/pages/1/quizzes/01/open",
+            "/api/pages/1/quizzes/+1/open",
+            "/api/pages/1/quizzes/x/open",
+        ] {
+            check(uri, OPEN, "notFound").await;
+        }
+        check("/api/pages/1/quizzes/4/choices", CHOICES, "notFound").await;
+        // A part that the quiz does not have.
+        check("/api/pages/1/quizzes/2/open", OPEN, "notFound").await;
+        check("/api/pages/1/quizzes/3/choices", CHOICES, "notFound").await;
+        // The choices come after the open answer.
+        let answer = check("/api/pages/1/quizzes/1/choices", CHOICES, "conflict").await;
+        let message = answer["error"]["message"].as_str().unwrap();
+        assert!(
+            message.starts_with("send the open answer first"),
+            "{message}"
+        );
+        // Bodies that do not fit.
+        for body in [
+            "",
+            "not json",
+            "{}",
+            r#"{"text":null}"#,
+            r#"{"text":"  "}"#,
+            r#"{"text":"A","page":"1"}"#,
+        ] {
+            check("/api/pages/1/quizzes/1/open", body, "badRequest").await;
+        }
+        let (status, _) = json(
+            app(state.clone()),
+            send_json("POST", "/api/pages/1/quizzes/1/open", OPEN),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        check("/api/pages/1/quizzes/1/open", OPEN, "conflict").await;
+        for body in [
+            r#"{"choices":[]}"#,
+            r#"{"choices":[{"option":0},{"option":1}]}"#,
+            r#"{"choices":[{"option":3}]}"#,
+            r#"{"choices":[{"option":-1}]}"#,
+            r#"{"choices":[{"other":"A new term"}]}"#,
+            r#"{"choices":[{"option":0,"answer":0}]}"#,
+            r#"{"choices":[null]}"#,
+            "{}",
+        ] {
+            check("/api/pages/1/quizzes/1/choices", body, "badRequest").await;
+        }
+        let answer = check(
+            "/api/pages/1/quizzes/1/choices",
+            r#"{"choices":[{"option":3}]}"#,
+            "badRequest",
+        )
+        .await;
+        assert_eq!(
+            answer["error"]["message"],
+            "choices[0].option: 3 is out of range. The choice has 3 options, so option takes \
+             0 to 2"
+        );
+        let answer = check(
+            "/api/pages/1/quizzes/1/choices",
+            r#"{"choices":[]}"#,
+            "badRequest",
+        )
+        .await;
+        assert_eq!(
+            answer["error"]["message"],
+            "choices: holds 0 picks, and the quiz has 1 choice. Pick one option in each"
+        );
+        let (status, _) = json(
+            app(state.clone()),
+            send_json("POST", "/api/pages/1/quizzes/1/choices", CHOICES),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        check("/api/pages/1/quizzes/1/choices", CHOICES, "conflict").await;
+        assert_eq!(outside(dir.path()), untouched, "a write outside .learn/");
+    }
+
+    /// Another local site could otherwise answer a quiz in the name of the
+    /// learner.
+    #[tokio::test]
+    async fn an_answer_from_another_site_is_forbidden() {
+        let (_dir, state) = with_quiz(LESSON, QUIZ).await;
+        let after = state.events.after(None, events::HOLD).await.next;
+        let request = Request::builder()
+            .method("POST")
+            .uri("/api/pages/1/quizzes/1/open")
+            .header(
+                header::COOKIE,
+                format!("{}={TOKEN}", auth::cookie_name(PORT)),
+            )
+            .header(header::CONTENT_TYPE, "application/json")
+            .header(header::ORIGIN, "http://127.0.0.1:3000")
+            .body(Body::from(OPEN))
+            .unwrap();
+
+        let (status, answer) = json(app(state.clone()), request).await;
+
+        assert_eq!(status, StatusCode::FORBIDDEN, "{answer}");
+        assert_eq!(answer["error"]["code"], "forbidden");
+        let (_, page) = json(app(state.clone()), get_with_cookie("/api/pages/1", TOKEN)).await;
+        assert_eq!(page["quizzes"][0]["open"]["sent"], serde_json::Value::Null);
+        assert_eq!(state.events.after(None, events::HOLD).await.next, after);
     }
 
     /// A trace goes into a log or a bug report. The token must not.

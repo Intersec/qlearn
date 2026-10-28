@@ -128,8 +128,11 @@ describe('PageView', () => {
       id: '1',
       blocks: [{ id: 'a', kind: 'text', html: '<p>The lesson.</p>' }],
       quizzes: [
-        { open: { prompt: 'Why?' }, choices: [] },
-        { open: null, choices: [{ header: 'Vote', prompt: 'Who?', options: ['S1', 'S2'] }] },
+        { open: { prompt: 'Why?', sent: null }, choices: [] },
+        {
+          open: null,
+          choices: [{ header: 'Vote', prompt: 'Who?', options: ['S1', 'S2'], graded: null }],
+        },
       ],
     };
     const wrapper = mount(PageView, { props: { page } });
@@ -142,13 +145,34 @@ describe('PageView', () => {
     expect(parts[2].find('.quiz-choices').exists()).toBe(true);
   });
 
+  it('sends an answer with the number of its quiz', async () => {
+    const page: Page = {
+      id: '1',
+      blocks: [],
+      quizzes: [
+        { open: { prompt: 'Why?', sent: null }, choices: [] },
+        { open: { prompt: 'How?', sent: null }, choices: [] },
+      ],
+    };
+    const send = vi.fn(async () => true);
+    const wrapper = mount(PageView, { props: { page, send } });
+
+    await wrapper.findAll('textarea')[1].setValue('Like this.');
+    await wrapper.findAll('form')[1].trigger('submit');
+
+    expect(send).toHaveBeenCalledWith(2, { open: 'Like this.' });
+  });
+
   it('leaves the draft of a quiz on its page when another page opens', async () => {
     const lesson = (id: string, prompt: string): Page => ({
       id,
       blocks: [{ id: `text${id}`, kind: 'text', html: '<p>The lesson.</p>' }],
       quizzes: [
-        { open: { prompt }, choices: [] },
-        { open: null, choices: [{ header: 'Vote', prompt: 'Who?', options: ['S1', 'S2'] }] },
+        { open: { prompt, sent: null }, choices: [] },
+        {
+          open: null,
+          choices: [{ header: 'Vote', prompt: 'Who?', options: ['S1', 'S2'], graded: null }],
+        },
       ],
     });
     const wrapper = mount(PageView, { props: { page: lesson('1', 'Why 1?') } });

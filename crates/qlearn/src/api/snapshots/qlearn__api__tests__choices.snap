@@ -1,0 +1,44 @@
+---
+source: crates/qlearn/src/api/mod.rs
+expression: body
+---
+{
+  "blocks": [
+    {
+      "html": "<h1>Two leaders, one term</h1>\n<p>A follower that hears nothing starts an election.</p>\n<pre class=\"md-code\"><code><span class=\"tok-storage tok-type\">int</span> term <span class=\"tok-keyword tok-operator\">=</span> <span class=\"tok-constant tok-numeric\">1</span><span class=\"tok-punctuation tok-terminator\">;</span></code></pre>",
+      "id": "80499f7ec474",
+      "kind": "text"
+    },
+    {
+      "html": "<h2>The vote</h2>\n<p>Each server votes once per term.</p>",
+      "id": "b5b8ce796950",
+      "kind": "text"
+    }
+  ],
+  "id": "1",
+  "quizzes": [
+    {
+      "choices": [
+        {
+          "graded": {
+            "answer": 1,
+            "ok": false,
+            "other": "Unless the ids tie too",
+            "picked": 0
+          },
+          "header": "Split vote",
+          "options": [
+            "The candidate with the higher id wins",
+            "Both time out and start a <em>new</em> election in a new <code>term</code>",
+            "The leader of the previous term breaks the tie &lt;b&gt;now&lt;/b&gt;"
+          ],
+          "prompt": "Two candidates get 2 votes each out of 5. What happens next?"
+        }
+      ],
+      "open": {
+        "prompt": "In 2 sentences: why is the timeout random?",
+        "sent": "So that two followers rarely wake up at once."
+      }
+    }
+  ]
+}

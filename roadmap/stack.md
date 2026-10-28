@@ -273,6 +273,41 @@ the answers of the learner: a push that writes over it loses them.
   adds a file to the layout of section 10 for a case that a repair by hand
   covers.
 
+## 2026-10-28 — Holes found by the answers
+
+The routes of the answers, section 8, left four questions that sections
+5.2 and 5.3 did not answer.
+
+**Decisions.**
+
+- **Each choice takes an option.** The text of the "Other" box comes with
+  the option, never in its place.
+- **A part is sent once.** A part sent again, or the choices before the
+  open answer, gets 409 with the code `conflict`. An empty open answer, a
+  pick for each choice missing, and an option out of range get 400.
+- **The bodies.** The open answer is `{ text }`. The choices are
+  `{ choices: [{ option, other }] }`, one pick per choice, in order. Both
+  routes answer the page. Section 8 says so.
+- **The page gets the answers in the quiz.** The open question carries
+  `sent`, the answer of the learner. Each choice carries `graded`, with
+  `picked`, `answer`, `ok` and `other`. Both are `null` until sent, so
+  `answer` reaches the page only after the choices.
+
+**Why.** A choice is `ok` or `missed`, and the server grades the option.
+Free text in place of an option has no grade. A second answer would add a
+second result to the points, and the learner would answer a quiz whose
+answer they saw. The page needs what the learner sent to show the quiz
+after a reload. A field that stays `null` until the choices keeps the
+right option off the wire, as the page type of a quiz did before.
+
+**Rejected:**
+
+- **Other in place of an option.** The server could not grade it.
+- **Accept a second answer and keep the last one.** The learner would
+  answer again after seeing the right option.
+- **Grade the choices in the page.** The right option would reach the page
+  before the choices, against section 5.2.
+
 ## Open questions
 
 - **The URL of the repository.** The host is decided: a public repository

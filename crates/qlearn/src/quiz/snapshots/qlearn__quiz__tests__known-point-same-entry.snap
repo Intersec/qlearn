@@ -19,7 +19,8 @@ new points:
 the page gets:
 {
   "open": {
-    "prompt": "Why random?"
+    "prompt": "Why random?",
+    "sent": null
   },
   "choices": []
 }

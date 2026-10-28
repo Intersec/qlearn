@@ -561,8 +561,8 @@ writer, and grants no permission.
 | `GET /api/session` | page | The course, the syllabus, the current page, the tool version |
 | `GET /api/pages/:id` | page | The blocks, the quizzes without their answers until answered, the threads |
 | `POST /api/pages/:id/next` | page | Ask the agent for the next page. Answers the request |
-| `POST /api/pages/:id/quizzes/:n/open` | page | Send the open answer |
-| `POST /api/pages/:id/quizzes/:n/choices` | page | Send the choices. The server grades them |
+| `POST /api/pages/:id/quizzes/:n/open` | page | Send the open answer. Body: `{ text }`. Answers the page |
+| `POST /api/pages/:id/quizzes/:n/choices` | page | Send the choices. Body: `{ choices: [{ option, other }] }`, one per choice. The server grades them, and answers the page |
 | `POST /api/pages/:id/threads` | both | Open a thread. Body: `{ block, quote, body }` |
 | `POST /api/threads/:id` | both | Reply in a thread |
 | `POST /api/choices/:id` | page | Answer a choice |

@@ -82,7 +82,8 @@ the page gets:
         "b",
         "c",
         "d"
-      ]
+      ],
+      "graded": null
     },
     {
       "header": "Two",
@@ -92,7 +93,8 @@ the page gets:
         "b",
         "c",
         "d"
-      ]
+      ],
+      "graded": null
     },
     {
       "header": "Three",
@@ -100,7 +102,8 @@ the page gets:
       "options": [
         "a",
         "b"
-      ]
+      ],
+      "graded": null
     },
     {
       "header": "Four",
@@ -109,7 +112,8 @@ the page gets:
         "a",
         "b",
         "c"
-      ]
+      ],
+      "graded": null
     }
   ]
 }

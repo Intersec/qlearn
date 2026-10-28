@@ -1008,12 +1008,23 @@ mod tests {
         let sent = serde_json::to_string(&quizzed.page("1")).unwrap();
         assert!(!sent.contains("int b;"), "{sent}");
 
-        // The answers come with the routes of the learner. Once they do,
-        // the blocks show the line in its place.
-        let Block::Excerpt { excerpt, .. } = &quizzed.revealed()[0] else {
+        // The open answer alone leaves a part of the quiz to answer.
+        quizzed.quizzes[0].sent.open = Some("A new term.".to_owned());
+        assert_eq!(quizzed.shown(), page.blocks);
+
+        // Once every quiz is answered, the blocks show the line in its place.
+        quizzed.quizzes[0].sent.choices = Some(vec![crate::quiz::StoredPick {
+            option: 0,
+            other: None,
+        }]);
+        let Block::Excerpt { excerpt, .. } = &quizzed.shown()[0] else {
             panic!("an excerpt");
         };
         assert_eq!(excerpt.lines, [Some(line("int a;")), Some(line("int b;"))]);
+
+        // A second quiz with no answer hides it again.
+        quizzed.quizzes.push(quiz());
+        assert_eq!(quizzed.shown(), page.blocks);
     }
 
     fn quiz() -> StoredQuiz {
@@ -1029,6 +1040,7 @@ mod tests {
                 answer: 0,
                 point: "split-vote".to_owned(),
             }],
+            sent: crate::quiz::Sent::default(),
         }
     }
 

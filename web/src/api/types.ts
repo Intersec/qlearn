@@ -147,8 +147,8 @@ export interface Page {
 }
 
 /**
- * A quiz as the page sees it. The right option of a choice stays on the
- * server until the learner sends the choices, so no field holds it.
+ * A quiz as the page sees it (section 5.2 of the design). The right option
+ * of a choice stays on the server until the learner sends the choices.
  */
 export interface Quiz {
   open: OpenQuestion | null;
@@ -158,6 +158,8 @@ export interface Quiz {
 export interface OpenQuestion {
   /** Plain text. */
   prompt: string;
+  /** The open answer of the learner, once sent. */
+  sent: string | null;
 }
 
 /** A question with options, of which one is right. */
@@ -168,7 +170,30 @@ export interface Choice {
   prompt: string;
   /** The HTML of each option, written by the server. */
   options: string[];
+  /** null until the learner sends the choices: it holds the right option. */
+  graded: GradedChoice | null;
 }
+
+/** A choice once the learner has sent the choices of its quiz. */
+export interface GradedChoice {
+  /** The option that the learner picked, from 0. */
+  picked: number;
+  /** The right option, from 0. */
+  answer: number;
+  ok: boolean;
+  /** The text of the "Other" box, or null when the learner left it empty. */
+  other: string | null;
+}
+
+/** The pick of the learner for one choice, as the page sends it. */
+export interface Pick {
+  /** From 0. */
+  option: number;
+  other: string | null;
+}
+
+/** A part of the answer to a quiz: the open answer, or the choices. */
+export type QuizAnswer = { open: string } | { choices: Pick[] };
 
 export type EventKind =
   | 'course'

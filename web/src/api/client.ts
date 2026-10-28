@@ -1,7 +1,7 @@
 // Every call to the server. The token travels as a cookie that the first
 // page load left behind, so nothing here carries it.
 
-import type { ErrorBody, Event, EventBatch, Page, Session } from './types';
+import type { ErrorBody, Event, EventBatch, Page, Pick, Session } from './types';
 
 export class ApiError extends Error {
   constructor(
@@ -47,6 +47,25 @@ export const api = {
   next: (id: string) =>
     call<Event>(`/api/pages/${encodeURIComponent(id)}/next`, { method: 'POST' }),
 
+  /** Send the open answer of the quiz `n` of a page. Answers the page. */
+  open: (id: string, n: number, text: string) =>
+    call<Page>(`${quiz(id, n)}/open`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+    }),
+
+  /**
+   * Send the choices of the quiz `n` of a page. The server grades them, and
+   * answers the page with the right options.
+   */
+  choices: (id: string, n: number, choices: Pick[]) =>
+    call<Page>(`${quiz(id, n)}/choices`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ choices }),
+    }),
+
   /**
    * Report a block that the page cannot draw. The agent gets its source
    * and the error, and pushes the page again. Answers the request.
@@ -68,6 +87,11 @@ export const api = {
       `/api/events${query({ after: num(after), who: after === undefined ? undefined : 'page' })}`,
     ),
 };
+
+/** The address of the quiz `n` of a page, from 1. */
+function quiz(id: string, n: number): string {
+  return `/api/pages/${encodeURIComponent(id)}/quizzes/${n}`;
+}
 
 function num(value: number | undefined): string | undefined {
   return value === undefined ? undefined : String(value);

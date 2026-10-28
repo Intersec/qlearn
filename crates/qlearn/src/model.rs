@@ -143,6 +143,24 @@ impl Course {
         }
     }
 
+    /// Record that the learner answered every quiz of a page.
+    ///
+    /// Only a taught page moves: a page with no content has no quiz, and a
+    /// debriefed page went back to taught when it got a new quiz.
+    pub fn answer_page(&mut self, id: &str, now: OffsetDateTime) {
+        let held = self
+            .parts
+            .iter_mut()
+            .flat_map(|part| part.pages.iter_mut())
+            .find(|page| page.id == id);
+        if let Some(page) = held
+            && page.state == PageState::Taught
+        {
+            page.state = PageState::Answered;
+            self.updated = stamp(now);
+        }
+    }
+
     /// Whether the syllabus holds a page, with content or not.
     pub fn holds(&self, id: &str) -> bool {
         self.parts
@@ -556,9 +574,8 @@ pub struct Page {
 
 /// A quiz as the page sees it. See section 5 of the design.
 ///
-/// This type has no field for the right option of a choice: the page must
-/// not get it before the learner sends the choices, and a field that is
-/// not here cannot leak.
+/// The right option of a choice sits in `Choice::graded`, which stays None
+/// until the learner sends the choices: the page must not get it before.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct Quiz {
@@ -571,6 +588,8 @@ pub struct Quiz {
 pub struct OpenQuestion {
     /// Plain text.
     pub prompt: String,
+    /// The open answer of the learner, once sent.
+    pub sent: Option<String>,
 }
 
 /// A question with options, of which one is right.
@@ -584,6 +603,47 @@ pub struct Choice {
     /// The HTML of each option, written by the server from the inline
     /// Markdown of the agent.
     pub options: Vec<String>,
+    /// None until the learner sends the choices. The right option is in
+    /// here, so it reaches the page only then.
+    pub graded: Option<GradedChoice>,
+}
+
+/// A choice once the learner has sent the choices of its quiz.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct GradedChoice {
+    /// The option that the learner picked, from 0.
+    pub picked: usize,
+    /// The right option, from 0.
+    pub answer: usize,
+    pub ok: bool,
+    /// The text of the "Other" box, or None when the learner left it empty.
+    pub other: Option<String>,
+}
+
+/// The body of `POST /api/pages/:id/quizzes/:n/open`.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct OpenSent {
+    pub text: String,
+}
+
+/// The body of `POST /api/pages/:id/quizzes/:n/choices`: one pick for each
+/// choice of the quiz, in order.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ChoicesSent {
+    pub choices: Vec<Pick>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Pick {
+    /// The option that the learner picked, from 0.
+    pub option: usize,
+    /// The text of the "Other" box. Empty or left out: none.
+    #[serde(default)]
+    pub other: Option<String>,
 }
 
 /// What `POST /api/pages/:id/quizzes` answers: the number of the new quiz
@@ -718,6 +778,39 @@ pub enum Detail {
     /// `broken`: the block that the page cannot draw, and why. The event
     /// names the page.
     Broken { block: BlockSource, error: String },
+    /// `answer`: a quiz that the learner answered in full, with the
+    /// answers. The event names the page.
+    Answer {
+        /// The number of the quiz in its page, from 1.
+        quiz: usize,
+        open: Option<OpenAnswer>,
+        choices: Vec<ChoiceAnswer>,
+    },
+}
+
+/// The open question of a quiz, with the answer of the learner. The agent
+/// grades each point in the debrief.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenAnswer {
+    pub prompt: String,
+    pub points: Vec<String>,
+    pub text: String,
+}
+
+/// A choice of a quiz, with the pick of the learner and its grade.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ChoiceAnswer {
+    pub header: String,
+    pub prompt: String,
+    /// Inline Markdown, as the agent wrote it.
+    pub options: Vec<String>,
+    pub picked: usize,
+    pub answer: usize,
+    pub ok: bool,
+    pub other: Option<String>,
+    pub point: String,
 }
 
 /// A block as the agent wrote it, so that it finds the block in its file.
@@ -890,28 +983,73 @@ mod tests {
     }
 
     /// The page gets no answer before the learner sends the choices, so
-    /// the wire shape of a quiz has no field for one.
+    /// the wire shape of a quiz with no answer has no key for one.
     #[test]
     fn a_quiz_has_the_shape_of_the_page_and_no_answer() {
         let quiz = Quiz {
             open: Some(OpenQuestion {
                 prompt: "Why?".to_owned(),
+                sent: None,
             }),
             choices: vec![Choice {
                 header: "Split vote".to_owned(),
                 prompt: "What next?".to_owned(),
                 options: vec!["<em>A</em>".to_owned(), "B".to_owned()],
+                graded: None,
             }],
         };
 
         assert_eq!(
             serde_json::to_value(&quiz).unwrap(),
             json!({
-                "open": { "prompt": "Why?" },
+                "open": { "prompt": "Why?", "sent": null },
                 "choices": [{ "header": "Split vote", "prompt": "What next?",
-                              "options": ["<em>A</em>", "B"] }],
+                              "options": ["<em>A</em>", "B"], "graded": null }],
             })
         );
+    }
+
+    #[test]
+    fn a_graded_choice_has_the_shape_of_the_page() {
+        let graded = GradedChoice {
+            picked: 0,
+            answer: 1,
+            ok: false,
+            other: Some("A new term?".to_owned()),
+        };
+
+        assert_eq!(
+            serde_json::to_value(&graded).unwrap(),
+            json!({ "picked": 0, "answer": 1, "ok": false, "other": "A new term?" })
+        );
+    }
+
+    #[test]
+    fn only_a_taught_page_becomes_answered() {
+        let mut course = Course::new("raft", at_new_year());
+        course.parts = vec![Part {
+            title: "Why".to_owned(),
+            pages: vec![
+                page("1", PageState::Taught),
+                page("2", PageState::Planned),
+                page("3", PageState::Debriefed),
+            ],
+        }];
+        let later = OffsetDateTime::from_unix_timestamp(1_767_225_660).unwrap();
+
+        for id in ["1", "2", "3", "4"] {
+            course.answer_page(id, later);
+        }
+
+        assert_eq!(
+            course.parts[0].pages,
+            [
+                page("1", PageState::Answered),
+                page("2", PageState::Planned),
+                page("3", PageState::Debriefed),
+            ]
+        );
+        assert_eq!(course.updated, "2026-01-01T00:01:00Z");
     }
 
     #[test]
@@ -1107,6 +1245,29 @@ mod tests {
                     source: "graph LR\n".to_owned(),
                 },
                 error: "Parse error on line 1".to_owned(),
+            },
+            Detail::Answer {
+                quiz: 2,
+                open: Some(OpenAnswer {
+                    prompt: "Why?".to_owned(),
+                    points: vec!["random-timeout".to_owned()],
+                    text: "So that two followers rarely wake up at once.".to_owned(),
+                }),
+                choices: vec![ChoiceAnswer {
+                    header: "Split vote".to_owned(),
+                    prompt: "What next?".to_owned(),
+                    options: vec!["A *new* term".to_owned(), "The higher id".to_owned()],
+                    picked: 1,
+                    answer: 0,
+                    ok: false,
+                    other: None,
+                    point: "split-vote".to_owned(),
+                }],
+            },
+            Detail::Answer {
+                quiz: 1,
+                open: None,
+                choices: Vec::new(),
             },
         ];
 

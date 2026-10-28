@@ -1,0 +1,48 @@
+---
+source: crates/qlearn/src/api/mod.rs
+expression: agent
+---
+{
+  "agent": true,
+  "events": [
+    {
+      "author": "learner",
+      "detail": {
+        "choices": [
+          {
+            "answer": 1,
+            "header": "Split vote",
+            "ok": false,
+            "options": [
+              "The candidate with the higher id wins",
+              "Both time out and start a *new* election in a new `term`",
+              "The leader of the previous term breaks the tie <b>now</b>"
+            ],
+            "other": "Unless the ids tie too",
+            "picked": 0,
+            "point": "split-vote",
+            "prompt": "Two candidates get 2 votes each out of 5. What happens next?"
+          }
+        ],
+        "open": {
+          "points": [
+            "random-timeout"
+          ],
+          "prompt": "In 2 sentences: why is the timeout random?",
+          "text": "So that two followers rarely wake up at once."
+        },
+        "quiz": 1
+      },
+      "id": "1",
+      "kind": "answer",
+      "page": "1",
+      "seq": 4
+    }
+  ],
+  "left": false,
+  "next": 4,
+  "preparing": false,
+  "reset": false,
+  "status": null,
+  "working": false
+}

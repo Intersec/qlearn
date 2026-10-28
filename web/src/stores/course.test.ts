@@ -404,7 +404,7 @@ describe('a quiz that the agent adds', () => {
     server.push('1', 1);
     const store = await started();
     const sessions = server.reads.session;
-    server.pages.get('1')!.quizzes = [{ open: { prompt: 'Why?' }, choices: [] }];
+    server.pages.get('1')!.quizzes = [{ open: { prompt: 'Why?', sent: null }, choices: [] }];
 
     const event: Event = { seq: 11, kind: 'quiz', author: 'agent', page: '1', id: '1' };
     server.send(batch({ next: 11, events: [event] }));
@@ -625,5 +625,135 @@ describe('a block that the page cannot draw', () => {
 
     expect(store.error).toBeNull();
     expect(server.broken).toEqual([]);
+  });
+});
+
+describe('an answer of the learner', () => {
+  /** Page 1 with a quiz of one choice, and a server that grades it. */
+  async function quizzed() {
+    server.push('1', 1);
+    server.pages.get('1')!.quizzes = [
+      {
+        open: null,
+        choices: [{ header: 'Vote', prompt: 'Who?', options: ['S1', 'S2'], graded: null }],
+      },
+    ];
+    const store = await started();
+    const choices = vi.spyOn(api, 'choices').mockImplementation(async (id, _n, picks) => {
+      const page = server.pages.get(id)!;
+      page.quizzes[0].choices[0].graded = {
+        picked: picks[0].option,
+        answer: 1,
+        ok: picks[0].option === 1,
+        other: picks[0].other,
+      };
+      server.course.parts[0].pages[0].state = 'answered';
+      return structuredClone(page);
+    });
+    return { store, choices };
+  }
+
+  it('shows the grades at once, and the new state of the page', async () => {
+    const { store, choices } = await quizzed();
+    expect(store.course?.parts[0].pages[0].state).toBe('taught');
+
+    const took = await store.answer('1', 1, { choices: [{ option: 0, other: 'Or S3' }] });
+
+    expect(took).toBe(true);
+    expect(choices).toHaveBeenCalledWith('1', 1, [{ option: 0, other: 'Or S3' }]);
+    expect(store.page?.quizzes[0].choices[0].graded).toEqual({
+      picked: 0,
+      answer: 1,
+      ok: false,
+      other: 'Or S3',
+    });
+    expect(store.course?.parts[0].pages[0].state).toBe('answered');
+  });
+
+  it('sends the open answer, and reads no course while a part is left', async () => {
+    server.push('1', 1);
+    server.pages.get('1')!.quizzes = [
+      {
+        open: { prompt: 'Why?', sent: null },
+        choices: [{ header: 'Vote', prompt: 'Who?', options: ['S1', 'S2'], graded: null }],
+      },
+    ];
+    const store = await started();
+    const sessions = server.reads.session;
+    vi.spyOn(api, 'open').mockImplementation(async (id, _n, text) => {
+      const page = server.pages.get(id)!;
+      page.quizzes[0].open!.sent = text;
+      return structuredClone(page);
+    });
+
+    expect(await store.answer('1', 1, { open: 'Because.' })).toBe(true);
+
+    expect(store.page?.quizzes[0].open?.sent).toBe('Because.');
+    expect(server.reads.session).toBe(sessions);
+  });
+
+  it('keeps the page as it was when the server refuses, and says why', async () => {
+    const { store, choices } = await quizzed();
+    choices.mockRejectedValueOnce(
+      new ApiError('badRequest', 'choices[0].option: 5 is out of range'),
+    );
+
+    const took = await store.answer('1', 1, { choices: [{ option: 5, other: null }] });
+
+    expect(took).toBe(false);
+    expect(store.page?.quizzes[0].choices[0].graded).toBeNull();
+    expect(store.error).toBe('choices[0].option: 5 is out of range');
+  });
+
+  it('sent already from another tab, reads the page and moves to its step', async () => {
+    server.push('1', 1);
+    server.pages.get('1')!.quizzes = [
+      {
+        open: { prompt: 'Why?', sent: null },
+        choices: [{ header: 'Vote', prompt: 'Who?', options: ['S1', 'S2'], graded: null }],
+      },
+    ];
+    const store = await started();
+    // The other tab sent the open answer, which no event tells this one.
+    server.pages.get('1')!.quizzes[0].open!.sent = 'From the other tab.';
+    vi.spyOn(api, 'open').mockRejectedValueOnce(
+      new ApiError('conflict', 'the open answer was sent already'),
+    );
+
+    expect(await store.answer('1', 1, { open: 'Because.' })).toBe(false);
+
+    expect(store.page?.quizzes[0].open?.sent).toBe('From the other tab.');
+    expect(store.error).toBe('the open answer was sent already');
+  });
+
+  it('takes the error away once a part sent again lands', async () => {
+    const { store, choices } = await quizzed();
+    choices.mockRejectedValueOnce(new ApiError('internal', 'cannot write points.json'));
+
+    expect(await store.answer('1', 1, { choices: [{ option: 1, other: null }] })).toBe(false);
+    expect(store.error).toBe('cannot write points.json');
+    expect(await store.answer('1', 1, { choices: [{ option: 1, other: null }] })).toBe(true);
+
+    expect(store.page?.quizzes[0].choices[0].graded?.ok).toBe(true);
+    expect(store.error).toBeNull();
+  });
+
+  it('sent from another tab reads the page and the course again', async () => {
+    const { store } = await quizzed();
+    const sessions = server.reads.session;
+    server.pages.get('1')!.quizzes[0].choices[0].graded = {
+      picked: 1,
+      answer: 1,
+      ok: true,
+      other: null,
+    };
+    server.course.parts[0].pages[0].state = 'answered';
+
+    const event: Event = { seq: 11, kind: 'answer', author: 'learner', page: '1', id: '1' };
+    server.send(batch({ next: 11, events: [event] }));
+
+    await vi.waitFor(() => expect(store.page?.quizzes[0].choices[0].graded?.ok).toBe(true));
+    expect(server.reads.session).toBeGreaterThan(sessions);
+    expect(store.course?.parts[0].pages[0].state).toBe('answered');
   });
 });

@@ -5,7 +5,11 @@
 //! agent gets every fault at once, each with its place in the body.
 //!
 //! The quiz is stored with the right option of each choice. The page gets
-//! `model::Quiz`, which has no field for it.
+//! `model::Quiz`, which holds it only once the learner has sent the choices.
+//!
+//! The learner answers a quiz in two parts, the open answer then the
+//! choices (section 5.2 of the design). The server grades the choices: the
+//! page never decides whether an answer is right.
 
 use std::collections::HashSet;
 
@@ -14,7 +18,7 @@ use serde_json::{Map, Value};
 
 use crate::json::{array, object, shape, text, unknown};
 use crate::lesson;
-use crate::model::{self, Course, PageKind, Point};
+use crate::model::{self, Course, Grade, PageKind, Pick, Point};
 
 /// The most questions with options that a quiz holds.
 pub const CHOICES: usize = 4;
@@ -29,6 +33,52 @@ pub const OPTIONS: std::ops::RangeInclusive<usize> = 2..=4;
 pub struct StoredQuiz {
     pub open: Option<StoredOpen>,
     pub choices: Vec<StoredChoice>,
+    /// What the learner sent. A page file of an earlier release has no
+    /// such field, and reads as a quiz with no answer.
+    #[serde(default, skip_serializing_if = "Sent::is_empty")]
+    pub sent: Sent,
+}
+
+/// The answers of the learner to a quiz, each part once sent.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Sent {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub open: Option<String>,
+    /// One pick for each choice, in order.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub choices: Option<Vec<StoredPick>>,
+    /// When the server graded the choices, in RFC 3339. Their results in
+    /// points.json carry the same stamp, so a server killed before it wrote
+    /// them finds out at its next start.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub graded: Option<String>,
+}
+
+impl Sent {
+    fn is_empty(&self) -> bool {
+        self.open.is_none() && self.choices.is_none() && self.graded.is_none()
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct StoredPick {
+    pub option: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub other: Option<String>,
+}
+
+/// Why the server refuses an answer of the learner. Each kind maps to a
+/// status of the API.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Refusal {
+    /// The quiz has no such part.
+    NotFound(String),
+    /// The part was sent already, or its turn has not come.
+    Conflict(String),
+    /// The body does not fit the quiz.
+    BadRequest(String),
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -53,16 +103,20 @@ pub struct StoredChoice {
 }
 
 impl StoredQuiz {
-    /// The quiz as the page sees it: no answer, and the options in HTML.
+    /// The quiz as the page sees it: the options in HTML, and the right
+    /// options only once the learner has sent the choices.
     pub fn view(&self) -> model::Quiz {
+        let picks = self.sent.choices.as_deref();
         model::Quiz {
             open: self.open.as_ref().map(|open| model::OpenQuestion {
                 prompt: open.prompt.clone(),
+                sent: self.sent.open.clone(),
             }),
             choices: self
                 .choices
                 .iter()
-                .map(|choice| model::Choice {
+                .enumerate()
+                .map(|(at, choice)| model::Choice {
                     header: choice.header.clone(),
                     prompt: choice.prompt.clone(),
                     // The push checked each option, so the text is the
@@ -74,15 +128,158 @@ impl StoredQuiz {
                             lesson::inline(option).unwrap_or_else(|_| lesson::escape(option))
                         })
                         .collect(),
+                    graded: picks
+                        .and_then(|picks| picks.get(at))
+                        .map(|pick| model::GradedChoice {
+                            picked: pick.option,
+                            answer: choice.answer,
+                            ok: pick.option == choice.answer,
+                            other: pick.other.clone(),
+                        }),
                 })
                 .collect(),
         }
     }
 
-    /// Whether the learner answered the quiz. No route takes an answer in
-    /// this release, so no quiz is answered yet.
+    /// Whether the learner sent every part of the quiz.
     pub fn answered(&self) -> bool {
-        false
+        (self.open.is_none() || self.sent.open.is_some())
+            && (self.choices.is_empty() || self.sent.choices.is_some())
+    }
+
+    /// Take the open answer of the learner.
+    pub fn send_open(&mut self, text: &str) -> Result<(), Refusal> {
+        if self.open.is_none() {
+            return Err(Refusal::NotFound(
+                "the quiz has no open question. Send its choices".to_owned(),
+            ));
+        }
+        if self.sent.open.is_some() {
+            return Err(Refusal::Conflict(
+                "the open answer was sent already, and an answer is sent once".to_owned(),
+            ));
+        }
+        let text = text.trim();
+        if text.is_empty() {
+            return Err(Refusal::BadRequest(
+                "the answer is empty. Write the answer, then send it".to_owned(),
+            ));
+        }
+        self.sent.open = Some(text.to_owned());
+        Ok(())
+    }
+
+    /// Take the choices of the learner, and grade them at the stamp `at`.
+    /// Answers the point of each choice with its grade, in order.
+    ///
+    /// The open answer comes first: the options of the choices would give
+    /// it away.
+    pub fn send_choices(
+        &mut self,
+        picks: &[Pick],
+        at: &str,
+    ) -> Result<Vec<(String, Grade)>, Refusal> {
+        if self.choices.is_empty() {
+            return Err(Refusal::NotFound(
+                "the quiz has no choices. Send its open answer".to_owned(),
+            ));
+        }
+        if self.sent.choices.is_some() {
+            return Err(Refusal::Conflict(
+                "the choices were sent already, and an answer is sent once".to_owned(),
+            ));
+        }
+        if self.open.is_some() && self.sent.open.is_none() {
+            return Err(Refusal::Conflict(
+                "send the open answer first: the choices come after it".to_owned(),
+            ));
+        }
+
+        let mut faults = Vec::new();
+        if picks.len() != self.choices.len() {
+            faults.push(format!(
+                "choices: holds {}, and the quiz has {}. Pick one option in each",
+                count_of(picks.len(), "pick"),
+                count_of(self.choices.len(), "choice")
+            ));
+        }
+        for (at, (pick, choice)) in picks.iter().zip(&self.choices).enumerate() {
+            if pick.option >= choice.options.len() {
+                faults.push(format!(
+                    "choices[{at}].option: {} is out of range. The choice has {}, so option \
+                     takes 0 to {}",
+                    pick.option,
+                    count_of(choice.options.len(), "option"),
+                    choice.options.len() - 1
+                ));
+            }
+        }
+        if !faults.is_empty() {
+            return Err(Refusal::BadRequest(faults.join("\n")));
+        }
+
+        self.sent.choices = Some(
+            picks
+                .iter()
+                .map(|pick| StoredPick {
+                    option: pick.option,
+                    other: pick
+                        .other
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|other| !other.is_empty())
+                        .map(str::to_owned),
+                })
+                .collect(),
+        );
+        self.sent.graded = Some(at.to_owned());
+        Ok(self.grades())
+    }
+
+    /// The point of each choice with its grade, in order. None before the
+    /// learner sends the choices.
+    pub fn grades(&self) -> Vec<(String, Grade)> {
+        let picks = self.sent.choices.as_deref().unwrap_or_default();
+        picks
+            .iter()
+            .zip(&self.choices)
+            .map(|(pick, choice)| {
+                let grade = match pick.option == choice.answer {
+                    true => Grade::Ok,
+                    false => Grade::Missed,
+                };
+                (choice.point.clone(), grade)
+            })
+            .collect()
+    }
+
+    /// What the agent needs to debrief the quiz `n`, once answered in
+    /// full: the questions as it wrote them, and the answers.
+    pub fn detail(&self, n: usize) -> model::Detail {
+        let picks = self.sent.choices.as_deref().unwrap_or_default();
+        model::Detail::Answer {
+            quiz: n,
+            open: self.open.as_ref().map(|open| model::OpenAnswer {
+                prompt: open.prompt.clone(),
+                points: open.points.clone(),
+                text: self.sent.open.clone().unwrap_or_default(),
+            }),
+            choices: self
+                .choices
+                .iter()
+                .zip(picks)
+                .map(|(choice, pick)| model::ChoiceAnswer {
+                    header: choice.header.clone(),
+                    prompt: choice.prompt.clone(),
+                    options: choice.options.clone(),
+                    picked: pick.option,
+                    answer: choice.answer,
+                    ok: pick.option == choice.answer,
+                    other: pick.other.clone(),
+                    point: choice.point.clone(),
+                })
+                .collect(),
+        }
     }
 }
 
@@ -143,7 +340,11 @@ pub fn parse(
 
     match faults.is_empty() {
         true => Ok(Parsed {
-            quiz: StoredQuiz { open, choices },
+            quiz: StoredQuiz {
+                open,
+                choices,
+                sent: Sent::default(),
+            },
             points,
         }),
         false => Err(faults),
@@ -650,7 +851,7 @@ mod tests {
     }
 
     /// The page must never get the right option before the learner sends
-    /// the choices: the view has no field for it, whatever the quiz holds.
+    /// the choices: the view of a quiz with no answer has no key for it.
     #[test]
     fn the_view_of_a_quiz_carries_no_answer() {
         let (course, known) = course();
@@ -665,5 +866,155 @@ mod tests {
         assert_eq!(parsed.quiz.choices[0].answer, 1);
         assert!(!view.to_string().contains("answer"), "{view}");
         assert!(parsed.points.is_empty(), "the course knows the point");
+    }
+
+    /// A quiz of the design: an open question, then two choices.
+    fn two_choices() -> StoredQuiz {
+        let (course, known) = course();
+        let body = serde_json::json!({
+            "open": { "prompt": "Why?", "points": ["random-timeout"] },
+            "choices": [
+                { "header": "Vote", "prompt": "Who wins?", "options": ["S1", "S2"],
+                  "answer": 1, "point": "random-timeout" },
+                { "header": "Term", "prompt": "Which term?", "options": ["5", "6", "7"],
+                  "answer": 1, "point": "random-timeout" },
+            ],
+        });
+        parse(&body, "3", &course, &known).unwrap().quiz
+    }
+
+    /// The stamp of a grading.
+    const AT: &str = "2026-01-01T00:00:00Z";
+
+    fn pick(option: usize, other: Option<&str>) -> Pick {
+        Pick {
+            option,
+            other: other.map(str::to_owned),
+        }
+    }
+
+    #[test]
+    fn the_choices_are_graded_on_the_server_after_the_open_answer() {
+        let mut quiz = two_choices();
+        let picks = [pick(1, Some("  ")), pick(2, Some(" Term 6? "))];
+
+        assert!(matches!(
+            quiz.send_choices(&picks, AT),
+            Err(Refusal::Conflict(_))
+        ));
+        quiz.send_open(" Two followers rarely wake up at once. ")
+            .unwrap();
+        assert!(!quiz.answered());
+        let grades = quiz.send_choices(&picks, AT).unwrap();
+
+        assert!(quiz.answered());
+        assert_eq!(
+            grades,
+            [
+                ("random-timeout".to_owned(), Grade::Ok),
+                ("random-timeout".to_owned(), Grade::Missed)
+            ]
+        );
+        assert_eq!(
+            quiz.sent,
+            Sent {
+                open: Some("Two followers rarely wake up at once.".to_owned()),
+                choices: Some(vec![
+                    StoredPick {
+                        option: 1,
+                        other: None
+                    },
+                    StoredPick {
+                        option: 2,
+                        other: Some("Term 6?".to_owned())
+                    },
+                ]),
+                graded: Some(AT.to_owned()),
+            }
+        );
+        assert_eq!(
+            quiz.grades(),
+            grades,
+            "the page file gives the grades again"
+        );
+        let view = quiz.view();
+        assert_eq!(
+            view.choices[1].graded,
+            Some(model::GradedChoice {
+                picked: 2,
+                answer: 1,
+                ok: false,
+                other: Some("Term 6?".to_owned()),
+            })
+        );
+    }
+
+    #[test]
+    fn each_part_is_sent_once() {
+        let mut quiz = two_choices();
+        quiz.send_open("Because.").unwrap();
+        quiz.send_choices(&[pick(0, None), pick(0, None)], AT)
+            .unwrap();
+        let before = quiz.clone();
+
+        assert!(matches!(
+            quiz.send_open("Again."),
+            Err(Refusal::Conflict(_))
+        ));
+        assert!(matches!(
+            quiz.send_choices(&[pick(1, None), pick(1, None)], AT),
+            Err(Refusal::Conflict(_))
+        ));
+        assert_eq!(quiz, before);
+    }
+
+    /// The learner gets every fault of the choices at once.
+    #[test]
+    fn a_pick_that_does_not_fit_is_refused_and_takes_nothing() {
+        let mut quiz = two_choices();
+        quiz.send_open("Because.").unwrap();
+        let before = quiz.clone();
+
+        let refused = quiz.send_choices(&[pick(2, None)], AT);
+
+        assert_eq!(
+            refused,
+            Err(Refusal::BadRequest(
+                "choices: holds 1 pick, and the quiz has 2 choices. Pick one option in each\n\
+                 choices[0].option: 2 is out of range. The choice has 2 options, so option \
+                 takes 0 to 1"
+                    .to_owned()
+            ))
+        );
+        assert_eq!(quiz, before);
+        assert!(matches!(quiz.send_open("  "), Err(Refusal::Conflict(_))));
+    }
+
+    #[test]
+    fn a_part_that_the_quiz_does_not_have_is_not_found() {
+        let mut quiz = two_choices();
+        quiz.open = None;
+        assert!(matches!(
+            quiz.send_open("Because."),
+            Err(Refusal::NotFound(_))
+        ));
+        // A quiz with no open question starts at its choices.
+        quiz.send_choices(&[pick(1, None), pick(1, None)], AT)
+            .unwrap();
+        assert!(quiz.answered());
+
+        let mut exercise = two_choices();
+        exercise.choices.clear();
+        assert!(matches!(
+            exercise.send_choices(&[], AT),
+            Err(Refusal::NotFound(_))
+        ));
+        assert!(matches!(
+            exercise.send_open(" "),
+            Err(Refusal::BadRequest(_))
+        ));
+        // A quiz with no choices is answered by its open answer.
+        exercise.send_open("Because.").unwrap();
+        assert!(exercise.answered());
     }
 }

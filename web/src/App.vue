@@ -4,6 +4,7 @@ import { storeToRefs } from 'pinia';
 import AgentPresence from './components/AgentPresence.vue';
 import PageView from './components/PageView.vue';
 import SyllabusView from './components/SyllabusView.vue';
+import type { QuizAnswer } from './api/types';
 import { format } from './place';
 import { useCourse } from './stores/course';
 
@@ -49,6 +50,12 @@ watch(
   },
   { immediate: true },
 );
+
+/** Send a part of the answer to a quiz of the page on the screen. */
+function sendAnswer(n: number, answer: QuizAnswer): Promise<boolean> {
+  const shown = page.value;
+  return shown ? store.answer(shown.id, n, answer) : Promise.resolve(false);
+}
 
 function openReady() {
   if (ready.value) {
@@ -116,7 +123,7 @@ onBeforeUnmount(() => {
       />
       <main ref="pane" class="course">
         <template v-if="page">
-          <PageView :page="page" @broken="store.broken" />
+          <PageView :page="page" :send="sendAnswer" @broken="store.broken" />
           <footer class="page-end">
             <p v-if="ending === 'preparing'" role="status" class="preparing">
               The agent prepares the next page<template v-if="status">: {{ status }}</template>

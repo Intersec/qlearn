@@ -38,7 +38,8 @@ new points:
 the page gets:
 {
   "open": {
-    "prompt": "In 2 sentences: why is the timeout random?"
+    "prompt": "In 2 sentences: why is the timeout random?",
+    "sent": null
   },
   "choices": [
     {
@@ -48,7 +49,8 @@ the page gets:
         "The candidate with the higher id wins",
         "Both time out and start a new election in a new term",
         "The leader of the previous term breaks the tie"
-      ]
+      ],
+      "graded": null
     }
   ]
 }

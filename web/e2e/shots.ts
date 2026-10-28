@@ -77,9 +77,39 @@ for (const scheme of ['light', 'dark'] as const) {
     await quiz.scrollIntoViewIfNeeded();
     await page.screenshot({ path: join(OUT, `${scheme}-quiz-choices.png`) });
 
+    // The learner answers the first quiz: the open answer, then the
+    // choices with an Other box, then right or wrong at once.
+    const first = page.locator('.quiz[data-quiz="1"]');
+    await first.getByRole('textbox').fill('Two followers rarely time out at once.');
+    await first.getByRole('button', { name: 'Send' }).click();
+    await first.locator('.quiz-choices').waitFor();
+    await first.getByRole('radio').first().check();
+    await first.getByRole('textbox', { name: 'Other' }).fill('Unless the ids tie too');
+    await first.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: join(OUT, `${scheme}-quiz-step-2.png`) });
+    await first.getByRole('button', { name: 'Send' }).click();
+    await first.locator('.quiz-debrief').waitFor();
+    const answered = await waited;
+    await first.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: join(OUT, `${scheme}-quiz-graded.png`) });
+
+    // The second quiz answers the page, and the hidden line shows.
+    const second = agent.wait(answered.next);
+    await quiz.getByRole('radio').nth(3).check();
+    await quiz.getByRole('button', { name: 'Send' }).click();
+    await quiz.locator('.quiz-debrief').waitFor();
+    const both = await second;
+    await page.locator('.syllabus-page[data-state="answered"]').waitFor();
+    await quiz.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: join(OUT, `${scheme}-quiz-answered.png`) });
+    await excerpt.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: join(OUT, `${scheme}-excerpt-shown.png`) });
+
     // Next, and the agent at work on the page after.
+    const waitedNext = agent.wait(both.next);
+    await page.locator('.agent-pill', { hasText: 'Agent connected' }).waitFor();
     await page.getByRole('button', { name: 'Next' }).click();
-    const { next } = await waited;
+    const { next } = await waitedNext;
     await agent.status('Writing page 2: the vote');
     const end = page.locator('.page-end', { hasText: 'Writing page 2' });
     await end.waitFor();
