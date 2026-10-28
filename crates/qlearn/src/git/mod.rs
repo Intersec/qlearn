@@ -1,6 +1,7 @@
 //! Everything the tool reads from git.
 
 pub mod exec;
+pub mod object;
 
 use std::os::unix::ffi::OsStrExt;
 use std::path::Path;

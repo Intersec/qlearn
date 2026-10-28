@@ -76,6 +76,12 @@ impl Git {
 
         Ok((out.status.success(), text))
     }
+
+    /// Run git and return its output whatever its exit code. An error means
+    /// that git did not run or did not finish.
+    pub async fn run<S: AsRef<OsStr>>(&self, args: &[S]) -> Result<std::process::Output> {
+        raw(&self.root, args).await
+    }
 }
 
 async fn run_in<S: AsRef<OsStr>>(dir: &Path, args: &[S]) -> Result<std::process::Output> {
@@ -87,7 +93,7 @@ async fn run_in<S: AsRef<OsStr>>(dir: &Path, args: &[S]) -> Result<std::process:
     Ok(out)
 }
 
-fn failure<S: AsRef<OsStr>>(args: &[S], out: &std::process::Output) -> anyhow::Error {
+pub(crate) fn failure<S: AsRef<OsStr>>(args: &[S], out: &std::process::Output) -> anyhow::Error {
     let err = String::from_utf8_lossy(&out.stderr);
     anyhow!("`git {}` failed: {}", describe(args), err.trim())
 }
@@ -111,6 +117,9 @@ async fn raw_within<S: AsRef<OsStr>>(
         .env("GIT_PAGER", "cat")
         .env("GIT_TERMINAL_PROMPT", "0")
         .env("LC_ALL", "C")
+        // In a partial clone, git fetches a missing object from the promisor
+        // remote. qlearn calls no network service and changes no repository.
+        .env("GIT_NO_LAZY_FETCH", "1")
         // The timeout drops the child. A stuck git must not live on after
         // its call has failed.
         .kill_on_drop(true);

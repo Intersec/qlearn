@@ -4,7 +4,7 @@
 //! `git` binary. A mock agrees with the code that wrote it, not with git.
 
 use std::cell::Cell;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
 use tempfile::TempDir;
@@ -19,6 +19,8 @@ pub struct Commit {
     subject: String,
     files: Vec<(String, String)>,
     deletes: Vec<String>,
+    submodules: Vec<(String, PathBuf)>,
+    gitlinks: Vec<(String, String)>,
 }
 
 pub fn commit(subject: &str) -> Commit {
@@ -26,6 +28,8 @@ pub fn commit(subject: &str) -> Commit {
         subject: subject.to_owned(),
         files: Vec::new(),
         deletes: Vec::new(),
+        submodules: Vec::new(),
+        gitlinks: Vec::new(),
     }
 }
 
@@ -38,6 +42,22 @@ impl Commit {
 
     pub fn delete(mut self, path: &str) -> Self {
         self.deletes.push(path.to_owned());
+        self
+    }
+
+    /// Add `source` as a submodule at `path`, at its `HEAD`, with the
+    /// submodules of `source` checked out too.
+    pub fn submodule(mut self, path: &str, source: &Repo) -> Self {
+        self.submodules
+            .push((path.to_owned(), source.path().to_path_buf()));
+        self
+    }
+
+    /// Point the submodule at `path` to `sha` in the tree, and leave its
+    /// checkout as it is. The submodule may not hold `sha`, as when a
+    /// colleague pushed a commit of the submodule that was never fetched.
+    pub fn gitlink(mut self, path: &str, sha: &str) -> Self {
+        self.gitlinks.push((path.to_owned(), sha.to_owned()));
         self
     }
 }
@@ -87,8 +107,19 @@ impl Repo {
         String::from_utf8_lossy(&out.stdout).trim().to_owned()
     }
 
+    /// Run a git command that clones from a local path.
+    ///
+    /// git refuses the file protocol for a submodule by default. The global
+    /// config is cut off from the fixture, so the setting goes on the
+    /// command alone.
+    pub async fn git_clone(&self, args: &[&str]) -> String {
+        let mut all = vec!["-c", "protocol.file.allow=always"];
+        all.extend_from_slice(args);
+        self.git(&all).await
+    }
+
     /// Add one commit to the repository as it stands.
-    async fn add(&self, spec: &Commit) {
+    pub async fn commit(&self, spec: &Commit) {
         for (path, content) in &spec.files {
             let full = self.path().join(path);
             if let Some(parent) = full.parent() {
@@ -99,8 +130,29 @@ impl Repo {
         for path in &spec.deletes {
             std::fs::remove_file(self.path().join(path)).unwrap();
         }
+        for (path, source) in &spec.submodules {
+            let source = source.to_str().unwrap();
+            self.git_clone(&["submodule", "add", "--quiet", source, path])
+                .await;
+            self.git_clone(&[
+                "submodule",
+                "update",
+                "--quiet",
+                "--init",
+                "--recursive",
+                "--",
+                path,
+            ])
+            .await;
+        }
 
         self.git(&["add", "-A"]).await;
+        // After `add -A`: it would stage the commit that the submodule has
+        // checked out.
+        for (path, sha) in &spec.gitlinks {
+            let info = format!("160000,{sha},{path}");
+            self.git(&["update-index", "--cacheinfo", &info]).await;
+        }
 
         // A fixed, increasing clock, one minute per commit. A test that
         // depends on the wall clock is a test that fails on a Monday. Both
@@ -133,6 +185,33 @@ pub async fn build_repo(commits: &[Commit]) -> Repo {
 
     repo.git(&["init", "--quiet", "--initial-branch=main", "."])
         .await;
+    configure(&repo).await;
+
+    for spec in commits {
+        repo.commit(spec).await;
+    }
+    repo
+}
+
+/// Clone `source` with the `git clone` options in `args`, such as a
+/// `--filter` for a partial clone.
+///
+/// The URL is `file://`: git ignores a filter in a clone from a plain path.
+pub async fn clone_repo(source: &Repo, args: &[&str]) -> Repo {
+    let repo = Repo {
+        dir: tempfile::tempdir().unwrap(),
+        clock: Cell::new(0),
+    };
+    let url = format!("file://{}", source.path().display());
+    let mut all = vec!["clone", "--quiet"];
+    all.extend_from_slice(args);
+    all.extend_from_slice(&[&url, "."]);
+    repo.git_clone(&all).await;
+    configure(&repo).await;
+    repo
+}
+
+async fn configure(repo: &Repo) {
     repo.git(&["config", "user.name", AUTHOR]).await;
     repo.git(&["config", "user.email", EMAIL]).await;
     repo.git(&["config", "commit.gpgsign", "false"]).await;
@@ -148,11 +227,6 @@ pub async fn build_repo(commits: &[Commit]) -> Repo {
         .await;
     repo.git(&["config", "core.attributesFile", "/dev/null"])
         .await;
-
-    for spec in commits {
-        repo.add(spec).await;
-    }
-    repo
 }
 
 #[cfg(test)]
@@ -207,5 +281,43 @@ mod tests {
 
         let files = repo.git(&["ls-tree", "-r", "--name-only", "HEAD"]).await;
         assert_eq!(files, "src/b.txt");
+    }
+
+    #[tokio::test]
+    async fn a_submodule_is_checked_out_at_the_head_of_its_source() {
+        let lib = build_repo(&[commit("lib").file("lib.c", "int x;\n")]).await;
+        let top = build_repo(&[commit("add lib").submodule("vendor/lib", &lib)]).await;
+
+        let entry = top.git(&["ls-tree", "HEAD", "vendor/lib"]).await;
+        assert_eq!(
+            entry,
+            format!("160000 commit {}\tvendor/lib", lib.sha("HEAD").await)
+        );
+        let text = std::fs::read_to_string(top.path().join("vendor/lib/lib.c")).unwrap();
+        assert_eq!(text, "int x;\n");
+    }
+
+    #[tokio::test]
+    async fn a_gitlink_can_name_a_commit_that_the_submodule_does_not_hold() {
+        let lib = build_repo(&[commit("one").file("lib.c", "1\n")]).await;
+        let top = build_repo(&[commit("add lib").submodule("vendor/lib", &lib)]).await;
+        lib.commit(&commit("two").file("lib.c", "2\n")).await;
+        let two = lib.sha("HEAD").await;
+
+        top.commit(&commit("bump lib").gitlink("vendor/lib", &two))
+            .await;
+
+        let entry = top.git(&["ls-tree", "HEAD", "vendor/lib"]).await;
+        assert_eq!(entry, format!("160000 commit {two}\tvendor/lib"));
+        let objects = top
+            .git(&[
+                "-C",
+                "vendor/lib",
+                "cat-file",
+                "--batch-all-objects",
+                "--batch-check=%(objectname)",
+            ])
+            .await;
+        assert!(!objects.contains(&two), "the submodule holds {two}");
     }
 }
