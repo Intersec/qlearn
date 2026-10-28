@@ -1,0 +1,150 @@
+# qlearn — working notes for Claude
+
+qlearn shows a course on a code base in the browser. An agent in a terminal
+builds the course and teaches it through commands of the binary. Rust for
+the binary, Vue 3 for the interface, embedded in that binary. It ships as
+one file and needs no runtime.
+
+Nothing is coded yet. [README.md](./README.md) says what the tool will be.
+[`roadmap/`](./roadmap/README.md) holds the design. This file holds what a
+session must do.
+
+## Start of a session
+
+1. Take the task the user names. The order of the work is section 14 of
+   [`roadmap/design.md`](./roadmap/design.md).
+2. Read the part of `design.md` that the task touches.
+3. Do the task.
+
+Do not start a task that the user did not ask for.
+
+## Before you finish
+
+Leave this green:
+
+```sh
+make check   # eslint + prettier + vitest + vite build
+             # + cargo fmt + clippy + cargo test + release build
+             # + playwright
+```
+
+`check` is the whole gate and the only command to run. It prints one line per
+step and stays quiet until a step fails. Do not pipe it through `tail` or
+`grep`. A Prettier failure carries no word that you can grep for.
+
+Fix the format with `make fmt`.
+
+**You cannot see the interface. `make shots` can.** It writes screenshots of
+both themes into `web/e2e/.shots`, from the real binary on a real repository.
+Look at them before saying that a visual change works.
+
+## The design is a contract
+
+[`roadmap/design.md`](./roadmap/design.md) holds the course model, the format
+of a page, the storage format, the API routes, the commands of the agent and
+the export format. Other code depends on them.
+
+If the task needs a different design, stop and report. Name what breaks and
+propose the change. Once the user agrees, write the decision in
+[`roadmap/stack.md`](./roadmap/stack.md) with the date, then write the code.
+Never change the design in silence.
+
+Four parts are contracts with something outside the code:
+
+- **The storage format** is read by a future version of the tool. A change
+  owes a `version` bump and a migration.
+- **The format of a page** is written by an agent. A change breaks the
+  procedure that the agent follows.
+- **The procedure of the agent** says how to teach a course and how to
+  drive the page. It names the commands of the binary. A test fails when it
+  names a command that the binary does not have.
+- **The Markdown export of the cheatsheet** is read by a wiki. A snapshot
+  test pins it.
+
+## Tests
+
+Read [`roadmap/testing.md`](./roadmap/testing.md). The rules that a session
+breaks most often:
+
+- A unit test sits in the file it tests, in `#[cfg(test)] mod tests`.
+- **No network in a test.**
+- **No mock of the `git` binary.** Git code runs against a real repository,
+  with a submodule, built by `testutil::build_repo` in a temporary directory.
+- A bug gets a test before the fix. The commit carries both.
+- Read a changed `insta` snapshot before you accept it.
+
+## Code style
+
+`rustfmt` and `clippy` own the Rust style, ESLint and Prettier own the
+interface. `make check` gates all four, and clippy runs with `-D warnings`, so
+a warning is an error.
+
+Never silence a lint with an `#[allow]` without a comment on the line above
+that says why.
+
+Two rules that no tool enforces:
+
+- Code comments **in English** and **short**. One line where it fits.
+- A comment says **why**, not what. The code says what.
+
+## Rules that hold from the first line
+
+- **The server writes under `.learn/` only.** Its one other write is the line
+  `.learn/` in `.git/info/exclude`, when git does not ignore the directory.
+  It never runs a command that changes the repository.
+- **The server is the only writer of the store**, except for `notes/`. The
+  agent writes through the commands of the binary.
+- **The server binds `127.0.0.1` only**, with a session token. Beside it, a
+  Unix socket in a directory that only the user can enter, for an agent in a
+  sandbox, with the same token.
+- **An excerpt is read, never typed.** The server reads its lines in the
+  object database, submodules included, and refuses a page whose excerpt
+  does not match the code.
+- **No script of the agent in the page.** The server escapes the HTML of a
+  source, and the page passes every HTML string through DOMPurify. If steps
+  are not enough, add a widget of the page, with data in JSON.
+- **Nothing in the page gives a quiz away.** The right option of a choice
+  stays on the server until the learner sends the choices. A hidden line
+  stays there until the learner answers every quiz of the page.
+- **An answer of the learner is never lost.** A syllabus that drops a page
+  with content is refused. A thread whose block is gone moves to the end of
+  the page.
+- **`git` is a child process**, never a library. The tool must agree with what
+  the developer sees in the terminal.
+- **The binary carries the interface and the procedure.** A release build
+  embeds `web/dist` and `agent/skill.md`. `skills/qlearn/SKILL.md` holds no
+  procedure: it runs `qlearn skill`.
+- **qlearn never starts an agent and never calls a network service.**
+
+## Established patterns
+
+This section fills as the code grows. Add a line when a pattern becomes the
+way the project does a thing. Keep each line short.
+
+## Git workflow
+
+- **Never push, never merge.** The user publishes. A rebase of the current
+  branch is expected.
+- **Commit at every task**, so the user tests each step alone.
+- **Amend rather than stack** while the commit is only on your branch. A
+  commit that is on `main` is public. Add a new commit instead.
+
+## Commits
+
+- Say the **why**. A subject alone is enough only for a trivial change.
+- English, imperative. Subject 72 characters or less, body wrapped at 72.
+- A Conventional Commits prefix in the subject: `feat`, `fix`, `docs`, `test`,
+  `refactor`, `perf`, `chore`, `ci`, `style`.
+- End with a `Co-Authored-By: Claude …` trailer.
+
+## Documentation
+
+`roadmap/` holds the design, the decisions, and the test policy.
+`README.md` holds the use.
+
+**This is an open-source project.** Write for a reader who has never seen
+your code base. Never commit the name of a host, a repository, a branch, or
+a service that belongs to one organization. Examples use `myproject`.
+
+Write in English, in short sentences, with one term per concept. The public
+repository on GitHub does not exist yet, so no document holds its URL.
