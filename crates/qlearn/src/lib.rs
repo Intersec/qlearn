@@ -6,6 +6,8 @@
 
 pub mod assets;
 pub mod git;
+pub mod model;
+pub mod store;
 pub mod version;
 
 #[cfg(test)]
