@@ -1,0 +1,15 @@
+---
+source: crates/qlearn/src/lesson/mod.rs
+description: "> A quote with no marker stays text.\n\n>\n> [!hook] on the second line of a quote is no marker.\n\n> [link] [!hook] in the middle of a line is no marker.\n\n> [!not a word] stays text too.\n\n> \\[!hook] stays text: the escape keeps the brackets.\n\n> \\[!tip] stays text too, though tip is no callout.\n\n> &#91;!hook] stays text: an entity is no marker.\n\n> [!hoo&#107;] stays text for the same reason.\n"
+---
+title: (none)
+
+text 726a49ad2bf7
+<blockquote><p>A quote with no marker stays text.</p></blockquote>
+<blockquote><p>[!hook] on the second line of a quote is no marker.</p></blockquote>
+<blockquote><p>[link] [!hook] in the middle of a line is no marker.</p></blockquote>
+<blockquote><p>[!not a word] stays text too.</p></blockquote>
+<blockquote><p>[!hook] stays text: the escape keeps the brackets.</p></blockquote>
+<blockquote><p>[!tip] stays text too, though tip is no callout.</p></blockquote>
+<blockquote><p>[!hook] stays text: an entity is no marker.</p></blockquote>
+<blockquote><p>[!hook] stays text for the same reason.</p></blockquote>

@@ -48,6 +48,12 @@ test('an agent teaches a lesson of two pages', async ({ page }) => {
   await expect(lesson.locator('.md-doc').getByRole('table')).toContainText('becomes a candidate');
   await expect(page).toHaveURL(/#page=1$/);
 
+  // A callout draws its marker, and its text holds no marker.
+  const pitfall = lesson.locator('.callout[data-marker="pitfall"]');
+  await expect(pitfall.locator('.callout-name')).toHaveText('Pitfall');
+  await expect(pitfall.locator('.callout-body code').first()).toHaveText('base');
+  await expect(pitfall).not.toContainText('[!pitfall]');
+
   // The fence comes in colors: the server marks the tokens, the theme
   // colors them.
   const fence = lesson.locator('pre');

@@ -1,6 +1,0 @@
----
-source: crates/qlearn/src/lesson/mod.rs
-description: "> [!hook]\n> A leader is elected for a term, never forever.\n"
----
-refused
-refused-callout.md:1: callout: this release of qlearn does not support callout blocks yet

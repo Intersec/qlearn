@@ -21,7 +21,7 @@ lines: 1-10
 graph LR
 ```
 
-> [!pitfall]
+> [!tip]
 > Two leaders in one term.
 
 ```steps

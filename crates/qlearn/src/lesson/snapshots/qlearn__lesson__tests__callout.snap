@@ -1,0 +1,28 @@
+---
+source: crates/qlearn/src/lesson/mod.rs
+description: "# The election\n\nA follower that hears no leader starts an election.\n\n> [!hook]\n> One term, one vote, one leader.\n\n> [!teaser]\n> Lesson 4 shows what the leader does with its term.\n\nThe text after a callout opens a new block.\n\n> [!pitfall]\n> A server that restarts forgets its vote unless it wrote it to disk.\n\n> [!NOTE] The text on the line of the marker opens the callout.\n> The case of the marker does not count.\n\n> [!note]\n>\n> A blank line after the marker leaves no empty paragraph.\n"
+---
+title: The election
+
+text ce9952c368b6
+<h1>The election</h1>
+<p>A follower that hears no leader starts an election.</p>
+
+callout b464984b1cf7 hook
+<p>One term, one vote, one leader.</p>
+
+callout 202a5a8c70e5 teaser
+<p>Lesson 4 shows what the leader does with its term.</p>
+
+text 8e35f2bcc828
+<p>The text after a callout opens a new block.</p>
+
+callout 34f838c0e134 pitfall
+<p>A server that restarts forgets its vote unless it wrote it to disk.</p>
+
+callout c6491c271b00 note
+<p>The text on the line of the marker opens the callout.
+The case of the marker does not count.</p>
+
+callout db33c50094f6 note
+<p>A blank line after the marker leaves no empty paragraph.</p>

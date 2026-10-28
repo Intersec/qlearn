@@ -417,6 +417,13 @@ pub enum Block {
     /// heading. The HTML is written by the server, from a short list of
     /// tags.
     Text { id: String, html: String },
+    /// A quote that opens with a marker, drawn as a box. The HTML holds no
+    /// marker: the page draws it itself.
+    Callout {
+        id: String,
+        marker: Marker,
+        html: String,
+    },
     /// Lines of the repository, read by the server at the push.
     Excerpt { id: String, excerpt: Excerpt },
 }
@@ -424,8 +431,43 @@ pub enum Block {
 impl Block {
     pub fn id(&self) -> &str {
         match self {
-            Self::Text { id, .. } | Self::Excerpt { id, .. } => id,
+            Self::Text { id, .. } | Self::Callout { id, .. } | Self::Excerpt { id, .. } => id,
         }
+    }
+}
+
+/// The marker of a callout: `[!hook]`, `[!teaser]`, `[!pitfall]` or
+/// `[!note]` on the first line of a quote.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum Marker {
+    /// A short way to remember.
+    Hook,
+    /// A link to a later lesson.
+    Teaser,
+    /// A trap of the code.
+    Pitfall,
+    Note,
+}
+
+impl Marker {
+    pub const ALL: [Self; 4] = [Self::Hook, Self::Teaser, Self::Pitfall, Self::Note];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Hook => "hook",
+            Self::Teaser => "teaser",
+            Self::Pitfall => "pitfall",
+            Self::Note => "note",
+        }
+    }
+
+    /// The marker that a word names. Case does not count, as in the alerts
+    /// of GitHub.
+    pub fn of_word(word: &str) -> Option<Self> {
+        Self::ALL
+            .into_iter()
+            .find(|marker| marker.as_str().eq_ignore_ascii_case(word))
     }
 }
 
@@ -809,6 +851,27 @@ mod tests {
             serde_json::to_value(&block).unwrap(),
             json!({ "id": "0123456789ab", "kind": "text", "html": "<p>One.</p>" })
         );
+    }
+
+    #[test]
+    fn a_callout_block_has_the_shape_of_the_contract() {
+        let block = Block::Callout {
+            id: "0123456789ab".to_owned(),
+            marker: Marker::Pitfall,
+            html: "<p>Two leaders.</p>".to_owned(),
+        };
+
+        assert_eq!(
+            serde_json::to_value(&block).unwrap(),
+            json!({ "id": "0123456789ab", "kind": "callout", "marker": "pitfall",
+                    "html": "<p>Two leaders.</p>" })
+        );
+        for marker in Marker::ALL {
+            assert_eq!(
+                serde_json::to_value(marker).unwrap(),
+                json!(marker.as_str())
+            );
+        }
     }
 
     #[test]

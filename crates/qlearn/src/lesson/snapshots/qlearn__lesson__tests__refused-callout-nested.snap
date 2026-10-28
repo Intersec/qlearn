@@ -1,0 +1,8 @@
+---
+source: crates/qlearn/src/lesson/mod.rs
+description: "- A callout in a list:\n\n  > [!hook]\n  > One term, one vote.\n\n> [!note]\n> > [!pitfall]\n> > A callout in a callout.\n\n- > [!tpi]\n  > A typo in a list.\n"
+---
+refused
+refused-callout-nested.md:3: callout: a callout cannot sit inside a list or a quote: put it at the top level of the page
+refused-callout-nested.md:7: callout: a callout cannot sit inside a list or a quote: put it at the top level of the page
+refused-callout-nested.md:10: callout: [!tpi] is not a callout: write [!hook], [!teaser], [!pitfall] or [!note]

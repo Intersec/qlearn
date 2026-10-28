@@ -1,0 +1,6 @@
+---
+source: crates/qlearn/src/lesson/mod.rs
+description: "> [!hook]\n\nSome text.\n"
+---
+refused
+refused-callout-empty.md:1: callout: the quote holds only its marker: write the text of the callout under it

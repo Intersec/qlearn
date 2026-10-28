@@ -78,6 +78,17 @@ export interface TextBlock {
   html: string;
 }
 
+/** The marker on the first line of a callout, such as `[!hook]`. */
+export type Marker = 'hook' | 'teaser' | 'pitfall' | 'note';
+
+/** A quote that opens with a marker. The HTML holds no marker: the page draws it. */
+export interface CalloutBlock {
+  id: string;
+  kind: 'callout';
+  marker: Marker;
+  html: string;
+}
+
 /** Lines of the repository, read by the server at the push. */
 export interface ExcerptBlock {
   id: string;
@@ -85,7 +96,7 @@ export interface ExcerptBlock {
   excerpt: Excerpt;
 }
 
-export type Block = TextBlock | ExcerptBlock;
+export type Block = TextBlock | CalloutBlock | ExcerptBlock;
 
 export interface Excerpt {
   /** From the top level directory of the worktree. */

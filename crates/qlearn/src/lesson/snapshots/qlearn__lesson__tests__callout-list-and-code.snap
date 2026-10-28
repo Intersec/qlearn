@@ -1,0 +1,8 @@
+---
+source: crates/qlearn/src/lesson/mod.rs
+description: "> [!pitfall]\n> Two calls of `grant_vote()` in one term:\n>\n> - the first one sets `s->voted_for`;\n> - the second one returns **false**, unless the same candidate asks.\n>\n> ```c\n> grant_vote(s, 6, 1);\n> ```\n>\n> > A plain quote inside a callout stays a quote.\n"
+---
+title: (none)
+
+callout 2562b0630f1e pitfall
+<p>Two calls of <code>grant_vote()</code> in one term:</p><ul><li>the first one sets <code>s-&gt;voted_for</code>;</li><li>the second one returns <strong>false</strong>, unless the same candidate asks.</li></ul><pre class="md-code"><code><span class="tok-variable tok-function">grant_vote</span><span class="tok-punctuation tok-section">(</span>s<span class="tok-punctuation tok-separator">,</span> <span class="tok-constant tok-numeric">6</span><span class="tok-punctuation tok-separator">,</span> <span class="tok-constant tok-numeric">1</span><span class="tok-punctuation tok-section">)</span><span class="tok-punctuation tok-terminator">;</span></code></pre><blockquote><p>A plain quote inside a callout stays a quote.</p></blockquote>

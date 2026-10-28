@@ -199,7 +199,7 @@ The server splits the source into blocks with `pulldown-cmark`:
 | Block | Source | What the page draws |
 |---|---|---|
 | `text` | Paragraphs, lists, tables, headings, inline code, fences of code | Markdown, with the tables styled and the fences colored |
-| `callout` | `> [!hook]`, `> [!teaser]`, `> [!pitfall]`, `> [!note]` | A box with its marker: 🧠 for a hook, 🔭 for a teaser, ⚠️ for a pitfall |
+| `callout` | `> [!hook]`, `> [!teaser]`, `> [!pitfall]`, `> [!note]` | A box with its marker: 🧠 for a hook, 🔭 for a teaser, ⚠️ for a pitfall, ℹ️ for a note |
 | `excerpt` | A fence with the info string `excerpt` | Lines of the repository, with colors, a header `path:from-to`, and a short commit hash |
 | `diagram` | A fence with the info string `mermaid` | An SVG drawn by Mermaid |
 | `chart` | A fence with the info string `chart` | An SVG chart (section 4.4) |
@@ -208,6 +208,11 @@ The server splits the source into blocks with `pulldown-cmark`:
 
 Consecutive text forms one `text` block. A heading starts a new one, so a
 thread can name a section.
+
+The marker of a callout opens the first line of a quote. The server refuses
+any other marker in the `[!word]` form, such as `[!tip]`, so that a typo
+does not become a plain quote. It also refuses a callout inside a list or a
+quote, and a callout with only its marker. An escaped `\[!hook]` stays text.
 
 **A fence of code.** A fence whose info string names no block kind stays in
 the `text` block, for a command or a sketch of code. The server colors it

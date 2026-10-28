@@ -5,8 +5,8 @@ write the pages of the course. The learner reads them and presses **Next**
 when they want the next page. Everything goes through `qlearn` commands.
 Never edit the files under `.learn/` by hand.
 
-This release knows pages of text, excerpts of the code, and the **Next**
-button. It has no quiz and no syllabus yet.
+This release knows pages of text, callouts, excerpts of the code, and the
+**Next** button. It has no quiz and no syllabus yet.
 
 ## Start
 
@@ -118,16 +118,41 @@ A page is Markdown. This release takes:
 - Code fences. The info string names the language, such as `c` or
   `rust`, and the page colors the code. The page shows a fence with no
   path and no commit, so use it for a command or a sketch.
+- Callouts (see "Callouts").
 - Excerpts of the repository (see "Show the code").
 
 This release refuses these blocks, with an error at their line:
 
 - A fence with the info string `mermaid`, `chart` or `steps`.
-- A callout: a quote whose first line is `[!hook]`, `[!teaser]`,
-  `[!pitfall]` or `[!note]`.
 - An image, `![alt](path)`, alone in a paragraph.
 
 The server escapes raw HTML, so it shows as text. Write no HTML.
+
+## Callouts
+
+A callout is a quote whose first line is a marker. The page draws it as a
+box with the sign of its marker.
+
+| Marker | Sign | What it holds |
+|---|---|---|
+| `[!hook]` | 🧠 | A short way to remember the idea of the page |
+| `[!teaser]` | 🔭 | A link to a later lesson: what the learner will see there |
+| `[!pitfall]` | ⚠️ | A trap of the code: what goes wrong, and when |
+| `[!note]` | ℹ️ | Anything else that stands apart from the text |
+
+```
+> [!pitfall]
+> A server that restarts forgets its vote, unless `grant_vote` wrote it
+> to disk first. It can then vote twice in one term.
+```
+
+- A callout holds text, lists, `inline code` and fences of code. It holds
+  no excerpt and no other block: put those at the top level of the page.
+- Put a callout at the top level of the page, not inside a list or another
+  quote.
+- The server refuses any other marker, such as `[!tip]` or `[!WARNING]`.
+  A quote with no marker stays a plain quote.
+- Keep a callout short: one idea, two or three lines.
 
 ## Show the code
 

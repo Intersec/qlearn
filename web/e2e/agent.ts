@@ -56,7 +56,10 @@ export interface Waited {
   reset?: boolean;
 }
 
-/** The first page of the lesson: text, a table, a fence of C, and an excerpt. */
+/**
+ * The first page of the lesson: text, a table, a fence of C, callouts, and
+ * an excerpt.
+ */
 export const PAGE_1 = `# The election timer
 
 A follower that hears no leader for a while starts an election. The
@@ -82,6 +85,18 @@ int election_timeout(int base)
 
 With one fixed timeout, every follower would start an election at the same
 time, and the votes would split again and again.
+
+> [!hook]
+> A random wait breaks the tie: the first follower to wake up wins.
+
+> [!pitfall]
+> A \`base\` of 0 makes \`rand() % base\` divide by zero:
+>
+> - the follower crashes at its first timeout;
+> - the cluster then loses one voter.
+
+> [!teaser]
+> Lesson 3 shows what the leader does with its term.
 
 ## In the repository
 

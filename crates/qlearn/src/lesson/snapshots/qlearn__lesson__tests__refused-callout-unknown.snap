@@ -1,0 +1,7 @@
+---
+source: crates/qlearn/src/lesson/mod.rs
+description: "# Unknown markers\n\n> [!tip]\n> A typo of a marker is refused, so it does not show as text.\n\nSome text.\n\n> [!WARNING]\n> The alerts of GitHub are no callouts.\n"
+---
+refused
+refused-callout-unknown.md:3: callout: [!tip] is not a callout: write [!hook], [!teaser], [!pitfall] or [!note]
+refused-callout-unknown.md:8: callout: [!WARNING] is not a callout: write [!hook], [!teaser], [!pitfall] or [!note]

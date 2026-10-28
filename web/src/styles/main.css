@@ -37,6 +37,16 @@
   --marked: #fef7e0;
   --marked-edge: #f9ab00;
 
+  /* A callout, by its marker. */
+  --hook: #f6efff;
+  --hook-edge: #a142f4;
+  --teaser: #e6f6f8;
+  --teaser-edge: #129eaf;
+  --pitfall: #fff1e6;
+  --pitfall-edge: #e8710a;
+  --note: #f1f3f4;
+  --note-edge: #80868b;
+
   --code-font:
     'Roboto Mono', ui-monospace, 'SF Mono', 'JetBrains Mono', 'Fira Code', Consolas, monospace;
   --code-size: 13px;
@@ -82,6 +92,15 @@
     --tok-invalid-ink: #131416;
     --marked: #2e2a1a;
     --marked-edge: #fdd663;
+
+    --hook: #231a30;
+    --hook-edge: #c58af9;
+    --teaser: #102a2e;
+    --teaser-edge: #78d9ec;
+    --pitfall: #2e1f12;
+    --pitfall-edge: #fcad70;
+    --note: #1f2124;
+    --note-edge: #9aa0a6;
   }
 }
 
@@ -115,6 +134,15 @@
   --tok-invalid-ink: #131416;
   --marked: #2e2a1a;
   --marked-edge: #fdd663;
+
+  --hook: #231a30;
+  --hook-edge: #c58af9;
+  --teaser: #102a2e;
+  --teaser-edge: #78d9ec;
+  --pitfall: #2e1f12;
+  --pitfall-edge: #fcad70;
+  --note: #1f2124;
+  --note-edge: #9aa0a6;
 }
 
 html,
@@ -451,6 +479,54 @@ body {
   margin: 1.5em 0;
   border: 0;
   border-top: 2px solid var(--edge);
+}
+
+/* --------------------------------------------------------- the callout */
+
+/* A box with its marker. Each marker sets the two tokens of the box. */
+.callout {
+  --callout: var(--note);
+  --callout-edge: var(--note-edge);
+  margin: 0 0 0.9em;
+  padding: 8px 14px 2px;
+  border: 1px solid var(--edge-soft);
+  border-left: 4px solid var(--callout-edge);
+  border-radius: 4px;
+  background: var(--callout);
+}
+.callout[data-marker='hook'] {
+  --callout: var(--hook);
+  --callout-edge: var(--hook-edge);
+}
+.callout[data-marker='teaser'] {
+  --callout: var(--teaser);
+  --callout-edge: var(--teaser-edge);
+}
+.callout[data-marker='pitfall'] {
+  --callout: var(--pitfall);
+  --callout-edge: var(--pitfall-edge);
+}
+.callout-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 4px;
+  color: var(--callout-edge);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.callout-sign {
+  font-size: 15px;
+  letter-spacing: 0;
+}
+/* The box already sets the body apart: a quote, a fence or a table inside
+   it keeps its own frame, on the page color. */
+.callout-body pre,
+.callout-body tbody tr:nth-child(even) td,
+.callout-body th {
+  background: var(--page);
 }
 
 /* --------------------------------------------------------- the excerpt */

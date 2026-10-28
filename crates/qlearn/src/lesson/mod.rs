@@ -18,7 +18,7 @@ use sha2::{Digest, Sha256};
 
 use crate::git::exec::Git;
 use crate::highlight::Highlighter;
-use crate::model::{Block, Line, Span};
+use crate::model::{Block, Line, Marker, Span};
 
 /// A page that passed every check.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -58,9 +58,6 @@ const FENCES: [(&str, &str); 4] = [
     ("chart", "chart"),
     ("steps", "steps"),
 ];
-
-/// The markers of a callout, on the first line of a quote.
-const CALLOUTS: [&str; 4] = ["hook", "teaser", "pitfall", "note"];
 
 /// One event of the parser, with the bytes of the source that it covers.
 type Item<'a> = (Event<'a>, Range<usize>);
@@ -145,10 +142,18 @@ fn split(source: &str, highlighter: &Highlighter) -> (Vec<Piece>, Option<String>
         let range = node[0].1.clone();
 
         // A fence of a block kind inside a list or a quote would show code
-        // that the server never checked.
-        for (event, range) in &node[1..] {
+        // that the server never checked. A callout there would show its
+        // marker as text.
+        for (offset, (event, range)) in node.iter().enumerate().skip(1) {
             if let Some(kind) = fence_kind(event) {
                 faults.push(nested(line_of(range.start), kind));
+            }
+            // The marker is in the first events of a quote: a scan to the
+            // end of each nested quote would make deep nesting quadratic.
+            if let Event::Start(Tag::BlockQuote(_)) = event
+                && let Some(opening) = opening(source, &node[offset..])
+            {
+                faults.push(nested_callout(line_of(range.start), &opening.word));
             }
         }
 
@@ -162,6 +167,28 @@ fn split(source: &str, highlighter: &Highlighter) -> (Vec<Piece>, Option<String>
                 page.text(node, highlighter);
             }
             Role::Text => page.text(node, highlighter),
+            Role::Callout(opening) => {
+                // A callout is a block of its own, as a heading starts one.
+                page.close();
+                let line = line_of(range.start);
+                // The blank lines after a quote are not part of it.
+                let quote_source = source[range].trim_end();
+                match Marker::of_word(&opening.word) {
+                    None => faults.push(unknown_marker(line, &opening.word)),
+                    Some(marker) => {
+                        let body = callout_body(node, &opening);
+                        match body.is_empty() {
+                            true => faults.push(empty_callout(line)),
+                            false => {
+                                let html = Writer::new(highlighter).node(&body);
+                                let id = page.id("callout", quote_source);
+                                page.blocks
+                                    .push(Piece::Block(Block::Callout { id, marker, html }));
+                            }
+                        }
+                    }
+                }
+            }
             Role::Excerpt => {
                 page.close();
                 let fence = line_of(range.start);
@@ -226,6 +253,41 @@ fn nested(line: usize, kind: &'static str) -> Fault {
     }
 }
 
+/// A quote in the form of a callout inside a list or a quote.
+fn nested_callout(line: usize, word: &str) -> Fault {
+    match Marker::of_word(word) {
+        Some(_) => Fault {
+            line,
+            kind: "callout",
+            message: "a callout cannot sit inside a list or a quote: put it at the top \
+                      level of the page"
+                .to_owned(),
+        },
+        None => unknown_marker(line, word),
+    }
+}
+
+/// A marker that is no callout. Refused, so that a typo does not turn the
+/// callout into a plain quote that shows its marker as text.
+fn unknown_marker(line: usize, word: &str) -> Fault {
+    Fault {
+        line,
+        kind: "callout",
+        message: format!(
+            "[!{word}] is not a callout: write [!hook], [!teaser], [!pitfall] or [!note]"
+        ),
+    }
+}
+
+fn empty_callout(line: usize) -> Fault {
+    Fault {
+        line,
+        kind: "callout",
+        message: "the quote holds only its marker: write the text of the callout under it"
+            .to_owned(),
+    }
+}
+
 /// The text inside a fence, without its marks.
 fn fence_body(node: &[Item]) -> String {
     node.iter()
@@ -253,6 +315,7 @@ fn fence_kind(event: &Event) -> Option<&'static str> {
 enum Role {
     Heading,
     Text,
+    Callout(Opening),
     Excerpt,
     /// A block of a kind that this release does not draw yet.
     Refused(&'static str),
@@ -267,9 +330,10 @@ fn role(source: &str, node: &[Item]) -> Role {
             None => Role::Text,
         },
         Event::Start(Tag::Paragraph) if is_image_alone(node) => Role::Refused("image"),
-        Event::Start(Tag::BlockQuote(_)) if is_callout(&source[node[0].1.clone()]) => {
-            Role::Refused("callout")
-        }
+        Event::Start(Tag::BlockQuote(_)) => match opening(source, node) {
+            Some(opening) => Role::Callout(opening),
+            None => Role::Text,
+        },
         _ => Role::Text,
     }
 }
@@ -281,21 +345,92 @@ fn is_image_alone(paragraph: &[Item]) -> bool {
         && matching_end(inner, 0) == inner.len() - 1
 }
 
-/// Whether a quote opens with the marker of a callout, such as `[!hook]`.
-fn is_callout(quote: &str) -> bool {
-    let first = quote.lines().next().unwrap_or("");
-    let first = first.trim_start().trim_start_matches('>').trim_start();
-    let Some(marker) = first
-        .strip_prefix("[!")
-        .and_then(|rest| rest.split_once(']'))
-        .map(|(marker, _)| marker)
-    else {
-        return false;
-    };
+/// The `[!word]` that opens a quote.
+///
+/// The GFM alerts of `pulldown-cmark` know only their own five kinds, so the
+/// marker is read here, from the events of the first paragraph.
+struct Opening {
+    word: String,
+    /// How many text events the marker takes, after `Start(Paragraph)`.
+    events: usize,
+    /// The text after `]` in the last of those events.
+    rest: String,
+}
 
-    CALLOUTS
-        .iter()
-        .any(|callout| callout.eq_ignore_ascii_case(marker))
+/// The marker of a quote, when its first line opens with `[!word]`. Any
+/// word counts, so that the caller can refuse one that is no callout. It
+/// reads only the first events, so `quote` may run past the quote's end.
+fn opening(source: &str, quote: &[Item]) -> Option<Opening> {
+    let (Some((Event::Start(Tag::Paragraph), _)), Some((_, first))) = (quote.get(1), quote.get(2))
+    else {
+        return None;
+    };
+    // A quote whose first line is blank is a plain quote.
+    if source[quote[0].1.start..first.start].contains('\n') {
+        return None;
+    }
+
+    // The parser cuts `[!hook]` into `[`, `!hook` and `]`.
+    let mut text = String::new();
+    let mut events = 0;
+    for (event, _) in &quote[2..] {
+        let Event::Text(part) = event else {
+            break;
+        };
+        text.push_str(part);
+        events += 1;
+        if part.contains(']') {
+            break;
+        }
+    }
+    let (word, rest) = text.strip_prefix("[!")?.split_once(']')?;
+    let is_word = !word.is_empty()
+        && word
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+    // The events hold decoded text: an escape or an entity in the source
+    // asks for the brackets as text, as on GitHub.
+    let paragraph = quote[1].1.start;
+    let is_literal = source[paragraph..]
+        .trim_start()
+        .starts_with(&format!("[!{word}]"));
+
+    (is_word && is_literal).then(|| Opening {
+        word: word.to_owned(),
+        events,
+        rest: rest.to_owned(),
+    })
+}
+
+/// The events inside a callout, without its marker. Text after the marker
+/// on its line stays: it opens the body.
+fn callout_body<'a>(quote: &[Item<'a>], opening: &Opening) -> Vec<Item<'a>> {
+    let inner = &quote[1..quote.len() - 1];
+    let mut tail = &inner[1 + opening.events..];
+    let mut body = vec![inner[0].clone()];
+
+    // The text after `]` often comes in an event of its own.
+    let mut rest = (opening.rest.clone(), inner[opening.events].1.clone());
+    if rest.0.is_empty()
+        && let Some((Event::Text(text), range)) = tail.first()
+    {
+        rest = (text.to_string(), range.clone());
+        tail = &tail[1..];
+    }
+    let (rest, range) = rest;
+    let rest = rest.trim_start();
+    if !rest.is_empty() {
+        body.push((Event::Text(rest.to_owned().into()), range));
+    } else if matches!(tail.first(), Some((Event::SoftBreak | Event::HardBreak, _))) {
+        tail = &tail[1..];
+    }
+    body.extend(tail.iter().cloned());
+
+    // A marker alone in its paragraph leaves the paragraph empty.
+    if matches!(body.get(1), Some((Event::End(TagEnd::Paragraph), _))) {
+        body.drain(..2);
+    }
+    body
 }
 
 /// The index of the event that closes the one at `at`. An event that opens
@@ -797,6 +932,9 @@ bool grant_vote(struct server *s, int term, int candidate)
                 for block in &parsed.blocks {
                     match block {
                         Block::Text { id, html } => out.push_str(&format!("\ntext {id}\n{html}\n")),
+                        Block::Callout { id, marker, html } => {
+                            out.push_str(&format!("\ncallout {id} {}\n{html}\n", marker.as_str()))
+                        }
                         Block::Excerpt { id, excerpt } => {
                             out.push_str(&excerpt_outcome(id, excerpt, parsed.hidden.get(id)))
                         }
@@ -969,10 +1107,63 @@ bool grant_vote(struct server *s, int term, int candidate)
             .iter()
             .map(|block| match block {
                 Block::Text { .. } => "text",
+                Block::Callout { .. } => "callout",
                 Block::Excerpt { .. } => "excerpt",
             })
             .collect();
         assert_eq!(kinds, ["text", "excerpt", "text"]);
+    }
+
+    #[tokio::test]
+    async fn a_callout_closes_the_text_block_before_it() {
+        let parsed = plain()
+            .await
+            .parse("One.\n\n> [!hook]\n> A term.\n\nTwo.\n")
+            .await
+            .unwrap();
+
+        let shape: Vec<_> = parsed
+            .blocks
+            .iter()
+            .map(|block| match block {
+                Block::Text { html, .. } => format!("text {html}"),
+                Block::Callout { marker, html, .. } => format!("{} {html}", marker.as_str()),
+                Block::Excerpt { .. } => "excerpt".to_owned(),
+            })
+            .collect();
+        assert_eq!(
+            shape,
+            [
+                "text <p>One.</p>",
+                "hook <p>A term.</p>",
+                "text <p>Two.</p>"
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn the_id_of_a_callout_is_the_hash_of_its_quote() {
+        let quote = "> [!note]\n> A term.";
+        let source = format!("{quote}\n\n{quote}\n");
+
+        assert_eq!(
+            ids(&source).await,
+            [block_id("callout", quote, 1), block_id("callout", quote, 2)]
+        );
+    }
+
+    #[test]
+    fn deep_quotes_in_a_list_parse_in_linear_time() {
+        // Each nested quote once scanned to its own end: this page took
+        // seconds, and a page of the largest size took minutes.
+        let source = format!("- {}x\n", "> ".repeat(40_000));
+        let start = std::time::Instant::now();
+
+        let (pieces, _, faults) = split(&source, Highlighter::shared());
+
+        assert_eq!((pieces.len(), faults.len()), (1, 0));
+        let spent = start.elapsed();
+        assert!(spent < std::time::Duration::from_secs(2), "{spent:?}");
     }
 
     #[tokio::test]

@@ -4,6 +4,7 @@
 import { computed } from 'vue';
 import type { Page } from '@/api/types';
 import { clean } from '@/html';
+import CalloutView from './CalloutView.vue';
 import ExcerptView from './ExcerptView.vue';
 
 const props = defineProps<{ page: Page }>();
@@ -27,6 +28,9 @@ const blocks = computed(() =>
         v-html="block.html"
       />
       <!-- eslint-enable vue/no-v-html -->
+      <section v-else-if="block.kind === 'callout'" class="block" :data-block="block.id">
+        <CalloutView :marker="block.marker" :html="block.html" />
+      </section>
       <section v-else class="block" :data-block="block.id">
         <ExcerptView :excerpt="block.excerpt" />
       </section>

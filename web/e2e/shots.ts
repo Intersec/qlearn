@@ -52,6 +52,10 @@ for (const scheme of ['light', 'dark'] as const) {
     await excerpt.scrollIntoViewIfNeeded();
     await page.screenshot({ path: join(OUT, `${scheme}-excerpt.png`) });
 
+    // The callouts, each with its marker.
+    await page.locator('.callout').first().scrollIntoViewIfNeeded();
+    await page.screenshot({ path: join(OUT, `${scheme}-callouts.png`) });
+
     // Next, and the agent at work on the page after.
     await page.getByRole('button', { name: 'Next' }).click();
     const { next } = await waited;

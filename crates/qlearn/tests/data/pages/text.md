@@ -21,5 +21,4 @@ and a hard break keeps the next one apart.
 An image inside a line is not a block: ![the flow](img/flow.png) and
 ![a logo](https://example.com/logo.png) both stay links.
 
-> [!WARNING]
-> A quote with a marker that is not a callout stays text.
+> A quote with no marker stays text.

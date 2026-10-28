@@ -40,6 +40,23 @@ describe('PageView', () => {
     expect(wrapper.find('.md-code .tok-keyword').text()).toBe('return');
   });
 
+  it('draws a callout between the text blocks', () => {
+    const page: Page = {
+      id: '1',
+      blocks: [
+        { id: 'a', kind: 'text', html: '<p>Before.</p>' },
+        { id: 'b', kind: 'callout', marker: 'teaser', html: '<p>Lesson 4 shows it.</p>' },
+        { id: 'c', kind: 'text', html: '<p>After.</p>' },
+      ],
+    };
+    const wrapper = mount(PageView, { props: { page } });
+
+    const blocks = wrapper.findAll('[data-block]');
+    expect(blocks.map((block) => block.attributes('data-block'))).toEqual(['a', 'b', 'c']);
+    expect(blocks[1].find('.callout').attributes('data-marker')).toBe('teaser');
+    expect(blocks[1].find('.callout-body').text()).toBe('Lesson 4 shows it.');
+  });
+
   it('draws an excerpt between the text blocks', () => {
     const page: Page = {
       id: '1',
