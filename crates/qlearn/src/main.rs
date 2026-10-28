@@ -12,16 +12,19 @@ use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 use clap::Parser;
+use serde_json::Value;
 use time::OffsetDateTime;
 use tokio::net::{TcpListener, UnixListener};
 use tokio::signal::unix::{SignalKind, signal};
 use tokio::sync::watch;
 
 use qlearn::agent::address::Address;
+use qlearn::agent::client::Refusal;
 use qlearn::agent::{self, Claim, Home, socket};
 use qlearn::api::{self, AppState, auth};
 use qlearn::events::Events;
 use qlearn::git::exec::Git;
+use qlearn::model::{CourseChange, CourseStatus, QuizMode};
 use qlearn::status::{self, Agent, Snapshot, Terminal};
 use qlearn::store::{self, Store};
 use qlearn::trace;
@@ -39,10 +42,19 @@ async fn main() -> Result<()> {
         trace::enable();
     }
 
+    // The procedure is the same in any directory, a repository or not.
+    if let Some(cli::Command::Skill) = cli.command {
+        print!("{}", agent::SKILL);
+        return Ok(());
+    }
+
     let cwd = std::env::current_dir().context("cannot read the working directory")?;
     let started = trace::start();
     let git = Git::discover(&cwd).await?;
     trace::since(started, || "find the worktree".to_owned());
+    if let Some(code) = agent_command(&cli, &Home::of(git.root())).await? {
+        std::process::exit(code);
+    }
     let store = Store::at(git.root());
 
     if let Some(cli::Command::List) = cli.command {
@@ -72,6 +84,77 @@ async fn main() -> Result<()> {
     let state = |token, port| AppState::new(store, course, current, token, port);
 
     serve(cli.port, state, cli.no_open, &home, claim).await
+}
+
+/// Run a command of the agent. None when the command is another one.
+///
+/// Each prints what it wrote as JSON, so the agent reads the ids back.
+async fn agent_command(cli: &cli::Cli, home: &Home) -> Result<Option<i32>> {
+    let print = |value: &Value| {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(value).unwrap_or_default()
+        );
+    };
+
+    match &cli.command {
+        Some(cli::Command::Course {
+            title,
+            goal,
+            profile,
+            quiz_mode,
+            status,
+            follow_up,
+        }) => {
+            let change = CourseChange {
+                title: title.clone(),
+                goal: goal.clone(),
+                profile: profile.clone(),
+                quiz_mode: quiz_mode.map(|mode| match mode {
+                    cli::QuizMode::Mixed => QuizMode::Mixed,
+                    cli::QuizMode::Current => QuizMode::Current,
+                }),
+                status: status.map(|status| match status {
+                    cli::Status::Running => CourseStatus::Running,
+                    cli::Status::Finished => CourseStatus::Finished,
+                }),
+                follow_up: follow_up
+                    .as_deref()
+                    .map(|date| (date != "none").then(|| date.to_owned())),
+                author: None,
+            };
+            let client = agent::connect(home).await?;
+            print(&agent::course(&client, change).await?);
+        }
+        Some(cli::Command::Page { id, file }) => {
+            let source = agent::read_file(file)?;
+            let client = agent::connect(home).await?;
+            match agent::page(&client, id, &source, file).await {
+                Ok(page) => print(&page),
+                // One line per error, as the server wrote it, so the agent
+                // reads `<file>:<line>:` at the start of each.
+                Err(error) => match error.downcast_ref::<Refusal>() {
+                    Some(refusal) if refusal.code == "invalidPage" => {
+                        eprintln!("{}", refusal.message);
+                        return Ok(Some(1));
+                    }
+                    _ => return Err(error),
+                },
+            }
+        }
+        Some(cli::Command::Status { text }) => {
+            let client = agent::connect(home).await?;
+            print(&agent::status(&client, text).await?);
+        }
+        Some(cli::Command::Wait { after, timeout }) => {
+            let timeout = Duration::from_secs(*timeout);
+            let (events, any) = agent::wait(home, *after, timeout).await?;
+            print(&events);
+            return Ok(Some(if any { 0 } else { 1 }));
+        }
+        _ => return Ok(None),
+    }
+    Ok(Some(0))
 }
 
 /// Print the server that holds the worktree, as a second qlearn does.

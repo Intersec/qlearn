@@ -1,6 +1,6 @@
 //! The command line.
 
-use clap::{Parser, Subcommand};
+use clap::{ArgGroup, Parser, Subcommand, ValueEnum};
 
 #[derive(Parser, Debug)]
 #[command(name = "qlearn", version = qlearn::version::LONG, about, long_about = None)]
@@ -35,6 +35,78 @@ pub struct Cli {
 pub enum Command {
     /// List the courses of `.learn/`.
     List,
+
+    /// Print the procedure that an agent follows to teach a course with
+    /// this release.
+    Skill,
+
+    /// Change the course, as the agent. Name at least one field.
+    #[command(group(ArgGroup::new("field").required(true).multiple(true)))]
+    Course {
+        /// The subject, as the learner named it.
+        // A text may open with a hyphen, such as a list item.
+        #[arg(long, group = "field", allow_hyphen_values = true)]
+        title: Option<String>,
+        /// What the learner wants to get from the course, in Markdown.
+        #[arg(long, group = "field", allow_hyphen_values = true)]
+        goal: Option<String>,
+        /// The background and the level of the learner, in Markdown.
+        #[arg(long, group = "field", allow_hyphen_values = true)]
+        profile: Option<String>,
+        /// Whether a quiz also asks about the earlier pages.
+        #[arg(long, value_enum, group = "field")]
+        quiz_mode: Option<QuizMode>,
+        /// The course runs, or is finished. Only the creation of a course
+        /// makes it new.
+        #[arg(long, value_enum, group = "field")]
+        status: Option<Status>,
+        /// The date of the follow-up quiz, as YYYY-MM-DD, or `none`.
+        #[arg(long, value_name = "DATE|none", group = "field")]
+        follow_up: Option<String>,
+    },
+
+    /// Push a page, as the agent. A refused page prints every error, each
+    /// with its line, and exits 1.
+    Page {
+        /// The page: `1`, `7a`, `c1` or `f1`.
+        id: String,
+        /// The Markdown source. `-` reads it from standard input.
+        #[arg(long, value_name = "PATH")]
+        file: String,
+    },
+
+    /// Say in the page what the agent does, until its next wait. An empty
+    /// text clears it.
+    Status {
+        // A text may open with a hyphen, such as "- two pages left".
+        #[arg(allow_hyphen_values = true)]
+        text: String,
+    },
+
+    /// Wait for the next request of the learner, and print it as JSON.
+    /// Exits 1 when the time runs out.
+    Wait {
+        /// The `next` number of the last wait. Now by default.
+        #[arg(long)]
+        after: Option<u64>,
+        /// Seconds to wait.
+        #[arg(long, default_value_t = 600)]
+        timeout: u64,
+    },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
+pub enum QuizMode {
+    Mixed,
+    Current,
+}
+
+/// The status that the agent may set. Only the creation of a course makes
+/// it new.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
+pub enum Status {
+    Running,
+    Finished,
 }
 
 #[cfg(test)]
@@ -57,6 +129,132 @@ mod tests {
         assert!(matches!(cli.command, Some(Command::List)));
 
         assert!(Cli::try_parse_from(["qlearn", "raft", "list"]).is_err());
+    }
+
+    /// The subcommands that the procedure names in its code: inline code
+    /// that opens with `qlearn `, and the lines of a code block.
+    fn named_commands(text: &str) -> Vec<String> {
+        let mut found = Vec::new();
+        let mut in_block = false;
+
+        for line in text.lines() {
+            if line.trim_start().starts_with("```") {
+                in_block = !in_block;
+                continue;
+            }
+            let calls: Vec<&str> = match in_block {
+                // A block in a list item is indented.
+                true => line
+                    .trim_start()
+                    .strip_prefix("qlearn ")
+                    .into_iter()
+                    .collect(),
+                false => line.split("`qlearn ").skip(1).collect(),
+            };
+            for call in calls {
+                let word: String = call
+                    .chars()
+                    .take_while(|c| c.is_ascii_lowercase() || *c == '-')
+                    .collect();
+                // An option or a placeholder such as `<slug>` is no command.
+                if !word.is_empty() && !word.starts_with('-') {
+                    found.push(word);
+                }
+            }
+        }
+        found
+    }
+
+    #[test]
+    fn the_procedure_names_only_commands_of_this_release() {
+        let cli = Cli::command();
+        let named = named_commands(qlearn::agent::SKILL);
+
+        assert!(named.contains(&"wait".to_owned()), "{named:?}");
+        for word in named {
+            assert!(
+                cli.find_subcommand(&word).is_some(),
+                "the procedure names `qlearn {word}`, which this release does not have"
+            );
+        }
+    }
+
+    #[test]
+    fn a_placeholder_or_an_option_is_no_command() {
+        let text = "Run `qlearn <slug>` or `qlearn --no-open`.\n```sh\nqlearn wait\n```\n";
+
+        assert_eq!(named_commands(text), ["wait"]);
+    }
+
+    #[test]
+    fn a_block_in_a_list_item_is_checked_too() {
+        let text = "1. Run:\n\n   ```sh\n   qlearn bogus --x\n   ```\n";
+
+        assert_eq!(named_commands(text), ["bogus"]);
+    }
+
+    /// A status or a title may open with a hyphen, such as "- two pages
+    /// left", and is still a text.
+    #[test]
+    fn a_text_that_opens_with_a_hyphen_is_a_text() {
+        let cli = Cli::try_parse_from(["qlearn", "status", "- two pages left"]).unwrap();
+        assert!(
+            matches!(cli.command, Some(Command::Status { ref text }) if text == "- two pages left"),
+            "{cli:?}"
+        );
+
+        let cli = Cli::try_parse_from(["qlearn", "course", "--title", "-1 page", "--goal", "-x"])
+            .unwrap();
+        let Some(Command::Course { title, goal, .. }) = cli.command else {
+            panic!("{cli:?}");
+        };
+        assert_eq!(title.as_deref(), Some("-1 page"));
+        assert_eq!(goal.as_deref(), Some("-x"));
+    }
+
+    #[test]
+    fn a_change_of_the_course_names_at_least_one_field() {
+        assert!(Cli::try_parse_from(["qlearn", "course"]).is_err());
+        assert!(Cli::try_parse_from(["qlearn", "course", "--status", "new"]).is_err());
+
+        let cli = Cli::try_parse_from([
+            "qlearn",
+            "course",
+            "--title",
+            "Raft",
+            "--quiz-mode",
+            "current",
+            "--follow-up",
+            "none",
+        ])
+        .unwrap();
+        let Some(Command::Course {
+            title,
+            quiz_mode,
+            follow_up,
+            status,
+            ..
+        }) = cli.command
+        else {
+            panic!("{cli:?}");
+        };
+        assert_eq!(title.as_deref(), Some("Raft"));
+        assert_eq!(quiz_mode, Some(QuizMode::Current));
+        assert_eq!(follow_up.as_deref(), Some("none"));
+        assert_eq!(status, None);
+    }
+
+    #[test]
+    fn a_wait_waits_ten_minutes_from_now_by_default() {
+        let cli = Cli::try_parse_from(["qlearn", "wait"]).unwrap();
+
+        assert!(matches!(
+            cli.command,
+            Some(Command::Wait {
+                after: None,
+                timeout: 600
+            })
+        ));
     }
 
     #[test]

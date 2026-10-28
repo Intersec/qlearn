@@ -4,6 +4,7 @@
 //! this same binary runs. HTTP/1.1 with `Connection: close` is all that
 //! takes, and it costs no dependency.
 
+use std::io::ErrorKind;
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
@@ -16,6 +17,8 @@ use crate::api::auth;
 
 /// A server that hangs must not hang the command with it.
 const TIMEOUT: Duration = Duration::from_secs(45);
+
+const NO_SERVER: &str = "no qlearn server answers on this worktree. Run `qlearn` first";
 
 pub struct Client {
     address: Address,
@@ -41,7 +44,29 @@ impl Client {
         self.send("GET", path, None).await
     }
 
-    async fn send(&self, method: &str, path: &str, body: Option<&Value>) -> Result<Value> {
+    pub async fn post(&self, path: &str, body: &Value) -> Result<Value> {
+        self.send("POST", path, Some(Body::json(body))).await
+    }
+
+    pub async fn put(&self, path: &str, body: &Value) -> Result<Value> {
+        self.send("PUT", path, Some(Body::json(body))).await
+    }
+
+    pub async fn patch(&self, path: &str, body: &Value) -> Result<Value> {
+        self.send("PATCH", path, Some(Body::json(body))).await
+    }
+
+    /// Send a text as it is, for a route whose body is a source and not
+    /// JSON.
+    pub async fn put_text(&self, path: &str, text: &str) -> Result<Value> {
+        let body = Body {
+            kind: "text/markdown; charset=utf-8",
+            payload: text.to_owned(),
+        };
+        self.send("PUT", path, Some(body)).await
+    }
+
+    async fn send(&self, method: &str, path: &str, body: Option<Body>) -> Result<Value> {
         let call = self.exchange(method, path, body);
         let raw = tokio::time::timeout(self.timeout, call)
             .await
@@ -54,18 +79,26 @@ impl Client {
                 .as_str()
                 .map(str::to_owned)
                 .unwrap_or_else(|| String::from_utf8_lossy(&body).into_owned());
-            bail!("{message}");
+            let code = value["error"]["code"].as_str().unwrap_or_default();
+            return Err(Refusal {
+                code: code.to_owned(),
+                message,
+            }
+            .into());
         }
         Ok(value)
     }
 
-    async fn exchange(&self, method: &str, path: &str, body: Option<&Value>) -> Result<Vec<u8>> {
-        let payload = body.map(Value::to_string).unwrap_or_default();
+    async fn exchange(&self, method: &str, path: &str, body: Option<Body>) -> Result<Vec<u8>> {
+        let Body { kind, payload } = body.unwrap_or(Body {
+            kind: "application/json",
+            payload: String::new(),
+        });
         let request = format!(
             "{method} {path} HTTP/1.1\r\n\
              Host: 127.0.0.1:{port}\r\n\
              Cookie: {cookie}={token}\r\n\
-             Content-Type: application/json\r\n\
+             Content-Type: {kind}\r\n\
              Content-Length: {length}\r\n\
              Connection: close\r\n\r\n{payload}",
             port = self.address.port,
@@ -76,17 +109,57 @@ impl Client {
 
         // The socket first: it is the way in from a sandbox, where the port
         // is in another network.
-        if let Some(socket) = &self.address.socket
-            && let Ok(mut stream) = UnixStream::connect(socket).await
-        {
-            return talk(&mut stream, &request).await;
+        if let Some(socket) = &self.address.socket {
+            match UnixStream::connect(socket).await {
+                Ok(mut stream) => return talk(&mut stream, &request).await,
+                // The socket is there and nothing listens: its server is
+                // gone, and the port may be another user's by now. The
+                // token must not reach them.
+                Err(error) if error.kind() == ErrorKind::ConnectionRefused => {
+                    return Err(error).context(NO_SERVER);
+                }
+                // A sandbox may hide `/tmp` and still share the network.
+                Err(_) => {}
+            }
         }
         let mut stream = TcpStream::connect(("127.0.0.1", self.address.port))
             .await
-            .context("no qlearn server answers on this worktree. Run `qlearn` first")?;
+            .context(NO_SERVER)?;
         talk(&mut stream, &request).await
     }
 }
+
+/// What a request carries, with its media type.
+struct Body {
+    kind: &'static str,
+    payload: String,
+}
+
+impl Body {
+    fn json(value: &Value) -> Self {
+        Self {
+            kind: "application/json",
+            payload: value.to_string(),
+        }
+    }
+}
+
+/// An answer of the server that is not a success. A command reads the code
+/// to tell a refused page from any other error.
+#[derive(Debug)]
+pub struct Refusal {
+    /// The `code` of the error shape, empty when the answer had none.
+    pub code: String,
+    pub message: String,
+}
+
+impl std::fmt::Display for Refusal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for Refusal {}
 
 async fn talk<S: AsyncRead + AsyncWrite + Unpin>(stream: &mut S, request: &str) -> Result<Vec<u8>> {
     stream.write_all(request.as_bytes()).await?;
@@ -169,5 +242,58 @@ mod tests {
     #[test]
     fn an_answer_cut_before_its_body_is_an_error() {
         assert!(parse(b"HTTP/1.1 200 OK\r\ncontent-length: 3").is_err());
+    }
+
+    /// Anyone answers on the port, as another user can bind it once the
+    /// server crashed.
+    async fn anyone_on_a_port() -> u16 {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                let mut request = [0; 4096];
+                let _ = stream.read(&mut request).await;
+                let answer = b"HTTP/1.1 200 OK\r\ncontent-length: 2\r\n\r\n{}";
+                let _ = stream.write_all(answer).await;
+            }
+        });
+        port
+    }
+
+    fn client(port: u16, socket: &std::path::Path) -> Client {
+        Client::new(Address {
+            pid: 1,
+            port,
+            token: "abc".to_owned(),
+            socket: Some(socket.display().to_string()),
+        })
+    }
+
+    #[tokio::test]
+    async fn a_socket_that_nothing_listens_on_is_a_server_gone() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("crashed.sock");
+        // A crash leaves the socket file behind.
+        drop(std::os::unix::net::UnixListener::bind(&path).unwrap());
+        let port = anyone_on_a_port().await;
+
+        let error = client(port, &path).get("/api/session").await.unwrap_err();
+
+        assert!(
+            error.to_string().contains("Run `qlearn` first"),
+            "{error:#}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_socket_that_a_sandbox_hides_leaves_the_port() {
+        let dir = tempfile::tempdir().unwrap();
+        let port = anyone_on_a_port().await;
+
+        let answer = client(port, &dir.path().join("hidden.sock"))
+            .get("/api/session")
+            .await;
+
+        assert_eq!(answer.unwrap(), serde_json::json!({}));
     }
 }
