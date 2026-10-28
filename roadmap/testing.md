@@ -58,21 +58,22 @@ word that you can grep for.
 |---|---|
 | Excerpt | The lines come from the object database, at the commit of the push. A file shorter than `lines` is refused, with the line of the source. A range over 60 lines is refused |
 | Excerpt in a submodule | A path inside a submodule is read at the commit that the tree names. A commit that the submodule does not hold is refused, and the error names the submodule |
-| Hidden line | The page gets `null` for the line until the learner answers every quiz of the page, then gets its text |
+| Hidden line | The page gets `null` for the line until the learner answers every quiz of the page, then gets its text. A page with no quiz keeps `null` |
 | Page checks | A page with several errors gets them all, each with its line. A refused page stores nothing |
 | Raw HTML | The HTML of a source comes out escaped. An image with a URL scheme is refused |
-| Block identity | An unchanged block keeps its id when the agent pushes the page again. A thread whose block is gone moves to the end of the page with its quote |
+| Block identity | An unchanged block keeps its id when the agent pushes the page again. Two copies of one block get two ids. A thread whose block is gone moves to the end of the page with its quote |
 | Chart and steps | Each rule of sections 4.4 and 4.5 of `design.md` has a case that breaks it |
 | Quiz | An empty quiz, a point with no label, and an `answer` out of range are refused. The page never gets `answer` before the learner sends the choices |
 | Page state | Each step from `planned` to `debriefed`. A quiz pushed on an answered page takes it back to `taught` |
 | Syllabus | A syllabus that drops a page with content is refused. The state and the score come from the store, never from the agent |
-| Points | `qlearn points` gives the missed points first, then the others by the date of their last result |
+| Points | `qlearn points` gives the `missed` and `partial` points first, then the others by the date of their last result. A `partial` point counts 0.5 in the score |
 | Storage | A write is atomic. A read of a corrupt file reports an error and never deletes the file. A `version` above the one of the binary is refused |
+| Delete | `qlearn delete` refuses a course that a server serves, and removes nothing |
 | Directory without `course.json` | A directory of `.learn/` without `course.json` is refused, and the error says to start a new course with a new slug |
 | Working tree | The server writes under `.learn/` only, and adds `.learn/` to `.git/info/exclude` when git does not ignore it |
 | Events | `wait` returns on a request only. An `after` that the server no longer holds answers `"reset": true` |
 | Token and socket | A request without the token gets 401, on the port and on the socket. A socket directory that another user owns, or that others can enter, is refused |
-| Cheatsheet | Map of the code merges excerpts that overlap. To revisit holds every point whose last result is wrong, and no other |
+| Cheatsheet | Map of the code merges excerpts that overlap. To revisit holds every point whose last result is `missed` or `partial`, and no other |
 | Highlighting | The spans of a line cover its text exactly. An unknown extension falls back to plain text and does not fail |
 | API routes | Every route answers with the documented shape |
 | Procedure | Every command that `agent/skill.md` names exists in the binary |

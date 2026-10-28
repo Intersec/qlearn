@@ -31,6 +31,11 @@ another course, the learner stops that server first.
 loopback address only. It makes a random token at startup. The first page
 request carries the token in the query string, and the server answers with
 a session cookie. A request without the cookie or the token gets 401.
+
+The token can leak to another user of the machine. The URL is in the
+command line of the browser that `qlearn` opens, and a browser sends a
+cookie of `127.0.0.1` to every port. qlearn accepts this risk, for the
+reasons in `stack.md`.
 A browser sends that cookie from every port of 127.0.0.1, so a write whose
 `Origin` is not the page of the server, or whose `Sec-Fetch-Site` is
 `same-site` or `cross-site`, gets 403.
@@ -125,7 +130,7 @@ type PageRef = {
   kind: 'lesson' | 'checkpoint' | 'followup';
   title: string;
   state: 'planned' | 'taught' | 'answered' | 'debriefed';
-  score: { right: number; total: number } | null;
+  score: { right: number; total: number } | null; // right: in steps of 0.5
 };
 
 type Finding = {
@@ -149,7 +154,9 @@ its score.
 
 **The current page** is the page that the agent pushed last. When the agent
 pushes a page and the learner reads another one, the page says that the new
-one is ready. It does not move the learner.
+one is ready. It does not move the learner. `GET /api/session` gives its id
+as `current`, or `null` before the first push. After a restart, the server
+finds it from the newest page source, because only a push writes one.
 
 **A course with no parts** is one implicit part with no title. The syllabus
 then shows a flat list.
@@ -214,8 +221,11 @@ style, and no link that loads anything from the network. A link to the web
 stays a link that the learner clicks.
 
 **The identity of a block** is the first 12 hexadecimal characters of the
-SHA-256 of its kind and its source. When the agent pushes a page again, an
-unchanged block keeps its id, and its threads stay on it (section 6).
+SHA-256 of its kind and its source. If a page holds the same kind and
+source more than once, the hash of each later copy also takes its rank in
+the page: 2 for the second copy, 3 for the third. When the agent pushes a
+page again, an unchanged block keeps its id, and its threads stay on it
+(section 6).
 
 ```ts
 type Block =
@@ -264,7 +274,8 @@ submodule to update.
 
 **A hidden line.** The page shows the line as a blank of the same width.
 The server sends its text only after the learner answers every quiz of the
-page. The developer tools of the browser then cannot give the answer away.
+page. A page with no quiz keeps the line hidden, because the agent pushes
+the quiz after the page. The developer tools of the browser then cannot give the answer away.
 
 ```ts
 type Excerpt = {
@@ -444,16 +455,22 @@ type Point = {
   id: string;
   label: string;
   lesson: string;
-  results: { at: string; ok: boolean; how: 'choice' | 'open' }[];
+  results: { at: string; result: 'ok' | 'partial' | 'missed'; how: 'choice' | 'open' }[];
 };
 ```
 
 A choice adds its result at once. The open question has no automatic
-grade: the agent gives it in the debrief, with `--point <id>=ok` or
-`--point <id>=missed`.
+grade: the agent gives it in the debrief, with `--point <id>=ok`,
+`--point <id>=partial` or `--point <id>=missed`. A choice is `ok` or
+`missed`. `partial` is for an open answer that is half right, such as a fix
+that works but misses a case.
+
+In the score of a page, `ok` counts 1, `partial` counts 0.5, and `missed`
+counts 0.
 
 `qlearn points` prints the points, the missed ones first (last result
-wrong), then the others by the date of their last result, the oldest first.
+`missed` or `partial`), then the others by the date of their last result,
+the oldest first.
 That is the order in which the procedure picks the point of a question on
 an earlier lesson.
 
@@ -528,7 +545,7 @@ writer, and grants no permission.
 
 | Method and route | Who | What it does |
 |---|---|---|
-| `GET /api/session` | page | The course, the syllabus, the tool version |
+| `GET /api/session` | page | The course, the syllabus, the current page, the tool version |
 | `GET /api/pages/:id` | page | The blocks, the quizzes without their answers until answered, the threads |
 | `POST /api/pages/:id/next` | page | Ask the agent for the next page. Answers the request |
 | `POST /api/pages/:id/quizzes/:n/open` | page | Send the open answer |
@@ -625,8 +642,8 @@ records, so they are true by construction:
 
 - **Map of the code.** Every excerpt of the course, by `path:from-to`, with
   the lesson that showed it. Excerpts that overlap merge.
-- **To revisit.** Every point whose last result is wrong, with its label and
-  its lesson.
+- **To revisit.** Every point whose last result is `missed` or `partial`,
+  with its label and its lesson.
 
 **The page lays it out** for an A4 sheet, in two columns, with a print
 stylesheet.
@@ -668,6 +685,7 @@ saves an export first.
 **The server is the only writer**, except for `notes/`. The agent writes its
 research notes there with its own tools, and the server never reads or
 writes them. Every other file goes through the commands of section 11.
+`qlearn delete` removes a course only when no server serves it.
 
 Each write goes to a temporary file in the same directory, then a rename,
 so a crash never leaves half a file. One server per worktree, and
@@ -691,10 +709,16 @@ qlearn --port <n>             use a fixed port
 qlearn -v                     print the course before the URL
 qlearn --trace                print on standard error what the work costs
 qlearn list                   list the courses of .learn/
+qlearn delete <slug> [--yes]  delete a course, with no server on it
 qlearn skill                  print the procedure of the agent, for this release
 qlearn export [--json]        the whole course
 qlearn export cheatsheet      the cheatsheet as Markdown
 ```
+
+**`qlearn delete <slug>`** removes `.learn/<slug>/`. If a server serves
+that course, it refuses and says to stop that server first. It names what
+it removes and asks for a confirmation, which `--yes` skips. Until then, a
+course stays in `.learn/`, and `qlearn <slug>` opens it again.
 
 **The commands of the agent.** They write as the agent, through the server
 of the worktree:
@@ -706,7 +730,7 @@ qlearn course [--title <text>] [--goal <text>] [--profile <text>]
 qlearn syllabus --file <path>
 qlearn page <id> --file <path>
 qlearn quiz <id> --file <path>
-qlearn debrief <id> <n> --file <path> [--point <point>=ok|missed]...
+qlearn debrief <id> <n> --file <path> [--point <point>=ok|partial|missed]...
 qlearn comment <id>[#<block>] --body <text>
 qlearn reply <thread> --body <text>
 qlearn choose --file <path>
@@ -741,9 +765,11 @@ The procedure covers the teaching and the page. For the teaching, it says:
 - How to prepare the course: the research, the syllabus, and the check of
   each claim against the code.
 - How to teach: the lessons, the quizzes and their debrief, the exercises,
-  the checkpoints, the follow-up quiz, and the findings.
-- How to end: the cheatsheet, and the developer doc of the subject, which
-  the agent writes in the repository if the learner agrees.
+  the checkpoints, the follow-up quiz, and the findings. The recall quiz at
+  a resume is a checkpoint page.
+- How to end: the cheatsheet, the developer doc of the subject, which the
+  agent writes in the repository if the learner agrees, and `qlearn delete`
+  once the learner agrees and has saved an export of the cheatsheet.
 
 For the page, it says:
 
@@ -765,7 +791,10 @@ install a newer release, and stops.
 
 **A skill of an organization.** An organization can wrap qlearn in a skill
 of its own. That skill adds its sources, such as tickets, a review server
-or internal docs, and its rules. Then it follows `qlearn skill`.
+or internal docs, and its rules. Then it follows `qlearn skill`. If
+`qlearn` is on the PATH, that skill teaches through the page and asks the
+learner nothing about it. Without `qlearn`, it may keep a terminal mode of
+its own.
 
 ## 13. Build and distribution
 

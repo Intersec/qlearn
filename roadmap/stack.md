@@ -189,6 +189,53 @@ would have no place in a lesson. **Rejected: show the fence without
 colors.** It would look broken beside an excerpt. **Rejected: refuse a page
 outside the syllabus.** The syllabus would then move into step 1.
 
+## 2026-10-28 — Holes found by the review of step 1
+
+The reviews of step 1, and the gaps between the procedure of a terminal
+course and the design, left eight questions.
+
+**Decisions.**
+
+- **Two copies of one block.** The hash of each later copy also takes its
+  rank in the page, so the two copies get two ids. A block that appears once
+  keeps the id of section 4.1.
+- **The token on the machine.** The URL with the token is in the command
+  line of the browser, and a cookie of `127.0.0.1` goes to every port.
+  qlearn accepts both.
+- **The current page** travels in `GET /api/session`, as `current`.
+- **A hidden line on a page with no quiz** stays hidden.
+- **The recall quiz at a resume** is a checkpoint page.
+- **A partial result.** A point takes `ok`, `partial` or `missed`. A
+  `partial` counts 0.5 in the score, and To revisit lists it.
+- **A course is deleted** with `qlearn delete <slug>`, with no server on the
+  course.
+- **A skill of an organization** asks nothing about the page when `qlearn`
+  is on the PATH.
+
+**Why.** Two copies with one id would carry the threads of both. The token
+stays on one workstation, for one session; a one-time code would change the
+URL of section 1 for little gain. The page cannot open the current page if
+nothing names it. The agent pushes a page before its quiz, so the rule of
+section 4.2 would show the hidden line at once. A checkpoint is already a
+quiz on earlier lessons. The exercise "Your fix" has answers that are half
+right, and a binary result loses that. The server is the only writer of the
+store, so a course is deleted when no server writes it.
+
+**Rejected:**
+
+- **Refuse a page with two copies of one block.** It blocks an agent that
+  repeats a short block.
+- **A one-time code in the URL.** It is more code for a risk that qlearn
+  already accepts.
+- **A page kind for the recall quiz.** It adds a kind and an id format for
+  a page that a checkpoint already is.
+- **Count `partial` as `missed`.** The learner would lose the part they got
+  right.
+- **Delete a course through the server.** The server would remove its own
+  store under itself.
+- **SQLite to keep old courses.** A course already stays in `.learn/`
+  until `qlearn delete` removes it, and `qlearn list` lists it.
+
 ## Open questions
 
 - **The URL of the repository.** The host is decided: a public repository

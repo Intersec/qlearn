@@ -23,10 +23,11 @@ the binary.
 ## Use
 
 ```sh
-qlearn raft-election        # open the course, and create it when it is new
-qlearn                      # open the only course of .learn/
-qlearn list                 # list the courses of .learn/
-qlearn export cheatsheet    # the cheatsheet, as Markdown
+qlearn raft-election            # open the course, and create it when it is new
+qlearn                          # open the only course of .learn/
+qlearn list                     # list the courses of .learn/
+qlearn delete raft-election     # delete a course, once its server is stopped
+qlearn export cheatsheet        # the cheatsheet, as Markdown
 ```
 
 | Option | What it does |
@@ -57,8 +58,9 @@ What the browser will show:
 
 The course will live in `.learn/<slug>/` at the top level of the
 repository. If git does not ignore `.learn/`, qlearn adds it to
-`.git/info/exclude`. Deleting the course deletes its cheatsheet, so export
-the cheatsheet first.
+`.git/info/exclude`. A course stays there until `qlearn delete` removes it.
+Deleting the course deletes its cheatsheet, so export the cheatsheet
+first.
 
 ## Learn with an agent
 

@@ -105,7 +105,8 @@ Two rules that no tool enforces:
   are not enough, add a widget of the page, with data in JSON.
 - **Nothing in the page gives a quiz away.** The right option of a choice
   stays on the server until the learner sends the choices. A hidden line
-  stays there until the learner answers every quiz of the page.
+  stays there until the learner answers every quiz of the page, and while
+  the page has no quiz.
 - **An answer of the learner is never lost.** A syllabus that drops a page
   with content is refused. A thread whose block is gone moves to the end of
   the page.
