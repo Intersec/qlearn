@@ -122,9 +122,7 @@ enum Piece {
 
 /// The pieces of a page, its title, and the errors that need no git call.
 fn split(source: &str, highlighter: &Highlighter) -> (Vec<Piece>, Option<String>, Vec<Fault>) {
-    let options =
-        Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS;
-    let items: Vec<Item> = Parser::new_ext(source, options)
+    let items: Vec<Item> = Parser::new_ext(source, OPTIONS)
         .into_offset_iter()
         .collect();
     let starts = line_starts(source);
@@ -232,6 +230,59 @@ fn split(source: &str, highlighter: &Highlighter) -> (Vec<Piece>, Option<String>
     page.close();
 
     (page.blocks, title, faults)
+}
+
+/// The Markdown that a page takes.
+const OPTIONS: Options = Options::ENABLE_TABLES
+    .union(Options::ENABLE_STRIKETHROUGH)
+    .union(Options::ENABLE_TASKLISTS);
+
+/// The HTML of inline Markdown, such as an option of a choice, with no
+/// paragraph around it. The HTML of the source is escaped, as in a block.
+///
+/// The error names what the text holds in place of one line: a list, a
+/// heading or a line break would break the line of an option.
+pub fn inline(source: &str) -> Result<String, String> {
+    let items: Vec<Item> = Parser::new_ext(source, OPTIONS)
+        .into_offset_iter()
+        .collect();
+    let Some((first, _)) = items.first() else {
+        return Err("is empty".to_owned());
+    };
+    let end = matching_end(&items, 0);
+    let alone = end == items.len() - 1;
+    let html = matches!(first, Event::Start(Tag::HtmlBlock)) && alone;
+    if !html && !matches!(first, Event::Start(Tag::Paragraph)) {
+        return Err(format!("holds {}", block_name(first)));
+    }
+    if !alone {
+        return Err("holds more than one paragraph".to_owned());
+    }
+    // A paragraph may run over several lines, and a hard break shows one.
+    if source.trim().contains(['\n', '\r']) {
+        return Err("holds more than one line".to_owned());
+    }
+    // A line that opens with a tag is a block of HTML. Its tags come out
+    // as text anyway, so it is the text that the agent wrote.
+    if html {
+        return Ok(escape(source.trim()));
+    }
+
+    Ok(Writer::new(Highlighter::shared()).node(&items[1..end]))
+}
+
+/// A block of Markdown as an error names it.
+fn block_name(event: &Event) -> &'static str {
+    match event {
+        Event::Start(Tag::Heading { .. }) => "a heading",
+        Event::Start(Tag::List(_)) => "a list",
+        Event::Start(Tag::BlockQuote(_)) => "a quote",
+        Event::Start(Tag::CodeBlock(_)) => "a fence of code",
+        Event::Start(Tag::Table(_)) => "a table",
+        Event::Start(Tag::HtmlBlock) => "a block of HTML",
+        Event::Rule => "a rule",
+        _ => "a block",
+    }
 }
 
 /// The id of a block: the first 12 hexadecimal characters of the SHA-256
@@ -812,7 +863,8 @@ fn heading(level: HeadingLevel) -> &'static str {
     }
 }
 
-fn escape(text: &str) -> String {
+/// Text as HTML that shows it, tags and all.
+pub fn escape(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     for c in text.chars() {
         match c {
@@ -1241,6 +1293,45 @@ bool grant_vote(struct server *s, int term, int candidate)
                     .to_owned(),
             }]
         );
+    }
+
+    #[test]
+    fn inline_markdown_has_no_paragraph_and_no_html_of_the_source() {
+        assert_eq!(
+            inline("Call `grant_vote()` *once*").unwrap(),
+            "Call <code>grant_vote()</code> <em>once</em>"
+        );
+        assert_eq!(
+            inline("<b onclick=\"x\">a</b>").unwrap(),
+            "&lt;b onclick=&quot;x&quot;&gt;a&lt;/b&gt;"
+        );
+        assert_eq!(inline(r"1\. The first").unwrap(), "1. The first");
+        assert_eq!(
+            inline("<script>alert(1)</script> now").unwrap(),
+            "&lt;script&gt;alert(1)&lt;/script&gt; now"
+        );
+    }
+
+    #[test]
+    fn inline_markdown_refuses_a_block() {
+        for (source, error) in [
+            ("", "is empty"),
+            ("  \n", "is empty"),
+            ("- a", "holds a list"),
+            ("1. The first", "holds a list"),
+            ("# A title", "holds a heading"),
+            ("> a", "holds a quote"),
+            ("```\ncode\n```", "holds a fence of code"),
+            ("---", "holds a rule"),
+            ("One.\n\nTwo.", "holds more than one paragraph"),
+            ("first line\nsecond line", "holds more than one line"),
+            ("b  \nc", "holds more than one line"),
+            ("b\\\nc", "holds more than one line"),
+            ("a\r\nb", "holds more than one line"),
+            ("<div>a</div>\n<div>b</div>", "holds more than one line"),
+        ] {
+            assert_eq!(inline(source), Err(error.to_owned()), "{source:?}");
+        }
     }
 
     #[test]

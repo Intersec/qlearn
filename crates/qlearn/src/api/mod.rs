@@ -24,7 +24,7 @@ use crate::highlight::Highlighter;
 use crate::lesson::{self, Fault};
 use crate::model::{
     self, AgentStatus, Author, Batch, Block, BlockSource, Broken, Course, CourseChange, Detail,
-    Event, EventKind, Page, PageKind, Session, StatusText,
+    Event, EventKind, Page, PageKind, QuizNumber, Session, StatusText,
 };
 use crate::store::{self, PageFile, Store};
 
@@ -91,6 +91,7 @@ pub fn app(state: AppState) -> Router {
         .route("/api/status", put(set_status))
         .route("/api/syllabus", put(write_syllabus))
         .route("/api/pages/{id}", get(page).put(push_page))
+        .route("/api/pages/{id}/quizzes", post(push_quiz))
         .route("/api/pages/{id}/next", post(next))
         .route("/api/pages/{id}/broken", post(broken))
         .method_not_allowed_fallback(method_not_allowed)
@@ -198,10 +199,7 @@ async fn page(
         return Err(no_content());
     };
 
-    Ok(Json(Page {
-        id,
-        blocks: file.shown(),
-    }))
+    Ok(Json(file.page(&id)))
 }
 
 /// Push the blocks of a page. The body is the source.
@@ -240,9 +238,20 @@ async fn push_page(
         parsed.title.as_deref(),
         OffsetDateTime::now_utc(),
     );
+    // The quizzes stay with the page: they may hold answers of the learner.
+    // A file that the course does not back is the trace of a failed push.
+    let quizzes = match course.has_content(&id) {
+        true => state
+            .store
+            .load_page(&changed.slug, &id)?
+            .map(|file| file.quizzes)
+            .unwrap_or_default(),
+        false => Vec::new(),
+    };
     let file = PageFile {
         blocks: parsed.blocks,
         hidden: parsed.hidden,
+        quizzes,
     };
     let undo = state.store.save_page(&changed.slug, &id, &source, &file)?;
     if let Err(error) = state.store.save(&changed) {
@@ -262,10 +271,72 @@ async fn push_page(
         .push(EventKind::Page, Author::Agent, Some(&id), None);
     drop(course);
 
-    Ok(Json(Page {
-        id,
-        blocks: file.shown(),
-    }))
+    Ok(Json(file.page(&id)))
+}
+
+/// Add a quiz to a page with content. Answers its number in the page.
+///
+/// A refused quiz gets every fault at once, so the agent fixes them in one
+/// pass. The right options stay in the store: the page gets the quiz
+/// without them.
+async fn push_quiz(
+    State(state): State<AppState>,
+    path: Result<Path<String>, PathRejection>,
+    body: Result<Json<serde_json::Value>, JsonRejection>,
+) -> Result<Json<QuizNumber>, ApiError> {
+    let Path(id) = path.map_err(bad_path)?;
+    store::check_page_id(&id).map_err(|e| ApiError::bad_request(e.to_string()))?;
+    let Json(body) = body.map_err(bad_json)?;
+
+    let mut course = state.course.write().await;
+    // A quiz sits under its lesson, so the lesson comes first.
+    let no_content = || {
+        ApiError::not_found(format!(
+            "page {id} has no content yet. Push the page first, with `qlearn page {id}`"
+        ))
+    };
+    if !course.has_content(&id) {
+        return Err(no_content());
+    }
+    let mut file = state
+        .store
+        .load_page(&course.slug, &id)?
+        .ok_or_else(no_content)?;
+    let mut points = state.store.load_points(&course.slug)?;
+    let parsed = crate::quiz::parse(&body, &id, &course, &points)
+        .map_err(|faults| ApiError::invalid_quiz(&faults))?;
+
+    // The copy in memory changes only once every file is written, and a
+    // write that fails puts the others back, so a quiz that answers an
+    // error leaves the course and the page as they were.
+    let mut changed = course.clone();
+    changed.push_quiz(&id, OffsetDateTime::now_utc());
+    file.quizzes.push(parsed.quiz);
+    let n = file.quizzes.len();
+    points.extend(parsed.points);
+    // The page file goes last: the page serves a quiz once that file holds
+    // it. A server killed before leaves points that no quiz names and a
+    // page back to taught, so the agent sends the same quiz again and it
+    // lands once.
+    let mut undo = state.store.save_points(&changed.slug, &points)?;
+    match state.store.save_undoable(&changed) {
+        Ok(later) => undo = undo.and(later),
+        Err(error) => return Err(undo.after(error).into()),
+    }
+    if let Err(error) = state.store.save_blocks(&changed.slug, &id, &file) {
+        return Err(undo.after(error).into());
+    }
+    *course = changed;
+    // Under the lock, so the events come in the order of the writes.
+    state.events.push(
+        EventKind::Quiz,
+        Author::Agent,
+        Some(&id),
+        Some(&n.to_string()),
+    );
+    drop(course);
+
+    Ok(Json(QuizNumber { page: id, n }))
 }
 
 /// Change the title, the goal, the profile, the quiz mode, the status or
@@ -528,6 +599,16 @@ impl ApiError {
             status: StatusCode::BAD_REQUEST,
             code: "invalidPage",
             message: lines.join("\n"),
+        }
+    }
+
+    /// A quiz that fails a check. The message holds one line per fault,
+    /// each with its place in the body.
+    fn invalid_quiz(faults: &[String]) -> Self {
+        Self {
+            status: StatusCode::BAD_REQUEST,
+            code: "invalidQuiz",
+            message: faults.join("\n"),
         }
     }
 
@@ -1221,6 +1302,7 @@ mod tests {
         let page = PageFile {
             blocks: parsed.blocks,
             hidden: parsed.hidden,
+            quizzes: Vec::new(),
         };
         state.store.save_page("raft", "2", LESSON, &page).unwrap();
 
@@ -1924,6 +2006,325 @@ mod tests {
         assert_eq!(status, StatusCode::FORBIDDEN, "{answer}");
         assert_eq!(answer["error"]["code"], "forbidden");
         assert_eq!(state.events.after(None, events::HOLD).await.next, after);
+    }
+
+    /// The quiz of section 5.1 of the design, with inline Markdown in its
+    /// options and the author that the commands of the agent send.
+    const QUIZ: &str = r#"{
+        "open": {
+            "prompt": "In 2 sentences: why is the timeout random?",
+            "points": ["random-timeout"]
+        },
+        "choices": [
+            {
+                "header": "Split vote",
+                "prompt": "Two candidates get 2 votes each out of 5. What happens next?",
+                "options": [
+                    "The candidate with the higher id wins",
+                    "Both time out and start a *new* election in a new `term`",
+                    "The leader of the previous term breaks the tie <b>now</b>"
+                ],
+                "answer": 1,
+                "point": "split-vote"
+            }
+        ],
+        "points": {
+            "random-timeout": { "label": "Why the election timeout is random" },
+            "split-vote": { "label": "How a split vote ends", "lesson": "1" }
+        },
+        "author": "agent"
+    }"#;
+
+    /// Every key of a JSON value, at any depth.
+    fn keys(value: &serde_json::Value) -> Vec<String> {
+        match value {
+            serde_json::Value::Object(fields) => fields
+                .iter()
+                .flat_map(|(key, value)| std::iter::once(key.clone()).chain(keys(value)))
+                .collect(),
+            serde_json::Value::Array(items) => items.iter().flat_map(keys).collect(),
+            _ => Vec::new(),
+        }
+    }
+
+    /// A course whose page 1 holds `LESSON`.
+    async fn with_lesson() -> (Repo, AppState) {
+        let dir = repo().await;
+        let state = state_in(dir.path());
+        let (status, pushed) = json(app(state.clone()), put("/api/pages/1", LESSON)).await;
+        assert_eq!(status, StatusCode::OK, "{pushed}");
+        (dir, state)
+    }
+
+    #[tokio::test]
+    async fn the_quiz_route_stores_the_quiz_and_answers_its_number() {
+        let (dir, state) = with_lesson().await;
+        let untouched = outside(dir.path());
+        let after = state.events.after(None, events::HOLD).await.next;
+
+        let (status, body) = json(
+            app(state.clone()),
+            send_json("POST", "/api/pages/1/quizzes", QUIZ),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK, "{body}");
+        insta::assert_json_snapshot!("push_quiz", body);
+        let batch = state.events.after(Some(after), events::HOLD).await;
+        assert_eq!(batch.events.len(), 1);
+        assert_eq!(batch.events[0].kind, EventKind::Quiz);
+        assert_eq!(batch.events[0].author, Author::Agent);
+        assert_eq!(batch.events[0].page.as_deref(), Some("1"));
+        assert_eq!(batch.events[0].id.as_deref(), Some("1"));
+
+        let stored = std::fs::read_to_string(dir.path().join(".learn/raft/pages/1.json")).unwrap();
+        assert!(stored.contains("\"answer\": 1"), "{stored}");
+        let points = Store::at(dir.path()).load_points("raft").unwrap();
+        let labels: Vec<_> = points
+            .iter()
+            .map(|point| (point.id.as_str(), point.lesson.as_str()))
+            .collect();
+        assert_eq!(labels, [("random-timeout", "1"), ("split-vote", "1")]);
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join(".learn/raft/pages/1.md")).unwrap(),
+            LESSON,
+            "a quiz leaves the source alone"
+        );
+
+        // A point that the course knows needs no label.
+        let second = r#"{"choices":[{"header":"Timer","prompt":"Who starts?",
+            "options":["The first to time out","The leader"],"answer":0,
+            "point":"random-timeout"}]}"#;
+        let (status, body) = json(
+            app(state.clone()),
+            send_json("POST", "/api/pages/1/quizzes", second),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body, serde_json::json!({ "page": "1", "n": 2 }));
+        assert_eq!(Store::at(dir.path()).load_points("raft").unwrap(), points);
+        assert_eq!(outside(dir.path()), untouched, "a write outside .learn/");
+    }
+
+    /// The right option stays on the server until the learner sends the
+    /// choices, and the hidden line until the learner answers the quiz.
+    #[tokio::test]
+    async fn the_page_route_sends_the_quizzes_without_their_answers() {
+        let dir = repo().await;
+        let state = state_in(dir.path());
+        let (status, _) = json(app(state.clone()), put("/api/pages/1", EXCERPT)).await;
+        assert_eq!(status, StatusCode::OK);
+        let (status, _) = json(
+            app(state.clone()),
+            send_json("POST", "/api/pages/1/quizzes", QUIZ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+
+        let (status, body) = json(app(state), get_with_cookie("/api/pages/1", TOKEN)).await;
+
+        assert_eq!(status, StatusCode::OK);
+        insta::assert_json_snapshot!("page_quiz", body);
+        let keys = keys(&body);
+        assert!(keys.contains(&"options".to_owned()), "{keys:?}");
+        assert!(!keys.contains(&"answer".to_owned()), "{body}");
+        assert!(!keys.contains(&"point".to_owned()), "{body}");
+        assert_eq!(
+            body["blocks"][1]["excerpt"]["lines"][3],
+            serde_json::Value::Null
+        );
+    }
+
+    #[tokio::test]
+    async fn a_quiz_on_an_answered_page_takes_it_back_to_taught() {
+        let (dir, state) = with_lesson().await;
+        {
+            let mut course = state.course.write().await;
+            course.parts[0].pages[0].state = PageState::Answered;
+            state.store.save(&course).unwrap();
+        }
+
+        let (status, body) = json(
+            app(state.clone()),
+            send_json("POST", "/api/pages/1/quizzes", QUIZ),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let (_, session) = json(app(state.clone()), get_with_cookie("/api/session", TOKEN)).await;
+        assert_eq!(session["course"]["parts"][0]["pages"][0]["state"], "taught");
+        let stored = Store::at(dir.path()).load("raft").unwrap().unwrap();
+        assert_eq!(stored.parts[0].pages[0].state, PageState::Taught);
+        assert_eq!(stored, *state.course.read().await, "course.json holds it");
+    }
+
+    /// The quizzes may hold answers of the learner, which a new version of
+    /// the blocks must not lose.
+    #[tokio::test]
+    async fn a_page_pushed_again_keeps_its_quizzes() {
+        let (_dir, state) = with_lesson().await;
+        json(
+            app(state.clone()),
+            send_json("POST", "/api/pages/1/quizzes", QUIZ),
+        )
+        .await;
+        let (_, before) = json(app(state.clone()), get_with_cookie("/api/pages/1", TOKEN)).await;
+
+        let (status, pushed) = json(app(state.clone()), put("/api/pages/1", "# Rewritten\n")).await;
+
+        assert_eq!(status, StatusCode::OK, "{pushed}");
+        assert_eq!(pushed["quizzes"], before["quizzes"]);
+        assert_eq!(pushed["quizzes"].as_array().unwrap().len(), 1);
+    }
+
+    /// The page file holds the quizzes and, later, the answers of the
+    /// learner. A push must not write over it when it cannot read it.
+    #[tokio::test]
+    async fn a_push_over_a_corrupt_page_file_is_refused_and_leaves_it() {
+        let (dir, state) = with_lesson().await;
+        let path = dir.path().join(".learn/raft/pages/1.json");
+        std::fs::write(&path, "{ not json").unwrap();
+        let before = state.course.read().await.clone();
+
+        let (status, pushed) = json(app(state.clone()), put("/api/pages/1", LESSON)).await;
+        let (_, quiz) = json(
+            app(state.clone()),
+            send_json("POST", "/api/pages/1/quizzes", QUIZ),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR, "{pushed}");
+        for answer in [&pushed, &quiz] {
+            let message = answer["error"]["message"].as_str().unwrap();
+            assert!(message.contains("repair it by hand"), "{message}");
+            // Pushing again gives the same error, so the advice must not
+            // send the agent round in a loop.
+            assert!(!message.contains("push the page again"), "{message}");
+        }
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "{ not json");
+        assert_eq!(*state.course.read().await, before);
+    }
+
+    /// The page file is written last, so a quiz is stored once it holds
+    /// it. A write of the page file that fails puts the points and the
+    /// course back.
+    #[tokio::test]
+    async fn a_quiz_whose_page_file_cannot_be_written_stores_nothing() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let (dir, state) = with_lesson().await;
+        {
+            let mut course = state.course.write().await;
+            course.parts[0].pages[0].state = PageState::Answered;
+            state.store.save(&course).unwrap();
+        }
+        let stored = files(dir.path());
+        let course_file = dir.path().join(".learn/raft/course.json");
+        let course_bytes = std::fs::read(&course_file).unwrap();
+        let page = std::fs::read(dir.path().join(".learn/raft/pages/1.json")).unwrap();
+        let before = state.course.read().await.clone();
+        let pages = dir.path().join(".learn/raft/pages");
+        let mode = |mode| std::fs::set_permissions(&pages, std::fs::Permissions::from_mode(mode));
+        mode(0o555).unwrap();
+        // Root writes in a directory with no write bit, so the case cannot
+        // happen there.
+        if std::fs::write(pages.join("probe"), "").is_ok() {
+            std::fs::remove_file(pages.join("probe")).unwrap();
+            mode(0o755).unwrap();
+            return;
+        }
+
+        let (status, answer) = json(
+            app(state.clone()),
+            send_json("POST", "/api/pages/1/quizzes", QUIZ),
+        )
+        .await;
+        mode(0o755).unwrap();
+
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR, "{answer}");
+        assert_eq!(files(dir.path()), stored, "no points.json");
+        assert_eq!(std::fs::read(&course_file).unwrap(), course_bytes);
+        assert_eq!(
+            std::fs::read(dir.path().join(".learn/raft/pages/1.json")).unwrap(),
+            page
+        );
+        assert_eq!(*state.course.read().await, before);
+    }
+
+    #[tokio::test]
+    async fn a_refused_quiz_gets_every_fault_and_stores_nothing() {
+        let (dir, state) = with_lesson().await;
+        let stored = files(dir.path());
+        let page = std::fs::read_to_string(dir.path().join(".learn/raft/pages/1.json")).unwrap();
+        let before = state.course.read().await.clone();
+        let after = state.events.after(None, events::HOLD).await.next;
+        let body = r#"{
+            "open": { "prompt": "  ", "points": [] },
+            "choices": [
+                { "header": "A", "prompt": "Who?", "options": ["S1", "S2", "S3"],
+                  "answer": 3, "point": "who" },
+                { "header": "B", "prompt": "When?", "options": ["now"], "answer": 0,
+                  "point": "when" },
+                { "header": "C", "prompt": "How?", "options": ["- a list", "b"],
+                  "answer": 0, "point": "how" }
+            ],
+            "points": { "who": {}, "how": { "label": "How" } }
+        }"#;
+
+        let (status, answer) = json(
+            app(state.clone()),
+            send_json("POST", "/api/pages/1/quizzes", body),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{answer}");
+        insta::assert_json_snapshot!("push_quiz_refused", answer);
+        for body in ["", "not json", "[]", "{}", r#"{"open":null,"choices":[]}"#] {
+            let (status, answer) = json(
+                app(state.clone()),
+                send_json("POST", "/api/pages/1/quizzes", body),
+            )
+            .await;
+            assert_eq!(status, StatusCode::BAD_REQUEST, "{body}: {answer}");
+            assert!(answer["error"]["message"].is_string(), "{answer}");
+        }
+        assert_eq!(files(dir.path()), stored);
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join(".learn/raft/pages/1.json")).unwrap(),
+            page
+        );
+        assert_eq!(*state.course.read().await, before);
+        assert_eq!(state.events.after(None, events::HOLD).await.next, after);
+    }
+
+    /// A quiz sits under its lesson, so the lesson comes first.
+    #[tokio::test]
+    async fn a_quiz_on_a_page_with_no_content_is_refused() {
+        let dir = repo().await;
+        let state = state_in(dir.path());
+        state.course.write().await.parts[0].pages[0].state = PageState::Planned;
+        let untouched = outside(dir.path());
+
+        for (uri, code) in [
+            ("/api/pages/1/quizzes", "notFound"),
+            ("/api/pages/9/quizzes", "notFound"),
+            ("/api/pages/x1/quizzes", "badRequest"),
+            ("/api/pages/..%2Fcourse/quizzes", "badRequest"),
+        ] {
+            let (_, answer) = json(app(state.clone()), send_json("POST", uri, QUIZ)).await;
+
+            assert_eq!(answer["error"]["code"], code, "{uri}: {answer}");
+        }
+        let (_, answer) = json(
+            app(state.clone()),
+            send_json("POST", "/api/pages/1/quizzes", QUIZ),
+        )
+        .await;
+        let message = answer["error"]["message"].as_str().unwrap();
+        assert!(message.contains("`qlearn page 1`"), "{message}");
+        assert_eq!(files(dir.path()), Vec::<String>::new());
+        assert_eq!(state.events.after(None, events::HOLD).await.next, 0);
+        assert_eq!(outside(dir.path()), untouched, "a write outside .learn/");
     }
 
     /// A trace goes into a log or a bug report. The token must not.

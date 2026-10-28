@@ -1,0 +1,54 @@
+---
+source: crates/qlearn/src/quiz/mod.rs
+description: "{\n  \"open\": {\n    \"prompt\": \"In 2 sentences: why is the timeout random?\",\n    \"points\": [\"random-timeout\"]\n  },\n  \"choices\": [\n    {\n      \"header\": \"Split vote\",\n      \"prompt\": \"Two candidates get 2 votes each out of 5. What happens next?\",\n      \"options\": [\n        \"The candidate with the higher id wins\",\n        \"Both time out and start a new election in a new term\",\n        \"The leader of the previous term breaks the tie\"\n      ],\n      \"answer\": 1,\n      \"point\": \"split-vote\"\n    }\n  ],\n  \"points\": {\n    \"split-vote\": { \"label\": \"How a split vote ends\", \"lesson\": \"3\" }\n  }\n}\n"
+---
+stored:
+{
+  "open": {
+    "prompt": "In 2 sentences: why is the timeout random?",
+    "points": [
+      "random-timeout"
+    ]
+  },
+  "choices": [
+    {
+      "header": "Split vote",
+      "prompt": "Two candidates get 2 votes each out of 5. What happens next?",
+      "options": [
+        "The candidate with the higher id wins",
+        "Both time out and start a new election in a new term",
+        "The leader of the previous term breaks the tie"
+      ],
+      "answer": 1,
+      "point": "split-vote"
+    }
+  ]
+}
+
+new points:
+[
+  {
+    "id": "split-vote",
+    "label": "How a split vote ends",
+    "lesson": "3",
+    "results": []
+  }
+]
+
+the page gets:
+{
+  "open": {
+    "prompt": "In 2 sentences: why is the timeout random?"
+  },
+  "choices": [
+    {
+      "header": "Split vote",
+      "prompt": "Two candidates get 2 votes each out of 5. What happens next?",
+      "options": [
+        "The candidate with the higher id wins",
+        "Both time out and start a new election in a new term",
+        "The leader of the previous term breaks the tie"
+      ]
+    }
+  ]
+}

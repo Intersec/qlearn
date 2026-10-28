@@ -151,6 +151,51 @@ export const PAGE_DIAGRAMS_FIXED = PAGE_DIAGRAMS.replace(
 `,
 );
 
+/** A quiz of the first page: an open question, then a choice. */
+export const QUIZ_1 = {
+  open: {
+    prompt: 'In 2 sentences: why is the election timeout random?',
+    points: ['random-timeout'],
+  },
+  choices: [
+    {
+      header: 'Split vote',
+      prompt: 'Two candidates get 2 votes each out of 5. What happens next?',
+      options: [
+        'The candidate with the higher id wins',
+        'Both time out and start a *new* election in a new term',
+        'The leader of the previous term breaks the tie',
+      ],
+      answer: 1,
+      point: 'split-vote',
+    },
+  ],
+  points: {
+    'random-timeout': { label: 'Why the election timeout is random' },
+    'split-vote': { label: 'How a split vote ends' },
+  },
+};
+
+/** A second quiz of the first page, of choices only, on a known point. */
+export const QUIZ_2 = {
+  choices: [
+    {
+      header: 'Timer',
+      prompt: 'What does election_timeout(150) return?',
+      options: ['Exactly 150', 'A number from 150 to 299', 'A number from 0 to 149'],
+      answer: 1,
+      point: 'random-timeout',
+    },
+    {
+      header: 'Zero',
+      prompt: 'What does a base of 0 do?',
+      options: ['It divides by zero', 'It disables the timer'],
+      answer: 0,
+      point: 'random-timeout',
+    },
+  ],
+};
+
 /** A part of the syllabus, as the agent writes it. */
 export interface PlannedPart {
   title: string;
@@ -217,6 +262,13 @@ export class Agent {
     const path = join(this.fixture.work, `${id}.md`);
     writeFileSync(path, source);
     await this.run(['page', id, '--file', path]);
+  }
+
+  /** Add a quiz under a page from a file, as the procedure says. */
+  async quiz(id: string, quiz: object) {
+    const path = join(this.fixture.work, `quiz-${id}.json`);
+    writeFileSync(path, JSON.stringify(quiz, null, 2));
+    await this.run(['quiz', id, '--file', path]);
   }
 
   async status(text: string) {

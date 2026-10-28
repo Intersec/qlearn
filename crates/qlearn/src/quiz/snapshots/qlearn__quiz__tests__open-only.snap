@@ -1,0 +1,33 @@
+---
+source: crates/qlearn/src/quiz/mod.rs
+description: "{\n  \"open\": {\n    \"prompt\": \"Predict: what does election_timeout(150) return on its first call?\",\n    \"points\": [\"timeout-range\", \"random-timeout\"]\n  },\n  \"points\": {\n    \"timeout-range\": { \"label\": \"The range of the election timeout\" }\n  }\n}\n"
+---
+stored:
+{
+  "open": {
+    "prompt": "Predict: what does election_timeout(150) return on its first call?",
+    "points": [
+      "timeout-range",
+      "random-timeout"
+    ]
+  },
+  "choices": []
+}
+
+new points:
+[
+  {
+    "id": "timeout-range",
+    "label": "The range of the election timeout",
+    "lesson": "3",
+    "results": []
+  }
+]
+
+the page gets:
+{
+  "open": {
+    "prompt": "Predict: what does election_timeout(150) return on its first call?"
+  },
+  "choices": []
+}

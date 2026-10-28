@@ -1,0 +1,6 @@
+---
+source: crates/qlearn/src/quiz/mod.rs
+description: "{ \"open\": null, \"choices\": [], \"points\": {} }\n"
+---
+refused
+the quiz is empty. Give it an open question, choices with options, or both

@@ -863,3 +863,104 @@ a.syllabus-entry:focus-visible {
   background: var(--pane);
   color: var(--ink);
 }
+
+/* ------------------------------------------------------------ the quiz */
+
+/* A quiz under its lesson: a frame of its own, so the learner sees where
+   the lesson ends and the questions start. */
+.quiz {
+  margin: 1.5em 0 0.9em;
+  padding: 10px 16px 12px;
+  border: 1px solid var(--edge);
+  border-top: 3px solid var(--action);
+  border-radius: 4px;
+  background: var(--pane);
+  font-size: 15px;
+}
+.quiz-head {
+  margin: 0 0 8px;
+  color: var(--action);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.quiz-prompt {
+  display: block;
+  margin: 0 0 8px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+.quiz-text {
+  display: block;
+  width: 100%;
+  padding: 6px 10px;
+  border: 1px solid var(--edge);
+  border-radius: 4px;
+  background: var(--page);
+  color: var(--ink);
+  font: inherit;
+  line-height: 1.5;
+  resize: vertical;
+}
+.quiz-text:focus-visible {
+  outline: 2px solid var(--action);
+  outline-offset: 1px;
+}
+.quiz-choice + .quiz-choice {
+  margin-top: 14px;
+}
+.quiz-legend {
+  margin: 0 0 6px;
+}
+.quiz-header {
+  display: inline-block;
+  margin: 0 0 4px;
+  padding: 0 6px;
+  border-radius: 3px;
+  background: var(--agent);
+  color: var(--ink-quiet);
+  font-size: 12px;
+  font-weight: 600;
+}
+.quiz-option {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.quiz-option:hover {
+  background: var(--edge-soft);
+}
+.quiz-option input {
+  flex: none;
+  accent-color: var(--action);
+}
+.quiz-option-text {
+  line-height: 1.5;
+}
+.quiz-end {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: 10px 0 0;
+}
+.quiz-send {
+  padding: 5px 18px;
+  border-radius: 4px;
+  background: var(--action);
+  color: var(--action-ink);
+  font-size: 14px;
+  font-weight: 600;
+}
+.quiz-send:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+.quiz-note {
+  color: var(--ink-faint);
+  font-size: 13px;
+}

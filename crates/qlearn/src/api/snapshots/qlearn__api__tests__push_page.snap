@@ -15,5 +15,6 @@ expression: body
       "kind": "text"
     }
   ],
-  "id": "1"
+  "id": "1",
+  "quizzes": []
 }

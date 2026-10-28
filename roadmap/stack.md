@@ -236,6 +236,43 @@ store, so a course is deleted when no server writes it.
 - **SQLite to keep old courses.** A course already stays in `.learn/`
   until `qlearn delete` removes it, and `qlearn list` lists it.
 
+## 2026-10-28 — Holes found by the quiz format
+
+The parser of the quiz, and the review of it, left three questions that
+section 5.1 did not answer.
+
+**Decisions.**
+
+- **Four more refusals of a quiz.** A point id holds lowercase letters,
+  digits and hyphens. An open question names at least one point. An entry
+  for a known point repeats its label and its lesson, or gives neither. An
+  entry that no question names is refused. Section 5.1 lists them.
+- **An option holds one line.** A paragraph on two lines, or a line
+  break, is refused like a list.
+- **A corrupt page file stays as it is.** A push of the page reads the
+  file first to keep its quizzes, so it refuses a file that it cannot
+  read. The error says to repair it by hand. The procedure tells the agent
+  to stop and show the error to the learner.
+
+**Why.** The point id goes into `--point <id>=ok`, so a space or a `=`
+would break the command. The answer to an open question is graded on its
+points, so a question with none cannot be graded. A new label for a known
+point would change the label of the results it already holds. An entry
+that no question names is a typo of the agent, and it would add a point
+that no quiz checks. An option is one line of a list of options, and a
+break in it reads as two options. A page file holds the quizzes, and soon
+the answers of the learner: a push that writes over it loses them.
+
+**Rejected:**
+
+- **Accept a new label for a known point.** The results of the point
+  would change their meaning.
+- **Write a push over a corrupt page file**, as step 2 did. The answers of
+  the learner would be lost without a word.
+- **Move a corrupt page file aside, as `<id>.json.bad`, and push.** It
+  adds a file to the layout of section 10 for a case that a repair by hand
+  covers.
+
 ## Open questions
 
 - **The URL of the repository.** The host is decided: a public repository

@@ -1,0 +1,10 @@
+{
+  "open": { "prompt": "Why?", "points": ["Random Timeout", "random-timeout", "random-timeout", 7] },
+  "choices": [
+    { "header": "Vote", "prompt": "?", "options": ["a", "b"], "answer": 0, "point": "split=vote" },
+    { "header": "Vote", "prompt": "?", "options": ["a", "b"], "answer": 0 }
+  ],
+  "points": {
+    "Split Vote": { "label": "How a split vote ends" }
+  }
+}

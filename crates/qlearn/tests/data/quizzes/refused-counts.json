@@ -1,0 +1,9 @@
+{
+  "choices": [
+    { "header": "One option", "prompt": "?", "options": ["a"], "answer": 0, "point": "random-timeout" },
+    { "header": "Five options", "prompt": "?", "options": ["a", "b", "c", "d", "e"], "answer": 4, "point": "random-timeout" },
+    { "header": "No option", "prompt": "?", "options": [], "answer": 0, "point": "random-timeout" },
+    { "header": "Four", "prompt": "?", "options": ["a", "b"], "answer": 0, "point": "random-timeout" },
+    { "header": "Five", "prompt": "?", "options": ["a", "b"], "answer": 0, "point": "random-timeout" }
+  ]
+}

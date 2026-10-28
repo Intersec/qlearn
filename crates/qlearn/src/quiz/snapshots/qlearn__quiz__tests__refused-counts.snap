@@ -1,0 +1,9 @@
+---
+source: crates/qlearn/src/quiz/mod.rs
+description: "{\n  \"choices\": [\n    { \"header\": \"One option\", \"prompt\": \"?\", \"options\": [\"a\"], \"answer\": 0, \"point\": \"random-timeout\" },\n    { \"header\": \"Five options\", \"prompt\": \"?\", \"options\": [\"a\", \"b\", \"c\", \"d\", \"e\"], \"answer\": 4, \"point\": \"random-timeout\" },\n    { \"header\": \"No option\", \"prompt\": \"?\", \"options\": [], \"answer\": 0, \"point\": \"random-timeout\" },\n    { \"header\": \"Four\", \"prompt\": \"?\", \"options\": [\"a\", \"b\"], \"answer\": 0, \"point\": \"random-timeout\" },\n    { \"header\": \"Five\", \"prompt\": \"?\", \"options\": [\"a\", \"b\"], \"answer\": 0, \"point\": \"random-timeout\" }\n  ]\n}\n"
+---
+refused
+choices: holds 5 choices, and a quiz holds 4 at most. Move the others to a second quiz
+choices[0].options: holds 1 option, and a choice takes 2 to 4 options
+choices[1].options: holds 5 options, and a choice takes 2 to 4 options
+choices[2].options: holds 0 options, and a choice takes 2 to 4 options

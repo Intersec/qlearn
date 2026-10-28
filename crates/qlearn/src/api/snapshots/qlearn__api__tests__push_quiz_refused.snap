@@ -1,0 +1,10 @@
+---
+source: crates/qlearn/src/api/mod.rs
+expression: answer
+---
+{
+  "error": {
+    "code": "invalidQuiz",
+    "message": "open.prompt: empty\nopen.points: empty. Name the point, or the points, that the answer shows\nchoices[0].answer: 3 is out of range. The choice has 3 options, so answer takes 0 to 2\nchoices[1].options: holds 1 option, and a choice takes 2 to 4 options\nchoices[2].options[0]: holds a list. An option is inline Markdown on one line. To open it with a number or a dash, escape it: 1\\. or \\-\nchoices[1].point: the course does not know the point when. Give it a label in points\npoints.who.label: missing. A new point needs a label, such as \"How a split vote ends\""
+  }
+}

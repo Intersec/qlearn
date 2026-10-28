@@ -1,0 +1,12 @@
+{
+  "open": { "prompt": "Why is the timeout random?", "points": ["random-timeout"] },
+  "choices": [
+    { "header": "Vote", "prompt": "Who votes?", "options": ["All", "None"], "answer": 0, "point": "vote" },
+    { "header": "Term", "prompt": "Which term?", "options": ["5", "6"], "answer": 2, "point": "term" },
+    { "header": "Tie", "prompt": "Who breaks the tie?", "options": ["Nobody"], "answer": 0, "point": "tie" }
+  ],
+  "points": {
+    "vote": { "label": "Who votes" },
+    "tie": {}
+  }
+}

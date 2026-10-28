@@ -326,6 +326,13 @@ export const useCourse = defineStore('course', () => {
       if (event.kind === 'course' || event.kind === 'syllabus') {
         session = true;
       }
+      // A quiz may take its page back to taught, and shows under its lesson.
+      // It is no new page: it moves nothing and makes nothing ready.
+      if (event.kind === 'quiz' && event.page) {
+        session = true;
+        again ||= event.page === page.value?.id;
+        continue;
+      }
       if (event.kind !== 'page' || !event.page) {
         continue;
       }

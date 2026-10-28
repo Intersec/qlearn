@@ -7,7 +7,15 @@ import { chromium } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import config from '../playwright.config.ts';
-import { PAGE_1, PAGE_2, PAGE_DIAGRAMS, PAGE_DIAGRAMS_FIXED, SYLLABUS } from './agent.ts';
+import {
+  PAGE_1,
+  PAGE_2,
+  PAGE_DIAGRAMS,
+  PAGE_DIAGRAMS_FIXED,
+  QUIZ_1,
+  QUIZ_2,
+  SYLLABUS,
+} from './agent.ts';
 import { start } from './server.ts';
 
 const OUT = join(import.meta.dirname, '.shots');
@@ -56,6 +64,18 @@ for (const scheme of ['light', 'dark'] as const) {
     // The callouts, each with its marker.
     await page.locator('.callout').first().scrollIntoViewIfNeeded();
     await page.screenshot({ path: join(OUT, `${scheme}-callouts.png`) });
+
+    // The quizzes under the lesson: the open question alone, then a quiz
+    // of choices only.
+    await agent.quiz('1', QUIZ_1);
+    await agent.quiz('1', QUIZ_2);
+    const quiz = page.locator('.quiz[data-quiz="2"]');
+    await quiz.waitFor();
+    await page.locator('.quiz[data-quiz="1"]').scrollIntoViewIfNeeded();
+    await page.screenshot({ path: join(OUT, `${scheme}-quiz.png`) });
+    await quiz.locator('input[type="radio"]').nth(1).check();
+    await quiz.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: join(OUT, `${scheme}-quiz-choices.png`) });
 
     // Next, and the agent at work on the page after.
     await page.getByRole('button', { name: 'Next' }).click();

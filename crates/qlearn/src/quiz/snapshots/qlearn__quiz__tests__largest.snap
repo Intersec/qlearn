@@ -1,0 +1,115 @@
+---
+source: crates/qlearn/src/quiz/mod.rs
+description: "{\n  \"choices\": [\n    { \"header\": \"One\", \"prompt\": \"First?\", \"options\": [\"a\", \"b\", \"c\", \"d\"], \"answer\": 3, \"point\": \"p1\" },\n    { \"header\": \"Two\", \"prompt\": \"Second?\", \"options\": [\"a\", \"b\", \"c\", \"d\"], \"answer\": 0, \"point\": \"p1\" },\n    { \"header\": \"Three\", \"prompt\": \"Third?\", \"options\": [\"a\", \"b\"], \"answer\": 1, \"point\": \"p2\" },\n    { \"header\": \"Four\", \"prompt\": \"Fourth?\", \"options\": [\"a\", \"b\", \"c\"], \"answer\": 2, \"point\": \"p2\" }\n  ],\n  \"points\": {\n    \"p1\": { \"label\": \"Point one\", \"lesson\": \"1\" },\n    \"p2\": { \"label\": \"Point two\", \"lesson\": \"c1\" }\n  }\n}\n"
+---
+stored:
+{
+  "open": null,
+  "choices": [
+    {
+      "header": "One",
+      "prompt": "First?",
+      "options": [
+        "a",
+        "b",
+        "c",
+        "d"
+      ],
+      "answer": 3,
+      "point": "p1"
+    },
+    {
+      "header": "Two",
+      "prompt": "Second?",
+      "options": [
+        "a",
+        "b",
+        "c",
+        "d"
+      ],
+      "answer": 0,
+      "point": "p1"
+    },
+    {
+      "header": "Three",
+      "prompt": "Third?",
+      "options": [
+        "a",
+        "b"
+      ],
+      "answer": 1,
+      "point": "p2"
+    },
+    {
+      "header": "Four",
+      "prompt": "Fourth?",
+      "options": [
+        "a",
+        "b",
+        "c"
+      ],
+      "answer": 2,
+      "point": "p2"
+    }
+  ]
+}
+
+new points:
+[
+  {
+    "id": "p1",
+    "label": "Point one",
+    "lesson": "1",
+    "results": []
+  },
+  {
+    "id": "p2",
+    "label": "Point two",
+    "lesson": "c1",
+    "results": []
+  }
+]
+
+the page gets:
+{
+  "open": null,
+  "choices": [
+    {
+      "header": "One",
+      "prompt": "First?",
+      "options": [
+        "a",
+        "b",
+        "c",
+        "d"
+      ]
+    },
+    {
+      "header": "Two",
+      "prompt": "Second?",
+      "options": [
+        "a",
+        "b",
+        "c",
+        "d"
+      ]
+    },
+    {
+      "header": "Three",
+      "prompt": "Third?",
+      "options": [
+        "a",
+        "b"
+      ]
+    },
+    {
+      "header": "Four",
+      "prompt": "Fourth?",
+      "options": [
+        "a",
+        "b",
+        "c"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+---
+source: crates/qlearn/src/quiz/mod.rs
+description: "{\n  \"open\": { \"prompt\": \"Why?\", \"points\": [\"Random Timeout\", \"random-timeout\", \"random-timeout\", 7] },\n  \"choices\": [\n    { \"header\": \"Vote\", \"prompt\": \"?\", \"options\": [\"a\", \"b\"], \"answer\": 0, \"point\": \"split=vote\" },\n    { \"header\": \"Vote\", \"prompt\": \"?\", \"options\": [\"a\", \"b\"], \"answer\": 0 }\n  ],\n  \"points\": {\n    \"Split Vote\": { \"label\": \"How a split vote ends\" }\n  }\n}\n"
+---
+refused
+open.points[0]: "Random Timeout" is not a point id. Use lowercase letters, digits and hyphens, such as split-vote
+open.points[2]: the point random-timeout comes twice
+open.points[3]: takes a string, not a number
+choices[0].point: "split=vote" is not a point id. Use lowercase letters, digits and hyphens, such as split-vote
+choices[1].point: missing. Name the point that the question checks
+points: "Split Vote" is not a point id. Use lowercase letters, digits and hyphens, such as split-vote

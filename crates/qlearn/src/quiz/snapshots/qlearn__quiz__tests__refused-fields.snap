@@ -1,0 +1,13 @@
+---
+source: crates/qlearn/src/quiz/mod.rs
+description: "{\n  \"open\": { \"prompt\": 3, \"points\": \"random-timeout\", \"hint\": \"x\" },\n  \"choices\": [\n    \"Who wins?\",\n    { \"header\": \"\", \"prompt\": null, \"options\": \"a, b\", \"answer\": 0, \"point\": \"random-timeout\", \"multi\": true }\n  ]\n}\n"
+---
+refused
+open: unknown field "hint". An open question takes prompt and points
+open.prompt: takes a string, not a number
+open.points: takes an array, not a string
+choices[0]: takes an object, not a string
+choices[1]: unknown field "multi". A choice takes header, prompt, options, answer and point
+choices[1].header: empty
+choices[1].prompt: takes a string, not null
+choices[1].options: takes an array, not a string

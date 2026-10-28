@@ -1,0 +1,23 @@
+{
+  "open": null,
+  "choices": [
+    {
+      "header": "Vote",
+      "prompt": "A server got a vote request for term 6. It is in term 5. What does it do?",
+      "options": ["It moves to term 6", "It refuses the vote"],
+      "answer": 0,
+      "point": "term-update"
+    },
+    {
+      "header": "Timer",
+      "prompt": "Which follower starts the election?",
+      "options": ["The first to time out", "The one with the lowest id", "The leader"],
+      "answer": 0,
+      "point": "random-timeout"
+    }
+  ],
+  "points": {
+    "term-update": { "label": "A higher term moves the server to it" }
+  },
+  "author": "agent"
+}

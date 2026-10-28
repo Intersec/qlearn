@@ -123,6 +123,33 @@ impl Course {
             });
         }
     }
+
+    /// Record that the agent added a quiz to a page with content.
+    ///
+    /// The new quiz has no answer yet, so a page that was answered or
+    /// debriefed is taught again.
+    pub fn push_quiz(&mut self, id: &str, now: OffsetDateTime) {
+        self.updated = stamp(now);
+
+        let held = self
+            .parts
+            .iter_mut()
+            .flat_map(|part| part.pages.iter_mut())
+            .find(|page| page.id == id);
+        if let Some(page) = held
+            && matches!(page.state, PageState::Answered | PageState::Debriefed)
+        {
+            page.state = PageState::Taught;
+        }
+    }
+
+    /// Whether the syllabus holds a page, with content or not.
+    pub fn holds(&self, id: &str) -> bool {
+        self.parts
+            .iter()
+            .flat_map(|part| &part.pages)
+            .any(|page| page.id == id)
+    }
 }
 
 /// What `PATCH /api/course` changes. A field left out stays as it is.
@@ -517,12 +544,93 @@ pub struct Line {
     pub spans: Vec<Span>,
 }
 
-/// What `GET /api/pages/:id` answers. Quizzes and threads join it later.
+/// What `GET /api/pages/:id` answers. Threads join it later.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct Page {
     pub id: String,
     pub blocks: Vec<Block>,
+    /// In the order that the agent added them. Quiz `n` is at `n - 1`.
+    pub quizzes: Vec<Quiz>,
+}
+
+/// A quiz as the page sees it. See section 5 of the design.
+///
+/// This type has no field for the right option of a choice: the page must
+/// not get it before the learner sends the choices, and a field that is
+/// not here cannot leak.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct Quiz {
+    pub open: Option<OpenQuestion>,
+    pub choices: Vec<Choice>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenQuestion {
+    /// Plain text.
+    pub prompt: String,
+}
+
+/// A question with options, of which one is right.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct Choice {
+    /// Plain text: a short name of the question.
+    pub header: String,
+    /// Plain text.
+    pub prompt: String,
+    /// The HTML of each option, written by the server from the inline
+    /// Markdown of the agent.
+    pub options: Vec<String>,
+}
+
+/// What `POST /api/pages/:id/quizzes` answers: the number of the new quiz
+/// in its page, from 1.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct QuizNumber {
+    pub page: String,
+    pub n: usize,
+}
+
+/// A point that a quiz checks, with its results. See section 5.3 of the
+/// design.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct Point {
+    pub id: String,
+    pub label: String,
+    /// The page that taught the point.
+    pub lesson: String,
+    pub results: Vec<PointResult>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PointResult {
+    /// RFC 3339.
+    pub at: String,
+    pub result: Grade,
+    pub how: Graded,
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum Grade {
+    Ok,
+    Partial,
+    Missed,
+}
+
+/// What gave a result: a choice that the server graded, or an open answer
+/// that the agent graded.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum Graded {
+    Choice,
+    Open,
 }
 
 /// A range of a line of code with its syntax class.
@@ -751,6 +859,59 @@ mod tests {
             [page("1", PageState::Taught), page("2", PageState::Answered)]
         );
         assert_eq!(course.updated, "2026-01-01T00:01:00Z");
+    }
+
+    #[test]
+    fn a_quiz_takes_an_answered_page_back_to_taught() {
+        let mut course = Course::new("raft", at_new_year());
+        course.parts = vec![Part {
+            title: "Why".to_owned(),
+            pages: vec![
+                page("1", PageState::Taught),
+                page("2", PageState::Answered),
+                page("3", PageState::Debriefed),
+            ],
+        }];
+        let later = OffsetDateTime::from_unix_timestamp(1_767_225_660).unwrap();
+
+        for id in ["1", "2", "3"] {
+            course.push_quiz(id, later);
+        }
+
+        assert_eq!(
+            course.parts[0].pages,
+            [
+                page("1", PageState::Taught),
+                page("2", PageState::Taught),
+                page("3", PageState::Taught),
+            ]
+        );
+        assert_eq!(course.updated, "2026-01-01T00:01:00Z");
+    }
+
+    /// The page gets no answer before the learner sends the choices, so
+    /// the wire shape of a quiz has no field for one.
+    #[test]
+    fn a_quiz_has_the_shape_of_the_page_and_no_answer() {
+        let quiz = Quiz {
+            open: Some(OpenQuestion {
+                prompt: "Why?".to_owned(),
+            }),
+            choices: vec![Choice {
+                header: "Split vote".to_owned(),
+                prompt: "What next?".to_owned(),
+                options: vec!["<em>A</em>".to_owned(), "B".to_owned()],
+            }],
+        };
+
+        assert_eq!(
+            serde_json::to_value(&quiz).unwrap(),
+            json!({
+                "open": { "prompt": "Why?" },
+                "choices": [{ "header": "Split vote", "prompt": "What next?",
+                              "options": ["<em>A</em>", "B"] }],
+            })
+        );
     }
 
     #[test]

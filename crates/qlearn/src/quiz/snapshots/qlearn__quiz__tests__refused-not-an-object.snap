@@ -1,0 +1,6 @@
+---
+source: crates/qlearn/src/quiz/mod.rs
+description: "[\"What happens next?\"]\n"
+---
+refused
+the quiz: takes an object, not an array

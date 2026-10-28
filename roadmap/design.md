@@ -421,14 +421,22 @@ lesson that teaches a missed point again adds a second one.
 - `open` is one open question, or `null`. An exercise (Predict, Your fix,
   Spot the bug) is a quiz with an `open` and no `choices`.
 - `choices` holds 0 to 4 questions, with 2 to 4 options each. `answer` is
-  the index of the right option. The options are inline Markdown.
+  the index of the right option. The options are inline Markdown, on one
+  line.
 - `points` gives a label to each new point. A point that the course already
   knows needs no entry. `lesson` names the lesson that taught the point, and
   the page of the quiz is the default. A question on an earlier lesson, in
   the mixed mode, names that lesson.
 
 The server refuses a quiz that is empty, a point with no label, and an
-`answer` out of range.
+`answer` out of range. It also refuses:
+
+- a point id with a character other than a lowercase letter, a digit or a
+  hyphen, because the id goes into `--point <id>=ok`;
+- an open question that names no point;
+- an entry for a point that the course knows, with another label or
+  another lesson;
+- an entry that no question of the quiz names.
 
 ### 5.2 What the learner sees
 

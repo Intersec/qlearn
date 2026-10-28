@@ -1,0 +1,10 @@
+---
+source: crates/qlearn/src/quiz/mod.rs
+description: "{\n  \"open\": { \"prompt\": \"Why?\", \"points\": [\"random-timeout\", \"new-one\", \"other\"] },\n  \"points\": {\n    \"random-timeout\": { \"label\": \"Another label\" },\n    \"new-one\": { \"label\": \"A new point\", \"lesson\": \"x9\" },\n    \"other\": { \"label\": \"Another point\", \"lesson\": \"9\", \"weight\": 2 },\n    \"unused\": { \"label\": \"No question names it\" }\n  }\n}\n"
+---
+refused
+points.new-one.lesson: "x9" is not a page id. Name the page that taught the point, such as 3. The page of the quiz, 3, is the default
+points.other: unknown field "weight". A point takes label and lesson
+points.other.lesson: the syllabus holds no page 9. Name the page that taught the point
+points.random-timeout: the course knows this point already, as "Why the election timeout is random" from page 2. Leave it out of points
+points.unused: no question of the quiz names this point. Name it in a question, or leave it out

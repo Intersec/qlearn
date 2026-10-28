@@ -1,0 +1,105 @@
+---
+source: crates/qlearn/src/api/mod.rs
+expression: body
+---
+{
+  "blocks": [
+    {
+      "html": "<h1>The timer</h1>",
+      "id": "f421874d880d",
+      "kind": "text"
+    },
+    {
+      "excerpt": {
+        "commit": "5aba991acd07dbe98266c4898e6bc5950240d118",
+        "from": 1,
+        "lang": "c",
+        "lines": [
+          {
+            "spans": [
+              {
+                "cls": "tok-comment tok-block",
+                "end": 25,
+                "start": 0
+              }
+            ],
+            "text": "/* The election timer. */"
+          },
+          {
+            "spans": [
+              {
+                "cls": "tok-storage tok-type",
+                "end": 3,
+                "start": 0
+              },
+              {
+                "cls": "tok-entity tok-name",
+                "end": 20,
+                "start": 4
+              },
+              {
+                "cls": "tok-punctuation tok-section",
+                "end": 21,
+                "start": 20
+              },
+              {
+                "cls": "tok-storage tok-type",
+                "end": 24,
+                "start": 21
+              },
+              {
+                "cls": "tok-variable tok-parameter",
+                "end": 29,
+                "start": 25
+              },
+              {
+                "cls": "tok-punctuation tok-section",
+                "end": 30,
+                "start": 29
+              }
+            ],
+            "text": "int election_timeout(int base)"
+          },
+          {
+            "spans": [
+              {
+                "cls": "tok-punctuation tok-section",
+                "end": 1,
+                "start": 0
+              }
+            ],
+            "text": "{"
+          },
+          null
+        ],
+        "marked": [
+          2
+        ],
+        "path": "src/raft.c",
+        "repo": "",
+        "to": 4
+      },
+      "id": "20207de41ffb",
+      "kind": "excerpt"
+    }
+  ],
+  "id": "1",
+  "quizzes": [
+    {
+      "choices": [
+        {
+          "header": "Split vote",
+          "options": [
+            "The candidate with the higher id wins",
+            "Both time out and start a <em>new</em> election in a new <code>term</code>",
+            "The leader of the previous term breaks the tie &lt;b&gt;now&lt;/b&gt;"
+          ],
+          "prompt": "Two candidates get 2 votes each out of 5. What happens next?"
+        }
+      ],
+      "open": {
+        "prompt": "In 2 sentences: why is the timeout random?"
+      }
+    }
+  ]
+}

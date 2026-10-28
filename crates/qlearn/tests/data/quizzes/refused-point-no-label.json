@@ -1,0 +1,7 @@
+{
+  "open": { "prompt": "Why?", "points": ["no-entry", "no-label", "empty-label"] },
+  "points": {
+    "no-label": { "lesson": "1" },
+    "empty-label": { "label": "  " }
+  }
+}

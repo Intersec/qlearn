@@ -1,0 +1,8 @@
+---
+source: crates/qlearn/src/quiz/mod.rs
+description: "{\n  \"choices\": [\n    {\n      \"header\": \"Lines\",\n      \"prompt\": \"?\",\n      \"options\": [\"first line\\nsecond line\", \"b  \\nc\", \"<div>a</div>\\n<div>b</div>\", \"One line\"],\n      \"answer\": 3,\n      \"point\": \"random-timeout\"\n    }\n  ]\n}\n"
+---
+refused
+choices[0].options[0]: holds more than one line. An option is inline Markdown on one line. To open it with a number or a dash, escape it: 1\. or \-
+choices[0].options[1]: holds more than one line. An option is inline Markdown on one line. To open it with a number or a dash, escape it: 1\. or \-
+choices[0].options[2]: holds more than one line. An option is inline Markdown on one line. To open it with a number or a dash, escape it: 1\. or \-

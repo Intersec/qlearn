@@ -63,11 +63,11 @@ word that you can grep for.
 | Raw HTML | The HTML of a source comes out escaped. An image with a URL scheme is refused |
 | Block identity | An unchanged block keeps its id when the agent pushes the page again. Two copies of one block get two ids. A thread whose block is gone moves to the end of the page with its quote |
 | Chart and steps | Each rule of sections 4.4 and 4.5 of `design.md` has a case that breaks it |
-| Quiz | An empty quiz, a point with no label, and an `answer` out of range are refused. The page never gets `answer` before the learner sends the choices |
+| Quiz | Each refusal of section 5.1 of `design.md` has a case, with every fault at once. The page never gets `answer` before the learner sends the choices |
 | Page state | Each step from `planned` to `debriefed`. A quiz pushed on an answered page takes it back to `taught` |
 | Syllabus | A syllabus that drops a page with content is refused. The state and the score come from the store, never from the agent |
 | Points | `qlearn points` gives the `missed` and `partial` points first, then the others by the date of their last result. A `partial` point counts 0.5 in the score |
-| Storage | A write is atomic. A read of a corrupt file reports an error and never deletes the file. A `version` above the one of the binary is refused |
+| Storage | A write is atomic. A read of a corrupt file reports an error and never deletes the file. A push of a page over a corrupt page file is refused. A `version` above the one of the binary is refused |
 | Delete | `qlearn delete` refuses a course that a server serves, and removes nothing |
 | Directory without `course.json` | A directory of `.learn/` without `course.json` is refused, and the error says to start a new course with a new slug |
 | Working tree | The server writes under `.learn/` only, and adds `.learn/` to `.git/info/exclude` when git does not ignore it |

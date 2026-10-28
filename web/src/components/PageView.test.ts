@@ -22,6 +22,7 @@ function view(...html: string[]) {
   const page: Page = {
     id: '1',
     blocks: html.map((text, at) => ({ id: `block${at}`, kind: 'text', html: text })),
+    quizzes: [],
   };
   return mount(PageView, { props: { page } });
 }
@@ -62,6 +63,7 @@ describe('PageView', () => {
         { id: 'b', kind: 'callout', marker: 'teaser', html: '<p>Lesson 4 shows it.</p>' },
         { id: 'c', kind: 'text', html: '<p>After.</p>' },
       ],
+      quizzes: [],
     };
     const wrapper = mount(PageView, { props: { page } });
 
@@ -92,6 +94,7 @@ describe('PageView', () => {
         },
         { id: 'c', kind: 'text', html: '<p>After.</p>' },
       ],
+      quizzes: [],
     };
     const wrapper = mount(PageView, { props: { page } });
 
@@ -109,6 +112,7 @@ describe('PageView', () => {
         { id: 'b', kind: 'diagram', source: 'graph LR\n  A --> B\n' },
         { id: 'c', kind: 'text', html: '<p>After.</p>' },
       ],
+      quizzes: [],
     };
     const wrapper = mount(PageView, { props: { page } });
     await flushPromises();
@@ -119,10 +123,54 @@ describe('PageView', () => {
     expect(wrapper.emitted('broken')).toBeUndefined();
   });
 
+  it('shows the quizzes under the lesson, in order', () => {
+    const page: Page = {
+      id: '1',
+      blocks: [{ id: 'a', kind: 'text', html: '<p>The lesson.</p>' }],
+      quizzes: [
+        { open: { prompt: 'Why?' }, choices: [] },
+        { open: null, choices: [{ header: 'Vote', prompt: 'Who?', options: ['S1', 'S2'] }] },
+      ],
+    };
+    const wrapper = mount(PageView, { props: { page } });
+
+    const parts = wrapper.findAll('[data-block], [data-quiz]');
+    expect(
+      parts.map((part) => part.attributes('data-block') ?? part.attributes('data-quiz')),
+    ).toEqual(['a', '1', '2']);
+    expect(parts[1].find('.quiz-open').exists()).toBe(true);
+    expect(parts[2].find('.quiz-choices').exists()).toBe(true);
+  });
+
+  it('leaves the draft of a quiz on its page when another page opens', async () => {
+    const lesson = (id: string, prompt: string): Page => ({
+      id,
+      blocks: [{ id: `text${id}`, kind: 'text', html: '<p>The lesson.</p>' }],
+      quizzes: [
+        { open: { prompt }, choices: [] },
+        { open: null, choices: [{ header: 'Vote', prompt: 'Who?', options: ['S1', 'S2'] }] },
+      ],
+    });
+    const wrapper = mount(PageView, { props: { page: lesson('1', 'Why 1?') } });
+    await wrapper.find('textarea').setValue('my answer to page 1');
+    await wrapper.findAll('input[type="radio"]')[1].setValue(true);
+
+    await wrapper.setProps({ page: lesson('2', 'Why 2?') });
+
+    expect(wrapper.find('.quiz-prompt').text()).toBe('Why 2?');
+    expect((wrapper.find('textarea').element as HTMLTextAreaElement).value).toBe('');
+    const radios = wrapper.findAll('input[type="radio"]');
+    expect(radios.map((radio) => (radio.element as HTMLInputElement).checked)).toEqual([
+      false,
+      false,
+    ]);
+  });
+
   it('names its page when a diagram cannot be drawn', async () => {
     const page: Page = {
       id: '7a',
       blocks: [{ id: 'b', kind: 'diagram', source: 'graph LR\n  A -->\n' }],
+      quizzes: [],
     };
     const wrapper = mount(PageView, { props: { page } });
     await flushPromises();

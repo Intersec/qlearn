@@ -225,6 +225,62 @@ async fn an_agent_writes_the_syllabus_and_reads_every_fault_of_a_refused_one() {
     assert!(interrupt(server).await.success());
 }
 
+/// The agent adds a quiz under a page that it pushed. A refused quiz
+/// prints every fault, and the page never gets the right option.
+#[tokio::test]
+async fn an_agent_adds_a_quiz_and_reads_every_fault_of_a_refused_one() {
+    let repo = build_repo();
+    let root = repo.path();
+    let mut server = qlearn(root, &["raft", "--no-open"]).spawn().unwrap();
+    read_url(&mut server).await;
+    let quiz = r#"{ "choices": [{ "header": "Vote", "prompt": "Who wins?",
+        "options": ["The first to time out", "The highest id"], "answer": 0,
+        "point": "random-timeout" }],
+        "points": { "random-timeout": { "label": "Why the timeout is random" } } }"#;
+
+    let early = run(root, &["quiz", "1", "--file", "-"], Some(quiz)).await;
+    assert_eq!(early.status.code(), Some(1), "{early:?}");
+    assert!(
+        stderr(&early).contains("`qlearn page 1`"),
+        "{}",
+        stderr(&early)
+    );
+
+    json_of(&run(root, &["page", "1", "--file", "-"], Some("# Two leaders\n")).await);
+    std::fs::write(root.join("quiz.json"), quiz).unwrap();
+    let number = json_of(&run(root, &["quiz", "1", "--file", "quiz.json"], None).await);
+    assert_eq!(number, json!({ "page": "1", "n": 1 }));
+
+    let wrong = r#"{ "choices": [{ "header": "Vote", "prompt": "Who wins?",
+        "options": ["S1"], "answer": 1, "point": "new-point" }] }"#;
+    let refused = run(root, &["quiz", "1", "--file", "-"], Some(wrong)).await;
+    assert_eq!(refused.status.code(), Some(1), "{refused:?}");
+    assert!(refused.stdout.is_empty(), "{refused:?}");
+    let errors = stderr(&refused);
+    let lines: Vec<_> = errors.lines().collect();
+    assert_eq!(lines.len(), 3, "{errors}");
+    assert!(lines[0].starts_with("choices[0].options: "), "{errors}");
+    assert!(lines[1].starts_with("choices[0].answer: "), "{errors}");
+    assert!(lines[2].starts_with("choices[0].point: "), "{errors}");
+
+    let broken = run(root, &["quiz", "1", "--file", "-"], Some("{ choices")).await;
+    assert_eq!(broken.status.code(), Some(1), "{broken:?}");
+    assert!(
+        stderr(&broken).contains("- is not JSON"),
+        "{}",
+        stderr(&broken)
+    );
+
+    let page = page_of(root).get("/api/pages/1").await.unwrap();
+    assert_eq!(page["quizzes"].as_array().unwrap().len(), 1, "{page}");
+    assert_eq!(
+        page["quizzes"][0]["choices"][0],
+        json!({ "header": "Vote", "prompt": "Who wins?",
+                "options": ["The first to time out", "The highest id"] })
+    );
+    assert!(interrupt(server).await.success());
+}
+
 #[tokio::test]
 async fn a_wait_stays_attached_across_a_restart_of_the_server() {
     let repo = build_repo();

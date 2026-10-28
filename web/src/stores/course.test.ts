@@ -34,7 +34,7 @@ function courseOf(pages: PageRef[]): Course {
 }
 
 function pageOf(id: string, html = `<h1>Page ${id}</h1>`): Page {
-  return { id, blocks: [{ id: `block${id}`, kind: 'text', html }] };
+  return { id, blocks: [{ id: `block${id}`, kind: 'text', html }], quizzes: [] };
 }
 
 function batch(fields: Partial<EventBatch> = {}): EventBatch {
@@ -396,6 +396,39 @@ describe('a page that the agent pushes', () => {
 
     await vi.waitFor(() => expect(store.presence).toBe('connected'));
     expect(store.ready).toBeNull();
+  });
+});
+
+describe('a quiz that the agent adds', () => {
+  it('reads the page on the screen and the course again', async () => {
+    server.push('1', 1);
+    const store = await started();
+    const sessions = server.reads.session;
+    server.pages.get('1')!.quizzes = [{ open: { prompt: 'Why?' }, choices: [] }];
+
+    const event: Event = { seq: 11, kind: 'quiz', author: 'agent', page: '1', id: '1' };
+    server.send(batch({ next: 11, events: [event] }));
+
+    await vi.waitFor(() => expect(store.page?.quizzes).toHaveLength(1));
+    expect(server.reads.session).toBeGreaterThan(sessions);
+    expect(store.ready).toBeNull();
+  });
+
+  it('on another page makes nothing ready and moves nothing', async () => {
+    server.push('1', 1);
+    server.push('2', 2);
+    server.current = '1';
+    const store = await started();
+    const reads = server.reads.page.length;
+    const sessions = server.reads.session;
+
+    const event: Event = { seq: 11, kind: 'quiz', author: 'agent', page: '2', id: '1' };
+    server.send(batch({ next: 11, events: [event] }));
+
+    await vi.waitFor(() => expect(server.reads.session).toBeGreaterThan(sessions));
+    expect(store.page?.id).toBe('1');
+    expect(store.ready).toBeNull();
+    expect(server.reads.page.length).toBe(reads);
   });
 });
 

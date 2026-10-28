@@ -1,0 +1,25 @@
+---
+source: crates/qlearn/src/quiz/mod.rs
+description: "{\n  \"open\": { \"prompt\": \"  Why random?  \", \"points\": [\"random-timeout\"] },\n  \"points\": {\n    \"random-timeout\": { \"label\": \"Why the election timeout is random\", \"lesson\": \"2\" }\n  }\n}\n"
+---
+stored:
+{
+  "open": {
+    "prompt": "Why random?",
+    "points": [
+      "random-timeout"
+    ]
+  },
+  "choices": []
+}
+
+new points:
+[]
+
+the page gets:
+{
+  "open": {
+    "prompt": "Why random?"
+  },
+  "choices": []
+}

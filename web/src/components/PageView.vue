@@ -1,5 +1,6 @@
 <script setup lang="ts">
-// The blocks of a page, in the order the agent wrote them.
+// The blocks of a page, in the order the agent wrote them, then its
+// quizzes.
 
 import { computed } from 'vue';
 import type { Page } from '@/api/types';
@@ -7,6 +8,7 @@ import { clean } from '@/html';
 import CalloutView from './CalloutView.vue';
 import DiagramView from './DiagramView.vue';
 import ExcerptView from './ExcerptView.vue';
+import QuizView from './QuizView.vue';
 
 const props = defineProps<{ page: Page }>();
 
@@ -44,5 +46,13 @@ const blocks = computed(() =>
         <DiagramView :block="block" @broken="(id, error) => emit('broken', page.id, id, error)" />
       </section>
     </template>
+    <!-- A push of the page keeps its quizzes, so the rank names a quiz in
+         its page. The page id keeps a draft on its own page. -->
+    <QuizView
+      v-for="(quiz, at) in page.quizzes"
+      :key="`${page.id}-${at}`"
+      :quiz="quiz"
+      :n="at + 1"
+    />
   </article>
 </template>

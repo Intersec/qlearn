@@ -1,0 +1,9 @@
+{
+  "open": {
+    "prompt": "Predict: what does election_timeout(150) return on its first call?",
+    "points": ["timeout-range", "random-timeout"]
+  },
+  "points": {
+    "timeout-range": { "label": "The range of the election timeout" }
+  }
+}

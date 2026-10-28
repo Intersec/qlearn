@@ -1,0 +1,10 @@
+---
+source: crates/qlearn/src/quiz/mod.rs
+description: "{\n  \"open\": \"Why is the timeout random?\",\n  \"choices\": { \"header\": \"Vote\" },\n  \"points\": [\"random-timeout\"],\n  \"page\": \"3\",\n  \"author\": \"learner\"\n}\n"
+---
+refused
+author: takes "agent", not "learner"
+unknown field "page". A quiz takes open, choices and points
+open: takes an object, not a string
+choices: takes an array, not an object
+points: takes an object, not an array

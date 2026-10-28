@@ -1,0 +1,8 @@
+---
+source: crates/qlearn/src/quiz/mod.rs
+description: "{\n  \"open\": { \"prompt\": \"Why?\", \"points\": [\"no-entry\", \"no-label\", \"empty-label\"] },\n  \"points\": {\n    \"no-label\": { \"lesson\": \"1\" },\n    \"empty-label\": { \"label\": \"  \" }\n  }\n}\n"
+---
+refused
+points.empty-label.label: empty
+open.points[0]: the course does not know the point no-entry. Give it a label in points
+points.no-label.label: missing. A new point needs a label, such as "How a split vote ends"

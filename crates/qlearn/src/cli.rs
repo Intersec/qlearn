@@ -83,6 +83,16 @@ pub enum Command {
         file: String,
     },
 
+    /// Add a quiz under a page, as the agent. A refused quiz prints every
+    /// error, each with its place in the JSON, and exits 1.
+    Quiz {
+        /// The page, which the agent pushed already.
+        id: String,
+        /// The JSON file. `-` reads it from standard input.
+        #[arg(long, value_name = "PATH")]
+        file: String,
+    },
+
     /// Say in the page what the agent does, until its next wait. An empty
     /// text clears it.
     Status {

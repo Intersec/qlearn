@@ -1,0 +1,12 @@
+---
+source: crates/qlearn/src/quiz/mod.rs
+description: "{\n  \"choices\": [\n    {\n      \"header\": \"Blocks\",\n      \"prompt\": \"?\",\n      \"options\": [\"- a list\", \"1. A numbered list\", \"# A heading\", \"\", \"One.\\n\\nTwo.\", 3],\n      \"answer\": 0,\n      \"point\": \"random-timeout\"\n    }\n  ]\n}\n"
+---
+refused
+choices[0].options: holds 6 options, and a choice takes 2 to 4 options
+choices[0].options[0]: holds a list. An option is inline Markdown on one line. To open it with a number or a dash, escape it: 1\. or \-
+choices[0].options[1]: holds a list. An option is inline Markdown on one line. To open it with a number or a dash, escape it: 1\. or \-
+choices[0].options[2]: holds a heading. An option is inline Markdown on one line. To open it with a number or a dash, escape it: 1\. or \-
+choices[0].options[3]: is empty. An option is inline Markdown on one line. To open it with a number or a dash, escape it: 1\. or \-
+choices[0].options[4]: holds more than one paragraph. An option is inline Markdown on one line. To open it with a number or a dash, escape it: 1\. or \-
+choices[0].options[5]: takes a string, not a number

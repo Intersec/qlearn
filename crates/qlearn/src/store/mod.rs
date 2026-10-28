@@ -16,7 +16,8 @@ use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
 use crate::git::exec::Git;
-use crate::model::{self, Block, Course, Line, PageKind};
+use crate::model::{self, Block, Course, Line, Page, PageKind, Point};
+use crate::quiz::StoredQuiz;
 
 /// The name of the store, in the worktree and in `.git/info/exclude`.
 const DIR: &str = ".learn";
@@ -186,6 +187,16 @@ impl Store {
         })
     }
 
+    /// Write `course.json`. The answer puts the file back as it was.
+    pub fn save_undoable(&self, course: &Course) -> Result<Undo> {
+        let path = self.course_dir(&course.slug).join("course.json");
+        let undo = Undo {
+            files: vec![(path.clone(), read_if_any(&path)?)],
+        };
+        self.save(course)?;
+        Ok(undo)
+    }
+
     pub fn save(&self, course: &Course) -> Result<()> {
         let mut text = serde_json::to_string_pretty(course)?;
         text.push('\n');
@@ -224,8 +235,8 @@ impl Store {
 
 /// What `pages/<id>.json` holds.
 ///
-/// The quizzes and the threads join it in later releases, each with
-/// `serde(default)`, so a file of this release still reads.
+/// Each field takes `serde(default)`, so the file of an earlier release
+/// still reads. The threads join it in a later release, the same way.
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", default)]
 pub struct PageFile {
@@ -235,18 +246,62 @@ pub struct PageFile {
     /// The text of each hidden line, by the id of its excerpt.
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub hidden: BTreeMap<String, Line>,
+    /// In the order that the agent added them, each with its right
+    /// options. A push of the blocks keeps them.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub quizzes: Vec<StoredQuiz>,
 }
 
 impl PageFile {
+    /// The page as the page of the learner may see it. Every route that
+    /// sends a page goes through here.
+    pub fn page(&self, id: &str) -> Page {
+        Page {
+            id: id.to_owned(),
+            blocks: self.shown(),
+            quizzes: self.quizzes.iter().map(StoredQuiz::view).collect(),
+        }
+    }
+
     /// The blocks as the page may see them.
     ///
     /// A hidden line stays None until the learner answers every quiz of the
-    /// page, and while the page has no quiz, because the agent pushes the
-    /// quiz after the page. This release has no quiz, so every hidden line
-    /// stays None. Every route that sends blocks goes through here.
+    /// page. It stays None too while the page has no quiz, because the
+    /// agent pushes the quiz after the page.
     pub fn shown(&self) -> Vec<Block> {
-        self.blocks.clone()
+        match self.answered() {
+            true => self.revealed(),
+            false => self.blocks.clone(),
+        }
     }
+
+    fn answered(&self) -> bool {
+        !self.quizzes.is_empty() && self.quizzes.iter().all(StoredQuiz::answered)
+    }
+
+    /// The blocks with the text of each hidden line.
+    fn revealed(&self) -> Vec<Block> {
+        let mut blocks = self.blocks.clone();
+        for block in &mut blocks {
+            let Block::Excerpt { id, excerpt } = block else {
+                continue;
+            };
+            let Some(line) = self.hidden.get(id.as_str()) else {
+                continue;
+            };
+            if let Some(hidden) = excerpt.lines.iter_mut().find(|line| line.is_none()) {
+                *hidden = Some(line.clone());
+            }
+        }
+        blocks
+    }
+}
+
+/// What `points.json` holds. See section 5.3 of the design.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", default)]
+struct PointsFile {
+    points: Vec<Point>,
 }
 
 impl Store {
@@ -269,13 +324,7 @@ impl Store {
     /// The source is kept as it came, so a later release can parse it again.
     /// The answer puts the files back as they were, for a push that fails
     /// after this write. A write that fails here puts them back itself.
-    pub fn save_page(
-        &self,
-        slug: &str,
-        id: &str,
-        source: &str,
-        page: &PageFile,
-    ) -> Result<PageUndo> {
+    pub fn save_page(&self, slug: &str, id: &str, source: &str, page: &PageFile) -> Result<Undo> {
         check_page_id(id)?;
         let dir = self.pages_dir(slug)?;
         let mut text = serde_json::to_string_pretty(page)?;
@@ -283,7 +332,7 @@ impl Store {
 
         let source_path = dir.join(format!("{id}.md"));
         let blocks_path = dir.join(format!("{id}.json"));
-        let undo = PageUndo {
+        let undo = Undo {
             files: vec![
                 (source_path.clone(), read_if_any(&source_path)?),
                 (blocks_path.clone(), read_if_any(&blocks_path)?),
@@ -298,9 +347,68 @@ impl Store {
         }
     }
 
+    /// Write the blocks of a page, and leave its source as it is.
+    ///
+    /// A quiz goes through here. Only a push of the page writes the source,
+    /// so the current page stays the page pushed last. The answer puts the
+    /// file back as it was.
+    pub fn save_blocks(&self, slug: &str, id: &str, page: &PageFile) -> Result<Undo> {
+        check_page_id(id)?;
+        let path = self.pages_dir(slug)?.join(format!("{id}.json"));
+        let mut text = serde_json::to_string_pretty(page)?;
+        text.push('\n');
+
+        let undo = Undo {
+            files: vec![(path.clone(), read_if_any(&path)?)],
+        };
+        write_atomic(&path, text.as_bytes())?;
+        Ok(undo)
+    }
+
+    /// The points of a course. None of them before the first quiz.
+    ///
+    /// A file that cannot be read is an error, and is never written over:
+    /// it holds the results of the learner.
+    pub fn load_points(&self, slug: &str) -> Result<Vec<Point>> {
+        let path = self.course_dir(slug).join("points.json");
+        let text = match fs::read_to_string(&path) {
+            Ok(text) => text,
+            Err(e) if e.kind() == ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(e) => return Err(e).with_context(|| format!("cannot read {}", path.display())),
+        };
+
+        let file: PointsFile = serde_json::from_str(&text).with_context(|| {
+            format!(
+                "{} is not readable. It is left as it is: repair it by hand rather than \
+                 lose the results of the learner",
+                path.display()
+            )
+        })?;
+        Ok(file.points)
+    }
+
+    /// Write the points of a course. The answer puts the file back as it
+    /// was.
+    pub fn save_points(&self, slug: &str, points: &[Point]) -> Result<Undo> {
+        let path = self.course_dir(slug).join("points.json");
+        let file = PointsFile {
+            points: points.to_vec(),
+        };
+        let mut text = serde_json::to_string_pretty(&file)?;
+        text.push('\n');
+
+        let undo = Undo {
+            files: vec![(path.clone(), read_if_any(&path)?)],
+        };
+        write_atomic(&path, text.as_bytes())?;
+        Ok(undo)
+    }
+
     /// Read the blocks of a page. None when the agent has not pushed it.
     ///
-    /// A file that cannot be read is an error, and is never written over.
+    /// A file that cannot be read is an error, and is never written over:
+    /// it holds the quizzes of the page and the answers of the learner. A
+    /// push of the page reads it first, so a push cannot repair it.
     pub fn load_page(&self, slug: &str, id: &str) -> Result<Option<PageFile>> {
         check_page_id(id)?;
         let path = self.pages_dir(slug)?.join(format!("{id}.json"));
@@ -312,8 +420,8 @@ impl Store {
 
         serde_json::from_str(&text).map(Some).with_context(|| {
             format!(
-                "{} is not readable. It is left as it is: push the page again, \
-                 or repair it by hand",
+                "{} is not readable. It is left as it is: repair it by hand rather \
+                 than lose the quizzes of the page and the answers of the learner",
                 path.display()
             )
         })
@@ -356,16 +464,24 @@ impl Store {
     }
 }
 
-/// The files of a page before a push, so that a push that fails after
-/// `save_page` leaves the page as it was.
+/// The files of a write before it, so that a change that fails halfway
+/// leaves the store as it was.
 #[derive(Debug)]
-pub struct PageUndo {
-    /// Each file, with its bytes before the push, or None when it did not
+pub struct Undo {
+    /// Each file, with its bytes before the write, or None when it did not
     /// exist.
     files: Vec<(PathBuf, Option<Vec<u8>>)>,
 }
 
-impl PageUndo {
+impl Undo {
+    /// One undo for this write and a later one. The later write is put
+    /// back first, so a file that both wrote ends as it was before both.
+    pub fn and(self, later: Undo) -> Undo {
+        let mut files = later.files;
+        files.extend(self.files);
+        Undo { files }
+    }
+
     /// Put the files back as they were.
     pub fn undo(self) -> Result<()> {
         for (path, before) in self.files {
@@ -387,7 +503,7 @@ impl PageUndo {
     pub fn after(self, error: anyhow::Error) -> anyhow::Error {
         match self.undo() {
             Ok(()) => error,
-            Err(undo) => anyhow!("{error:#}, and the page could not be put back: {undo:#}"),
+            Err(undo) => anyhow!("{error:#}, and the store could not be put back: {undo:#}"),
         }
     }
 }
@@ -818,6 +934,7 @@ mod tests {
                 html: html.to_owned(),
             }],
             hidden: BTreeMap::new(),
+            quizzes: Vec::new(),
         }
     }
 
@@ -873,6 +990,7 @@ mod tests {
                 },
             }],
             hidden: BTreeMap::from([("0123456789ab".to_owned(), line("int b;"))]),
+            quizzes: Vec::new(),
         };
 
         store.save_page("raft", "1", "source", &page).unwrap();
@@ -882,6 +1000,130 @@ mod tests {
         assert_eq!(read.shown(), page.blocks);
         let shown = serde_json::to_string(&read.shown()).unwrap();
         assert!(!shown.contains("int b;"), "{shown}");
+
+        // A quiz with no answer keeps the line hidden.
+        let mut quizzed = read.clone();
+        quizzed.quizzes.push(quiz());
+        assert_eq!(quizzed.shown(), page.blocks);
+        let sent = serde_json::to_string(&quizzed.page("1")).unwrap();
+        assert!(!sent.contains("int b;"), "{sent}");
+
+        // The answers come with the routes of the learner. Once they do,
+        // the blocks show the line in its place.
+        let Block::Excerpt { excerpt, .. } = &quizzed.revealed()[0] else {
+            panic!("an excerpt");
+        };
+        assert_eq!(excerpt.lines, [Some(line("int a;")), Some(line("int b;"))]);
+    }
+
+    fn quiz() -> StoredQuiz {
+        StoredQuiz {
+            open: Some(crate::quiz::StoredOpen {
+                prompt: "Why is the timeout random?".to_owned(),
+                points: vec!["random-timeout".to_owned()],
+            }),
+            choices: vec![crate::quiz::StoredChoice {
+                header: "Split vote".to_owned(),
+                prompt: "What happens next?".to_owned(),
+                options: vec!["A new term".to_owned(), "The higher id wins".to_owned()],
+                answer: 0,
+                point: "split-vote".to_owned(),
+            }],
+        }
+    }
+
+    /// A quiz rewrites the blocks of its page and leaves the source alone:
+    /// the source says which page the agent pushed last.
+    #[tokio::test]
+    async fn a_quiz_is_stored_with_its_answers_beside_the_blocks() {
+        let repo = repo().await;
+        let store = Store::at(repo.path());
+        store.open(Some("raft"), at_new_year()).unwrap();
+        let mut page = text_page("<p>One.</p>");
+        store.save_page("raft", "1", "One.\n", &page).unwrap();
+        let source = repo.path().join(".learn/raft/pages/1.md");
+        let modified = fs::metadata(&source).unwrap().modified().unwrap();
+
+        page.quizzes.push(quiz());
+        let undo = store.save_blocks("raft", "1", &page).unwrap();
+
+        assert_eq!(store.load_page("raft", "1").unwrap(), Some(page.clone()));
+        let stored = fs::read_to_string(repo.path().join(".learn/raft/pages/1.json")).unwrap();
+        assert!(stored.contains("\"answer\": 0"), "{stored}");
+        assert_eq!(fs::read_to_string(&source).unwrap(), "One.\n");
+        assert_eq!(fs::metadata(&source).unwrap().modified().unwrap(), modified);
+
+        undo.undo().unwrap();
+        assert_eq!(
+            store.load_page("raft", "1").unwrap(),
+            Some(text_page("<p>One.</p>"))
+        );
+    }
+
+    #[tokio::test]
+    async fn a_course_put_back_is_as_it_was() {
+        let repo = repo().await;
+        let store = Store::at(repo.path());
+        let course = store.open(Some("raft"), at_new_year()).unwrap();
+        let path = repo.path().join(".learn/raft/course.json");
+        let before = fs::read(&path).unwrap();
+        let mut changed = course.clone();
+        changed.title = "Changed".to_owned();
+
+        let undo = store.save_undoable(&changed).unwrap();
+        assert_eq!(store.load("raft").unwrap(), Some(changed));
+        undo.undo().unwrap();
+
+        assert_eq!(fs::read(&path).unwrap(), before);
+        assert_eq!(store.load("raft").unwrap(), Some(course));
+    }
+
+    #[tokio::test]
+    async fn the_points_are_written_and_read_back() {
+        let repo = repo().await;
+        let store = Store::at(repo.path());
+        store.open(Some("raft"), at_new_year()).unwrap();
+        assert_eq!(store.load_points("raft").unwrap(), []);
+        let point = Point {
+            id: "split-vote".to_owned(),
+            label: "How a split vote ends".to_owned(),
+            lesson: "3".to_owned(),
+            results: Vec::new(),
+        };
+
+        let first = store
+            .save_points("raft", std::slice::from_ref(&point))
+            .unwrap();
+        let second = store.save_points("raft", &[]).unwrap();
+        assert_eq!(store.load_points("raft").unwrap(), []);
+        first.and(second).undo().unwrap();
+
+        assert!(!repo.path().join(".learn/raft/points.json").exists());
+        store
+            .save_points("raft", std::slice::from_ref(&point))
+            .unwrap();
+        assert_eq!(store.load_points("raft").unwrap(), [point]);
+        assert_eq!(
+            files(repo.path()),
+            [
+                ".learn/raft/course.json",
+                ".learn/raft/points.json",
+                "a.txt"
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn corrupt_points_are_an_error_and_stay_on_disk() {
+        let repo = repo().await;
+        let store = Store::at(repo.path());
+        let path = repo.path().join(".learn/raft/points.json");
+        write(&path, "{ not json");
+
+        let error = store.load_points("raft").unwrap_err().to_string();
+
+        assert!(error.contains("repair it by hand"), "{error}");
+        assert_eq!(fs::read_to_string(&path).unwrap(), "{ not json");
     }
 
     #[tokio::test]
@@ -907,18 +1149,20 @@ mod tests {
 
         let error = store.load_page("raft", "1").unwrap_err().to_string();
 
-        assert!(error.contains("push the page again"), "{error}");
+        assert!(error.contains("repair it by hand"), "{error}");
+        assert!(!error.contains("push the page again"), "{error}");
         assert_eq!(fs::read_to_string(&path).unwrap(), "{ not json");
     }
 
-    /// A page of a later release carries more than blocks. A missing field
-    /// reads as empty, and an unknown one is left aside.
+    /// A page of a later release carries more than blocks, and a page of
+    /// an earlier one has no quizzes. A missing field reads as empty, and
+    /// an unknown one is left aside.
     #[tokio::test]
     async fn a_page_file_reads_with_a_field_more_or_a_field_less() {
         let repo = repo().await;
         let store = Store::at(repo.path());
         let dir = repo.path().join(".learn/raft/pages");
-        write(&dir.join("1.json"), r#"{ "blocks": [], "quizzes": [{}] }"#);
+        write(&dir.join("1.json"), r#"{ "blocks": [], "threads": [{}] }"#);
         write(&dir.join("2.json"), "{}");
 
         assert_eq!(

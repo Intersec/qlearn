@@ -1,0 +1,9 @@
+---
+source: crates/qlearn/src/quiz/mod.rs
+description: "{\n  \"choices\": [\n    { \"header\": \"Past the end\", \"prompt\": \"?\", \"options\": [\"a\", \"b\", \"c\"], \"answer\": 3, \"point\": \"random-timeout\" },\n    { \"header\": \"Negative\", \"prompt\": \"?\", \"options\": [\"a\", \"b\"], \"answer\": -1, \"point\": \"random-timeout\" },\n    { \"header\": \"Not an integer\", \"prompt\": \"?\", \"options\": [\"a\", \"b\"], \"answer\": 1.5, \"point\": \"random-timeout\" },\n    { \"header\": \"A string\", \"prompt\": \"?\", \"options\": [\"a\", \"b\"], \"answer\": \"1\", \"point\": \"random-timeout\" }\n  ]\n}\n"
+---
+refused
+choices[0].answer: 3 is out of range. The choice has 3 options, so answer takes 0 to 2
+choices[1].answer: -1 is out of range. The choice has 2 options, so answer takes 0 to 1
+choices[2].answer: takes an integer, not 1.5
+choices[3].answer: takes an integer, not a string

@@ -1,0 +1,65 @@
+---
+source: crates/qlearn/src/quiz/mod.rs
+description: "{\n  \"open\": null,\n  \"choices\": [\n    {\n      \"header\": \"Vote\",\n      \"prompt\": \"A server got a vote request for term 6. It is in term 5. What does it do?\",\n      \"options\": [\"It moves to term 6\", \"It refuses the vote\"],\n      \"answer\": 0,\n      \"point\": \"term-update\"\n    },\n    {\n      \"header\": \"Timer\",\n      \"prompt\": \"Which follower starts the election?\",\n      \"options\": [\"The first to time out\", \"The one with the lowest id\", \"The leader\"],\n      \"answer\": 0,\n      \"point\": \"random-timeout\"\n    }\n  ],\n  \"points\": {\n    \"term-update\": { \"label\": \"A higher term moves the server to it\" }\n  },\n  \"author\": \"agent\"\n}\n"
+---
+stored:
+{
+  "open": null,
+  "choices": [
+    {
+      "header": "Vote",
+      "prompt": "A server got a vote request for term 6. It is in term 5. What does it do?",
+      "options": [
+        "It moves to term 6",
+        "It refuses the vote"
+      ],
+      "answer": 0,
+      "point": "term-update"
+    },
+    {
+      "header": "Timer",
+      "prompt": "Which follower starts the election?",
+      "options": [
+        "The first to time out",
+        "The one with the lowest id",
+        "The leader"
+      ],
+      "answer": 0,
+      "point": "random-timeout"
+    }
+  ]
+}
+
+new points:
+[
+  {
+    "id": "term-update",
+    "label": "A higher term moves the server to it",
+    "lesson": "3",
+    "results": []
+  }
+]
+
+the page gets:
+{
+  "open": null,
+  "choices": [
+    {
+      "header": "Vote",
+      "prompt": "A server got a vote request for term 6. It is in term 5. What does it do?",
+      "options": [
+        "It moves to term 6",
+        "It refuses the vote"
+      ]
+    },
+    {
+      "header": "Timer",
+      "prompt": "Which follower starts the election?",
+      "options": [
+        "The first to time out",
+        "The one with the lowest id",
+        "The leader"
+      ]
+    }
+  ]
+}

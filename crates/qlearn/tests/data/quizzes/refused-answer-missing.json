@@ -1,0 +1,5 @@
+{
+  "choices": [
+    { "header": "No answer", "prompt": "?", "options": ["a", "b"], "point": "random-timeout" }
+  ]
+}

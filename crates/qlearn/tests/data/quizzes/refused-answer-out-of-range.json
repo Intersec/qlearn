@@ -1,0 +1,8 @@
+{
+  "choices": [
+    { "header": "Past the end", "prompt": "?", "options": ["a", "b", "c"], "answer": 3, "point": "random-timeout" },
+    { "header": "Negative", "prompt": "?", "options": ["a", "b"], "answer": -1, "point": "random-timeout" },
+    { "header": "Not an integer", "prompt": "?", "options": ["a", "b"], "answer": 1.5, "point": "random-timeout" },
+    { "header": "A string", "prompt": "?", "options": ["a", "b"], "answer": "1", "point": "random-timeout" }
+  ]
+}

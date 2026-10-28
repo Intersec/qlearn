@@ -1,0 +1,6 @@
+---
+source: crates/qlearn/src/quiz/mod.rs
+description: "{\n  \"choices\": [\n    { \"header\": \"No answer\", \"prompt\": \"?\", \"options\": [\"a\", \"b\"], \"point\": \"random-timeout\" }\n  ]\n}\n"
+---
+refused
+choices[0].answer: missing. Give the index of the right option, from 0

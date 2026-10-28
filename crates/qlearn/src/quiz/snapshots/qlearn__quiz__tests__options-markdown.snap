@@ -1,0 +1,60 @@
+---
+source: crates/qlearn/src/quiz/mod.rs
+description: "{\n  \"choices\": [\n    {\n      \"header\": \"Code\",\n      \"prompt\": \"Which line draws the random part?\",\n      \"options\": [\n        \"`int timeout = base + rand() % base;`\",\n        \"The **return** of *election_timeout*\",\n        \"An inline <b>tag</b> & a [link](https://raft.github.io)\",\n        \"1\\\\. The first line, escaped\"\n      ],\n      \"answer\": 0,\n      \"point\": \"random-timeout\"\n    },\n    {\n      \"header\": \"A tag first\",\n      \"prompt\": \"A line that opens with a tag is a block of HTML, kept as text.\",\n      \"options\": [\"<script>alert(1)</script> *as written*\", \"plain\"],\n      \"answer\": 1,\n      \"point\": \"random-timeout\"\n    }\n  ]\n}\n"
+---
+stored:
+{
+  "open": null,
+  "choices": [
+    {
+      "header": "Code",
+      "prompt": "Which line draws the random part?",
+      "options": [
+        "`int timeout = base + rand() % base;`",
+        "The **return** of *election_timeout*",
+        "An inline <b>tag</b> & a [link](https://raft.github.io)",
+        "1\\. The first line, escaped"
+      ],
+      "answer": 0,
+      "point": "random-timeout"
+    },
+    {
+      "header": "A tag first",
+      "prompt": "A line that opens with a tag is a block of HTML, kept as text.",
+      "options": [
+        "<script>alert(1)</script> *as written*",
+        "plain"
+      ],
+      "answer": 1,
+      "point": "random-timeout"
+    }
+  ]
+}
+
+new points:
+[]
+
+the page gets:
+{
+  "open": null,
+  "choices": [
+    {
+      "header": "Code",
+      "prompt": "Which line draws the random part?",
+      "options": [
+        "<code>int timeout = base + rand() % base;</code>",
+        "The <strong>return</strong> of <em>election_timeout</em>",
+        "An inline &lt;b&gt;tag&lt;/b&gt; &amp; a <a href=\"https://raft.github.io\" target=\"_blank\" rel=\"noopener noreferrer\">link</a>",
+        "1. The first line, escaped"
+      ]
+    },
+    {
+      "header": "A tag first",
+      "prompt": "A line that opens with a tag is a block of HTML, kept as text.",
+      "options": [
+        "&lt;script&gt;alert(1)&lt;/script&gt; *as written*",
+        "plain"
+      ]
+    }
+  ]
+}

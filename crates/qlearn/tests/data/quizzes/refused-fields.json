@@ -1,0 +1,7 @@
+{
+  "open": { "prompt": 3, "points": "random-timeout", "hint": "x" },
+  "choices": [
+    "Who wins?",
+    { "header": "", "prompt": null, "options": "a, b", "answer": 0, "point": "random-timeout", "multi": true }
+  ]
+}

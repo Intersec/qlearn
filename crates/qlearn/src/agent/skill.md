@@ -3,10 +3,13 @@
 qlearn shows a course on a code base in the browser of the learner. You
 write the pages of the course. The learner reads them and presses **Next**
 when they want the next page. Everything goes through `qlearn` commands.
-Never edit the files under `.learn/` by hand.
+Never edit the files under `.learn/` by hand. If a command says that a file
+of `.learn/` is not readable, stop and show the error to the learner: the
+file may hold their answers, and only they repair it.
 
 This release knows the syllabus, pages of text, callouts, excerpts of the
-code, diagrams, and the **Next** button. It has no quiz yet.
+code, diagrams, quizzes, and the **Next** button. The page shows a quiz
+under its lesson, but the learner cannot send an answer yet.
 
 ## Start
 
@@ -240,8 +243,9 @@ mark: 127, 130-131
 - A path inside a submodule works. If the submodule does not hold the
   commit that the tree names, the error gives the command that fetches it.
 - The page shows a hidden line as a blank. The server keeps its text
-  until the learner answers the quiz of the page. This release has no
-  quiz, so a hidden line never shows: do not use `hide` yet.
+  until the learner answers every quiz of the page. In this release, the
+  learner cannot send an answer, so a hidden line never shows: do not use
+  `hide` yet.
 - Put an excerpt at the top level of the page, not inside a list or a
   quote.
 - Read the file before you write the fence, so that `lines` names the code
@@ -295,6 +299,79 @@ before any other:
 
 The fixed diagram gets a new block id. You hear of a broken diagram once
 for each push of its page, even when the learner opens the page again.
+
+## Quizzes
+
+A quiz checks what the learner got from a page. Push the page first, then
+add its quiz:
+
+```sh
+qlearn quiz 3 --file - <<'EOF'
+{
+  "open": {
+    "prompt": "In 2 sentences: why is the timeout random?",
+    "points": ["random-timeout"]
+  },
+  "choices": [
+    {
+      "header": "Split vote",
+      "prompt": "Two candidates get 2 votes each out of 5. What happens next?",
+      "options": [
+        "The candidate with the higher id wins",
+        "Both time out and start a new election in a new term",
+        "The leader of the previous term breaks the tie"
+      ],
+      "answer": 1,
+      "point": "split-vote"
+    }
+  ],
+  "points": {
+    "random-timeout": { "label": "Why the election timeout is random" },
+    "split-vote": { "label": "How a split vote ends", "lesson": "2" }
+  }
+}
+EOF
+```
+
+- `open` is one open question: a `prompt`, and the `points` that its
+  answer shows. Give `null`, or leave it out, for a quiz of choices only.
+  An exercise, such as "Predict" or "Spot the bug", is an open question
+  with no choices.
+- `choices` holds 0 to 4 questions. Each one has a short `header`, a
+  `prompt`, 2 to 4 `options`, the `answer`, and the `point` that it
+  checks. `answer` is the index of the right option, from 0.
+- An option is inline Markdown on one line: `code`, **bold**, *italic*,
+  or a link. It holds no list and no heading. To open an option with a
+  number or a dash, escape it: `1\.` or `\-`.
+- A prompt and a header are plain text: the page shows them as you wrote
+  them, backticks included.
+- A point id holds lowercase letters, digits and hyphens, such as
+  `split-vote`. `points` gives a `label` to each point that the course
+  does not know yet. A point that an earlier quiz labelled needs no entry.
+  If you give one, it repeats the label and the lesson of that point.
+- An open question names at least one point. Each entry of `points` is a
+  point that a question of the quiz names.
+- `lesson` names the page that taught the point. The page of the quiz is
+  the default. In the `mixed` quiz mode, a question on an earlier lesson
+  names that lesson.
+- The page shows the open question first, alone. The learner sees the
+  choices only after the open answer, so their options cannot give it
+  away. The page never gets `answer` before the learner sends the choices.
+
+A page can hold several quizzes, in order: a second quiz teaches a missed
+point again. A quiz on a page that the learner answered makes the page
+wait for an answer again. The command prints the number of the new quiz in
+its page, such as `{ "page": "3", "n": 1 }`.
+
+If the server refuses the quiz, it stores nothing, exits with 1, and
+prints every error on standard error, one per line, with its place in the
+JSON:
+
+```
+choices[0].answer: 3 is out of range. The choice has 3 options, so answer takes 0 to 2
+```
+
+Fix every error, then run the command again.
 
 ## Next
 

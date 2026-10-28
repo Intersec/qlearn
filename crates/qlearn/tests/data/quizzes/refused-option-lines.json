@@ -1,0 +1,11 @@
+{
+  "choices": [
+    {
+      "header": "Lines",
+      "prompt": "?",
+      "options": ["first line\nsecond line", "b  \nc", "<div>a</div>\n<div>b</div>", "One line"],
+      "answer": 3,
+      "point": "random-timeout"
+    }
+  ]
+}

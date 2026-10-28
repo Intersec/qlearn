@@ -142,6 +142,32 @@ export interface Span {
 export interface Page {
   id: string;
   blocks: Block[];
+  /** In the order that the agent added them. Quiz `n` is at `n - 1`. */
+  quizzes: Quiz[];
+}
+
+/**
+ * A quiz as the page sees it. The right option of a choice stays on the
+ * server until the learner sends the choices, so no field holds it.
+ */
+export interface Quiz {
+  open: OpenQuestion | null;
+  choices: Choice[];
+}
+
+export interface OpenQuestion {
+  /** Plain text. */
+  prompt: string;
+}
+
+/** A question with options, of which one is right. */
+export interface Choice {
+  /** Plain text: a short name of the question. */
+  header: string;
+  /** Plain text. */
+  prompt: string;
+  /** The HTML of each option, written by the server. */
+  options: string[];
 }
 
 export type EventKind =

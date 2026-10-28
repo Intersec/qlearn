@@ -1,0 +1,7 @@
+{
+  "open": "Why is the timeout random?",
+  "choices": { "header": "Vote" },
+  "points": ["random-timeout"],
+  "page": "3",
+  "author": "learner"
+}

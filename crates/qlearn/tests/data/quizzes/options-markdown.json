@@ -1,0 +1,23 @@
+{
+  "choices": [
+    {
+      "header": "Code",
+      "prompt": "Which line draws the random part?",
+      "options": [
+        "`int timeout = base + rand() % base;`",
+        "The **return** of *election_timeout*",
+        "An inline <b>tag</b> & a [link](https://raft.github.io)",
+        "1\\. The first line, escaped"
+      ],
+      "answer": 0,
+      "point": "random-timeout"
+    },
+    {
+      "header": "A tag first",
+      "prompt": "A line that opens with a tag is a block of HTML, kept as text.",
+      "options": ["<script>alert(1)</script> *as written*", "plain"],
+      "answer": 1,
+      "point": "random-timeout"
+    }
+  ]
+}

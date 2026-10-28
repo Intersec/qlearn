@@ -157,6 +157,21 @@ async fn agent_command(cli: &cli::Cli, home: &Home) -> Result<Option<i32>> {
                 },
             }
         }
+        Some(cli::Command::Quiz { id, file }) => {
+            let text = agent::read_file(file)?;
+            let client = agent::connect(home).await?;
+            match agent::quiz(&client, id, &text, file).await {
+                Ok(number) => print(&number),
+                // One line per error, each with its place in the JSON.
+                Err(error) => match error.downcast_ref::<Refusal>() {
+                    Some(refusal) if refusal.code == "invalidQuiz" => {
+                        eprintln!("{}", refusal.message);
+                        return Ok(Some(1));
+                    }
+                    _ => return Err(error),
+                },
+            }
+        }
         Some(cli::Command::Status { text }) => {
             let client = agent::connect(home).await?;
             print(&agent::status(&client, text).await?);

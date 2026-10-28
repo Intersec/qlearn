@@ -1,0 +1,9 @@
+{
+  "open": { "prompt": "Why?", "points": ["random-timeout", "new-one", "other"] },
+  "points": {
+    "random-timeout": { "label": "Another label" },
+    "new-one": { "label": "A new point", "lesson": "x9" },
+    "other": { "label": "Another point", "lesson": "9", "weight": 2 },
+    "unused": { "label": "No question names it" }
+  }
+}

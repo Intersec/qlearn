@@ -1,0 +1,12 @@
+{
+  "choices": [
+    { "header": "One", "prompt": "First?", "options": ["a", "b", "c", "d"], "answer": 3, "point": "p1" },
+    { "header": "Two", "prompt": "Second?", "options": ["a", "b", "c", "d"], "answer": 0, "point": "p1" },
+    { "header": "Three", "prompt": "Third?", "options": ["a", "b"], "answer": 1, "point": "p2" },
+    { "header": "Four", "prompt": "Fourth?", "options": ["a", "b", "c"], "answer": 2, "point": "p2" }
+  ],
+  "points": {
+    "p1": { "label": "Point one", "lesson": "1" },
+    "p2": { "label": "Point two", "lesson": "c1" }
+  }
+}

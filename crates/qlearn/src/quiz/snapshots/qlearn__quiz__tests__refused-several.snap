@@ -1,0 +1,9 @@
+---
+source: crates/qlearn/src/quiz/mod.rs
+description: "{\n  \"open\": { \"prompt\": \"Why is the timeout random?\", \"points\": [\"random-timeout\"] },\n  \"choices\": [\n    { \"header\": \"Vote\", \"prompt\": \"Who votes?\", \"options\": [\"All\", \"None\"], \"answer\": 0, \"point\": \"vote\" },\n    { \"header\": \"Term\", \"prompt\": \"Which term?\", \"options\": [\"5\", \"6\"], \"answer\": 2, \"point\": \"term\" },\n    { \"header\": \"Tie\", \"prompt\": \"Who breaks the tie?\", \"options\": [\"Nobody\"], \"answer\": 0, \"point\": \"tie\" }\n  ],\n  \"points\": {\n    \"vote\": { \"label\": \"Who votes\" },\n    \"tie\": {}\n  }\n}\n"
+---
+refused
+choices[1].answer: 2 is out of range. The choice has 2 options, so answer takes 0 to 1
+choices[2].options: holds 1 option, and a choice takes 2 to 4 options
+choices[1].point: the course does not know the point term. Give it a label in points
+points.tie.label: missing. A new point needs a label, such as "How a split vote ends"

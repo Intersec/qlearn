@@ -181,6 +181,24 @@ pub async fn page(client: &Client, id: &str, source: &str, shown: &str) -> Resul
     })
 }
 
+/// Add a quiz to a page. Answers its number in the page.
+///
+/// The text is read as JSON here, so a file that is not JSON names the
+/// file that the agent gave: `shown`.
+pub async fn quiz(client: &Client, id: &str, text: &str, shown: &str) -> Result<Value> {
+    let mut body: Value = serde_json::from_str(text)
+        .with_context(|| format!("{shown} is not JSON. Fix it, then run the command again"))?;
+    // Any other shape gets its fault from the server, with the others.
+    if let Some(fields) = body.as_object_mut() {
+        fields.insert("author".to_owned(), json!("agent"));
+    }
+
+    let id = segment(id);
+    client
+        .post(&format!("/api/pages/{id}/quizzes"), &body)
+        .await
+}
+
 /// Each line of the errors, with `file` in place of the file of the store.
 fn in_file(errors: &str, store: &str, file: &str) -> String {
     let prefix = format!("{store}:");

@@ -1,6 +1,5 @@
 ---
 source: crates/qlearn/src/api/mod.rs
-assertion_line: 885
 expression: body
 ---
 {
@@ -84,5 +83,6 @@ expression: body
       "kind": "excerpt"
     }
   ],
-  "id": "1"
+  "id": "1",
+  "quizzes": []
 }

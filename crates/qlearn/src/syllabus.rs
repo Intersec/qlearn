@@ -7,8 +7,9 @@
 
 use std::collections::HashSet;
 
-use serde_json::{Map, Value};
+use serde_json::Value;
 
+use crate::json::{array, object, text, unknown};
 use crate::model::{Course, PageKind, PageRef, PageState, Part};
 
 /// The parts of a new syllabus, or every fault of the body.
@@ -228,88 +229,6 @@ fn spell(kind: PageKind) -> &'static str {
         PageKind::Lesson => "lesson",
         PageKind::Checkpoint => "checkpoint",
         PageKind::FollowUp => "followup",
-    }
-}
-
-fn object<'a>(
-    value: &'a Value,
-    path: &str,
-    faults: &mut Vec<String>,
-) -> Option<&'a Map<String, Value>> {
-    let object = value.as_object();
-    if object.is_none() {
-        faults.push(format!("{path}: takes an object, not {}", shape(value)));
-    }
-    object
-}
-
-/// An array field. `path` is "" for the top of the body.
-fn array<'a>(
-    fields: &'a Map<String, Value>,
-    name: &str,
-    path: &str,
-    faults: &mut Vec<String>,
-) -> Option<&'a Vec<Value>> {
-    let at = match path {
-        "" => name.to_owned(),
-        _ => format!("{path}.{name}"),
-    };
-    match fields.get(name) {
-        Some(Value::Array(items)) => Some(items),
-        Some(other) => {
-            faults.push(format!("{at}: takes an array, not {}", shape(other)));
-            None
-        }
-        None => {
-            faults.push(format!("{at}: missing"));
-            None
-        }
-    }
-}
-
-fn text(
-    fields: &Map<String, Value>,
-    name: &str,
-    path: &str,
-    faults: &mut Vec<String>,
-) -> Option<String> {
-    match fields.get(name) {
-        Some(Value::String(text)) => Some(text.clone()),
-        Some(other) => {
-            faults.push(format!(
-                "{path}.{name}: takes a string, not {}",
-                shape(other)
-            ));
-            None
-        }
-        None => {
-            faults.push(format!("{path}.{name}: missing"));
-            None
-        }
-    }
-}
-
-fn unknown(
-    fields: &Map<String, Value>,
-    known: &[&str],
-    path: &str,
-    hint: &str,
-    faults: &mut Vec<String>,
-) {
-    for name in fields.keys().filter(|name| !known.contains(&name.as_str())) {
-        faults.push(format!("{path}: unknown field {name:?}. {hint}"));
-    }
-}
-
-/// The JSON type of a value, as a fault names it.
-fn shape(value: &Value) -> &'static str {
-    match value {
-        Value::Null => "null",
-        Value::Bool(_) => "a boolean",
-        Value::Number(_) => "a number",
-        Value::String(_) => "a string",
-        Value::Array(_) => "an array",
-        Value::Object(_) => "an object",
     }
 }
 

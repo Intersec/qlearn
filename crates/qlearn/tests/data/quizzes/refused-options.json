@@ -1,0 +1,11 @@
+{
+  "choices": [
+    {
+      "header": "Blocks",
+      "prompt": "?",
+      "options": ["- a list", "1. A numbered list", "# A heading", "", "One.\n\nTwo.", 3],
+      "answer": 0,
+      "point": "random-timeout"
+    }
+  ]
+}
