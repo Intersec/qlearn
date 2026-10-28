@@ -344,9 +344,12 @@ async fn wait_events(
 ) -> Result<Json<Batch>, ApiError> {
     let Query(query) = query.map_err(|rejection| ApiError::bad_request(rejection.body_text()))?;
     let mut agent = (query.who == Some(Who::Agent)).then(|| state.events.agent_waits());
-    let _page = (query.who == Some(Who::Page)).then(|| state.events.page_waits());
+    let page = (query.who == Some(Who::Page)).then(|| state.events.page_waits());
 
-    let mut batch = state.events.after(query.after, events::HOLD).await;
+    let mut batch = match &page {
+        Some(page) => page.after(query.after, events::HOLD).await,
+        None => state.events.after(query.after, events::HOLD).await,
+    };
     // Reached only when the agent did not hang up, which drops this future.
     match &mut agent {
         Some(agent) => agent.answered(&batch),

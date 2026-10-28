@@ -60,10 +60,24 @@ pub struct Events {
 struct Pages {
     open: usize,
     ended: Option<Instant>,
+    /// The `changes` of the presence that the last answer to a page held.
+    saw: u64,
 }
 
 /// Held while a page waits. A guard, because the learner closes the tab.
 pub struct PageWaits<'a>(&'a Events);
+
+impl PageWaits<'_> {
+    /// As [`Events::after`], and at once when the presence changed since the
+    /// last answer to a page.
+    ///
+    /// A request answers the page and the wait of the agent together. So
+    /// the page is often between two waits when the agent starts to work,
+    /// and the wake of that change finds no wait of the page.
+    pub async fn after(&self, after: Option<u64>, wait: Duration) -> Batch {
+        self.0.answer(after, wait, true).await
+    }
+}
 
 impl Drop for PageWaits<'_> {
     fn drop(&mut self) {
@@ -87,6 +101,8 @@ struct Presence {
     status: Option<String>,
     /// An agent waited once on this server.
     seen: bool,
+    /// The changes that the page shows and that no event carries.
+    changes: u64,
 }
 
 impl Presence {
@@ -115,11 +131,15 @@ impl AgentWaits<'_> {
         if !batch.events.iter().any(|event| event.kind.is_request()) {
             return;
         }
-        self.events
-            .agent
-            .lock()
-            .expect("the agent state is poisoned")
-            .working = Some(Instant::now());
+        {
+            let mut agent = self
+                .events
+                .agent
+                .lock()
+                .expect("the agent state is poisoned");
+            agent.working = Some(Instant::now());
+            agent.changes += 1;
+        }
         // The page shows that the agent works, and its wait would hold the
         // news for up to 30 seconds.
         self.events.notify.notify_waiters();
@@ -140,6 +160,8 @@ impl Drop for AgentWaits<'_> {
         } else {
             HUNG_UP_FOR
         };
+        // Not counted in `changes`: the page shows the agent present until
+        // the grace runs out, and a later wait times that end by itself.
         let hung_up = !self.answered && agent.open == 0;
         drop(agent);
         if hung_up {
@@ -171,6 +193,9 @@ impl Events {
             agent.seen = true;
             let worked = agent.working.take().is_some();
             agent.status = None;
+            if arrived || worked {
+                agent.changes += 1;
+            }
             (std::mem::take(&mut agent.wrote), arrived, worked)
         };
         if ended {
@@ -308,6 +333,19 @@ impl Events {
     /// The events after `after`, as soon as there is one, or none once
     /// `wait` has passed. With no `after`, the number to start from, at once.
     pub async fn after(&self, after: Option<u64>, wait: Duration) -> Batch {
+        self.answer(after, wait, false).await
+    }
+
+    async fn answer(&self, after: Option<u64>, wait: Duration, page: bool) -> Batch {
+        let (batch, changes) = self.hold(after, wait, page).await;
+        if page {
+            self.pages.lock().expect("the page state is poisoned").saw = changes;
+        }
+        batch
+    }
+
+    /// The batch, and the `changes` of the presence that it holds.
+    async fn hold(&self, after: Option<u64>, wait: Duration, page: bool) -> (Batch, u64) {
         let Some(after) = after else {
             return self.since(None);
         };
@@ -318,9 +356,13 @@ impl Events {
         // the wait still wakes this one.
         notified.as_mut().enable();
 
-        let batch = self.since(Some(after));
-        if !batch.events.is_empty() || batch.reset || self.closed.load(Ordering::SeqCst) {
-            return batch;
+        let (batch, changes) = self.since(Some(after));
+        // One count for all the pages, as no wait names its tab. A tab that
+        // comes back after another one heard the change holds until the
+        // next write, for up to 30 seconds.
+        let missed = page && changes != self.pages.lock().expect("the page state is poisoned").saw;
+        if !batch.events.is_empty() || batch.reset || missed || self.closed.load(Ordering::SeqCst) {
+            return (batch, changes);
         }
         // The page shows the agent as gone once its grace or its work runs
         // out, with no event to wake it then.
@@ -330,8 +372,8 @@ impl Events {
         self.since(Some(after))
     }
 
-    fn since(&self, after: Option<u64>) -> Batch {
-        let (agent, working, left, status) = {
+    fn since(&self, after: Option<u64>) -> (Batch, u64) {
+        let (agent, working, left, status, changes) = {
             let presence = self.agent.lock().expect("the agent state is poisoned");
             let listens = presence.listens();
             (
@@ -339,6 +381,7 @@ impl Events {
                 presence.works(),
                 presence.seen && !listens,
                 presence.status.clone(),
+                presence.changes,
             )
         };
         let log = self.log.lock().expect("the event log is poisoned");
@@ -353,17 +396,17 @@ impl Events {
         };
 
         let Some(after) = after else {
-            return batch;
+            return (batch, changes);
         };
         let first = log.kept.front().map_or(log.last + 1, |e| e.seq);
         // Ahead of this server: it restarted. Behind what is kept: the
         // events fell out of memory.
         if after > log.last || after + 1 < first {
             batch.reset = true;
-            return batch;
+            return (batch, changes);
         }
         batch.events = log.kept.iter().filter(|e| e.seq > after).cloned().collect();
-        batch
+        (batch, changes)
     }
 }
 
@@ -651,6 +694,77 @@ mod tests {
 
         assert_eq!(started.elapsed(), Duration::ZERO);
         assert!(batch.working);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_page_between_two_waits_hears_at_once_that_the_agent_works() {
+        let events = Events::default();
+        drop(events.agent_waits());
+        events.push(EventKind::Next, Author::Learner, Some("1"), None);
+        let page = events.page_waits();
+        let before = page.after(Some(0), HOLD).await;
+        drop(page);
+        assert!(!before.working, "the request answers the page first");
+
+        hand_over(&events).await;
+        let started = Instant::now();
+        let batch = events.page_waits().after(Some(before.next), HOLD).await;
+
+        assert_eq!(started.elapsed(), Duration::ZERO);
+        assert!(batch.working);
+
+        let page = events.page_waits();
+        let started = Instant::now();
+        page.after(Some(batch.next), SHORT).await;
+        assert_eq!(started.elapsed(), SHORT, "the page heard it once");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn two_tabs_share_one_count_so_the_late_one_hears_the_change_with_the_next_write() {
+        // The pinned limit: the wire names no tab, so the server keeps one
+        // count for all of them.
+        let events = Arc::new(Events::default());
+        let first = events.page_waits().after(Some(0), SHORT).await;
+        assert!(!first.agent);
+        let waiting = {
+            let events = events.clone();
+            tokio::spawn(async move { events.page_waits().after(Some(0), HOLD).await })
+        };
+        tokio::time::sleep(SHORT).await;
+
+        let _agent = events.agent_waits();
+        assert!(waiting.await.unwrap().agent, "the tab that waits hears it");
+
+        let late = {
+            let events = events.clone();
+            tokio::spawn(async move { events.page_waits().after(Some(0), HOLD).await })
+        };
+        tokio::time::sleep(SHORT).await;
+        assert!(!late.is_finished(), "the other tab answered first");
+        let started = Instant::now();
+        events.push(EventKind::Status, Author::Agent, None, None);
+        let batch = late.await.unwrap();
+        assert_eq!(started.elapsed(), Duration::ZERO);
+        assert!(batch.agent);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_page_between_two_waits_hears_no_change_when_the_agent_hangs_up() {
+        let events = Events::default();
+        let agent = events.agent_waits();
+        let before = events.page_waits().after(Some(0), HOLD).await;
+        assert!(before.agent);
+
+        drop(agent);
+        let started = Instant::now();
+        let batch = events.page_waits().after(Some(before.next), HOLD).await;
+
+        assert_eq!(
+            started.elapsed(),
+            HUNG_UP_FOR,
+            "the page shows the same until the grace runs out"
+        );
+        assert!(batch.left);
     }
 
     #[tokio::test(start_paused = true)]

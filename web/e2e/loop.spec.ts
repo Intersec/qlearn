@@ -157,8 +157,7 @@ test('the top bar says whether an agent listens, and whether it works', async ({
 
   await page.getByRole('button', { name: 'Next' }).click();
   const { next } = await waited;
-  // The page may hear of the work only with the next write of the agent.
-  await expect(pill(page)).toHaveText(/^Agent (connected|working)$/);
+  await expect(pill(page)).toHaveText('Agent working');
 
   await agent.status('Reading the vote');
   await expect(pill(page)).toHaveText('Agent working');
