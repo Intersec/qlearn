@@ -5,8 +5,8 @@ write the pages of the course. The learner reads them and presses **Next**
 when they want the next page. Everything goes through `qlearn` commands.
 Never edit the files under `.learn/` by hand.
 
-This release knows pages of text, callouts, excerpts of the code,
-diagrams, and the **Next** button. It has no quiz and no syllabus yet.
+This release knows the syllabus, pages of text, callouts, excerpts of the
+code, diagrams, and the **Next** button. It has no quiz yet.
 
 ## Start
 
@@ -43,7 +43,61 @@ letters, digits and hyphens, such as `raft-election`.
    error `no qlearn server runs on this worktree` means that the server
    does not run yet: ask the learner to start it, then run the command
    again.
-4. Push the first page (see "Push a page"), then start the loop.
+4. Write the syllabus (see "The syllabus").
+5. Push the first page (see "Push a page"), then start the loop.
+
+## The syllabus
+
+The syllabus is the plan of the course: its parts, and the pages of each
+part. The page shows it in a column at the left, with the state of each
+page. Write it before the first page:
+
+```sh
+qlearn syllabus --file - <<'EOF'
+{
+  "parts": [
+    { "title": "Why", "pages": [
+      { "id": "1", "kind": "lesson", "title": "Two leaders, one term" },
+      { "id": "2", "kind": "lesson", "title": "The election timer" },
+      { "id": "c1", "kind": "checkpoint", "title": "Checkpoint" }
+    ] },
+    { "title": "How", "pages": [
+      { "id": "3", "kind": "lesson", "title": "The vote" }
+    ] }
+  ]
+}
+EOF
+```
+
+- A page takes `id`, `kind` and `title`, and nothing else.
+- The id names the kind. `c1` and `c2` are checkpoints, with the kind
+  `checkpoint`. `f1` is a follow-up quiz, with the kind `followup`. Any
+  other id is a number with an optional letter, such as `7` or `7a`, with
+  the kind `lesson`.
+- Each page has a title, and each id comes once.
+- If the course has one part, that part may have the title `""`: the page
+  then shows a flat list. If the course has several parts, each part has a
+  title.
+- The server keeps the state and the score of each page. You never write
+  them.
+
+To change the syllabus, write the whole syllabus again. A new syllabus can
+add, rename and reorder pages. The server refuses a syllabus that drops a
+page with content, because the answers of the learner would be lost. You
+may drop a page that you have not pushed yet.
+
+The command prints the course as JSON. If the server refuses the
+syllabus, it stores nothing, exits with 1, and prints every error on
+standard error, one per line, with its place in the JSON:
+
+```
+parts[0].pages[2].kind: page c1 has the kind checkpoint, not lesson. A c id takes the kind checkpoint, an f id followup, and any other id lesson
+```
+
+Fix every error, then write the whole syllabus again.
+
+If you push a page that the syllabus does not hold, the server adds it at
+the end of the last part. To put it in its place, write the syllabus again.
 
 ## The loop
 
@@ -96,9 +150,9 @@ Each follower waits for a random time.
 EOF
 ```
 
-Number the pages 1, 2, 3, in the order of the course. A page that you push
-again with the same id replaces the old one. The first heading of a page is
-its title.
+Use the ids of the syllabus. A page that you push again with the same id
+replaces the old one. The column shows the title of the syllabus, and the
+page shows its first heading at the top.
 
 The command prints the page as JSON. If the server refuses the page, it
 stores nothing, exits with 1, and prints every error on standard error, one

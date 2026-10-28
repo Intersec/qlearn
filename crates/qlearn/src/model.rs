@@ -664,7 +664,8 @@ pub struct Batch {
     pub status: Option<String>,
 }
 
-fn stamp(time: OffsetDateTime) -> String {
+/// A time as the store writes it: RFC 3339.
+pub fn stamp(time: OffsetDateTime) -> String {
     // Only a year outside 0..=9999 fails, which no clock gives.
     time.format(&Rfc3339)
         .unwrap_or_else(|_| "1970-01-01T00:00:00Z".to_owned())

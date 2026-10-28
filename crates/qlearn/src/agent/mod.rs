@@ -146,6 +146,21 @@ pub async fn course(client: &Client, change: CourseChange) -> Result<Value> {
         .await
 }
 
+/// Write the syllabus. Answers the course.
+///
+/// The text is read as JSON here, so a file that is not JSON names the
+/// file that the agent gave: `shown`.
+pub async fn syllabus(client: &Client, text: &str, shown: &str) -> Result<Value> {
+    let mut body: Value = serde_json::from_str(text)
+        .with_context(|| format!("{shown} is not JSON. Fix it, then run the command again"))?;
+    // Any other shape gets its fault from the server, with the others.
+    if let Some(fields) = body.as_object_mut() {
+        fields.insert("author".to_owned(), json!("agent"));
+    }
+
+    client.put("/api/syllabus", &body).await
+}
+
 /// Push the source of a page. Answers the page, with its blocks.
 ///
 /// The server names the file of the store in its errors. The agent edits

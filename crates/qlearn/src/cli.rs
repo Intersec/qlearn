@@ -65,6 +65,14 @@ pub enum Command {
         follow_up: Option<String>,
     },
 
+    /// Write the syllabus, as the agent: its parts and their pages, as JSON.
+    /// A refused syllabus prints every error and exits 1.
+    Syllabus {
+        /// The JSON file. `-` reads it from standard input.
+        #[arg(long, value_name = "PATH")]
+        file: String,
+    },
+
     /// Push a page, as the agent. A refused page prints every error, each
     /// with its line, and exits 1.
     Page {

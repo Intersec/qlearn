@@ -173,6 +173,58 @@ async fn a_diagram_that_the_page_cannot_draw_reaches_the_wait() {
     assert!(interrupt(server).await.success());
 }
 
+/// The agent writes the syllabus from a file or from standard input, and
+/// a refused one prints every fault, so the agent fixes them in one pass.
+#[tokio::test]
+async fn an_agent_writes_the_syllabus_and_reads_every_fault_of_a_refused_one() {
+    let repo = build_repo();
+    let root = repo.path();
+    let mut server = qlearn(root, &["raft", "--no-open"]).spawn().unwrap();
+    read_url(&mut server).await;
+
+    let syllabus = r#"{ "parts": [{ "title": "Why", "pages": [
+        { "id": "1", "kind": "lesson", "title": "Two leaders" },
+        { "id": "c1", "kind": "checkpoint", "title": "Checkpoint" } ] }] }"#;
+    std::fs::write(root.join("syllabus.json"), syllabus).unwrap();
+    let course = json_of(&run(root, &["syllabus", "--file", "syllabus.json"], None).await);
+    assert_eq!(course["parts"][0]["title"], "Why");
+    assert_eq!(course["parts"][0]["pages"][1]["state"], "planned");
+
+    json_of(&run(root, &["page", "1", "--file", "-"], Some("# Two leaders\n")).await);
+    let dropped = r#"{ "parts": [{ "title": "Why", "pages": [
+        { "id": "c1", "kind": "lesson", "title": "" } ] }] }"#;
+    let refused = run(root, &["syllabus", "--file", "-"], Some(dropped)).await;
+    assert_eq!(refused.status.code(), Some(1), "{refused:?}");
+    assert!(refused.stdout.is_empty(), "{refused:?}");
+    let errors = stderr(&refused);
+    let lines: Vec<_> = errors.lines().collect();
+    assert_eq!(lines.len(), 3, "{errors}");
+    assert!(lines[0].starts_with("parts[0].pages[0].kind: "), "{errors}");
+    assert!(
+        lines[1].starts_with("parts[0].pages[0].title: "),
+        "{errors}"
+    );
+    assert!(
+        lines[2].starts_with("page 1 (\"Two leaders\") has content"),
+        "{errors}"
+    );
+
+    let broken = run(root, &["syllabus", "--file", "-"], Some("{ parts")).await;
+    assert_eq!(broken.status.code(), Some(1), "{broken:?}");
+    assert!(
+        stderr(&broken).contains("- is not JSON"),
+        "{}",
+        stderr(&broken)
+    );
+
+    // The refused syllabus left the one before it, with page 1 taught.
+    let session = page_of(root).get("/api/session").await.unwrap();
+    let pages = &session["course"]["parts"][0]["pages"];
+    assert_eq!(pages[0]["state"], "taught", "{session}");
+    assert_eq!(pages[1]["kind"], "checkpoint", "{session}");
+    assert!(interrupt(server).await.success());
+}
+
 #[tokio::test]
 async fn a_wait_stays_attached_across_a_restart_of_the_server() {
     let repo = build_repo();

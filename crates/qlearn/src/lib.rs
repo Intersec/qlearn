@@ -15,6 +15,7 @@ pub mod model;
 pub mod report;
 pub mod status;
 pub mod store;
+pub mod syllabus;
 pub mod trace;
 pub mod version;
 

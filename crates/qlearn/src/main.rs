@@ -126,6 +126,21 @@ async fn agent_command(cli: &cli::Cli, home: &Home) -> Result<Option<i32>> {
             let client = agent::connect(home).await?;
             print(&agent::course(&client, change).await?);
         }
+        Some(cli::Command::Syllabus { file }) => {
+            let text = agent::read_file(file)?;
+            let client = agent::connect(home).await?;
+            match agent::syllabus(&client, &text, file).await {
+                Ok(course) => print(&course),
+                // One line per error, each with its place in the JSON.
+                Err(error) => match error.downcast_ref::<Refusal>() {
+                    Some(refusal) if refusal.code == "invalidSyllabus" => {
+                        eprintln!("{}", refusal.message);
+                        return Ok(Some(1));
+                    }
+                    _ => return Err(error),
+                },
+            }
+        }
         Some(cli::Command::Page { id, file }) => {
             let source = agent::read_file(file)?;
             let client = agent::connect(home).await?;

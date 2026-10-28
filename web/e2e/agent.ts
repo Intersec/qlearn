@@ -151,6 +151,30 @@ export const PAGE_DIAGRAMS_FIXED = PAGE_DIAGRAMS.replace(
 `,
 );
 
+/** A part of the syllabus, as the agent writes it. */
+export interface PlannedPart {
+  title: string;
+  pages: { id: string; kind: 'lesson' | 'checkpoint' | 'followup'; title: string }[];
+}
+
+/** The syllabus of the course of the tests: the pages above, and one more. */
+export const SYLLABUS: PlannedPart[] = [
+  {
+    title: 'The timer',
+    pages: [
+      { id: '1', kind: 'lesson', title: 'The election timer' },
+      { id: '2', kind: 'lesson', title: 'The vote' },
+    ],
+  },
+  {
+    title: 'The states',
+    pages: [
+      { id: '3', kind: 'lesson', title: 'The states of a server' },
+      { id: 'c1', kind: 'checkpoint', title: 'Checkpoint' },
+    ],
+  },
+];
+
 export class Agent {
   private readonly fixture: Fixture;
   private readonly waits = new Set<ChildProcess>();
@@ -179,6 +203,13 @@ export class Agent {
 
   async course(title: string) {
     await this.run(['course', '--title', title]);
+  }
+
+  /** Write the syllabus from a file, as the procedure says. */
+  async syllabus(parts: PlannedPart[]) {
+    const path = join(this.fixture.work, 'syllabus.json');
+    writeFileSync(path, JSON.stringify({ parts }, null, 2));
+    await this.run(['syllabus', '--file', path]);
   }
 
   /** Push a page from a file, as the procedure says. */

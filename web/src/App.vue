@@ -1,14 +1,37 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 import AgentPresence from './components/AgentPresence.vue';
 import PageView from './components/PageView.vue';
+import SyllabusView from './components/SyllabusView.vue';
 import { format } from './place';
 import { useCourse } from './stores/course';
 
 const store = useCourse();
-const { course, page, ready, presence, status, stopped, left, error, ending, following } =
+const { course, current, page, ready, presence, status, stopped, left, error, ending, following } =
   storeToRefs(store);
+
+/** On a narrow screen, the syllabus covers the page until the learner picks one. */
+const syllabusOpen = ref(false);
+
+/** The column of the page, which scrolls alone. */
+const pane = ref<HTMLElement | null>(null);
+
+// Another page opens at its top. A refresh keeps the id, and the place.
+watch(
+  () => page.value?.id,
+  () => {
+    if (pane.value) {
+      pane.value.scrollTop = 0;
+    }
+  },
+  { flush: 'post' },
+);
+
+function openPage(id: string) {
+  syllabusOpen.value = false;
+  void store.open(id);
+}
 
 /** The note of a page that the agent pushed while the learner read another. */
 const readyNote = computed(() => {
@@ -52,6 +75,16 @@ onBeforeUnmount(() => {
 <template>
   <div class="shell">
     <header class="top-bar">
+      <button
+        v-if="course"
+        type="button"
+        class="syllabus-toggle"
+        aria-controls="syllabus"
+        :aria-expanded="syllabusOpen"
+        @click="syllabusOpen = !syllabusOpen"
+      >
+        Syllabus
+      </button>
       <h1 :title="course?.title">{{ course?.title ?? 'qlearn' }}</h1>
       <span class="bar-end">
         <AgentPresence :presence="presence" :status="status" />
@@ -71,39 +104,50 @@ onBeforeUnmount(() => {
     </p>
     <p v-if="error" role="alert" class="error">{{ error }}</p>
 
-    <main class="course">
-      <template v-if="page">
-        <PageView :page="page" @broken="store.broken" />
-        <footer class="page-end">
-          <p v-if="ending === 'preparing'" role="status" class="preparing">
-            The agent prepares the next page<template v-if="status">: {{ status }}</template>
-          </p>
-          <p v-else-if="ending === 'asked'" role="status" class="asked">
-            You asked for the next page.
-            <template v-if="presence === 'connected' || presence === 'working'">
-              The agent gets the request when it waits again.
-            </template>
-            <template v-else>
-              No agent listens: ask your agent to run <code>qlearn wait</code>.
-            </template>
-          </p>
-          <button
-            v-else
-            type="button"
-            class="next"
-            :title="following ? `Open page ${following}` : 'Ask the agent for the next page'"
-            @click="store.next()"
-          >
-            Next
-          </button>
-        </footer>
-      </template>
-      <p v-else-if="course && presence === 'working'" role="status" class="preparing empty">
-        The agent prepares the first page<template v-if="status">: {{ status }}</template>
-      </p>
-      <p v-else-if="course" class="empty">
-        No page yet. The first page shows here when the agent writes it.
-      </p>
-    </main>
+    <div class="columns">
+      <SyllabusView
+        v-if="course"
+        id="syllabus"
+        :data-open="syllabusOpen"
+        :parts="course.parts"
+        :shown="page?.id ?? null"
+        :current="current"
+        @open="openPage"
+      />
+      <main ref="pane" class="course">
+        <template v-if="page">
+          <PageView :page="page" @broken="store.broken" />
+          <footer class="page-end">
+            <p v-if="ending === 'preparing'" role="status" class="preparing">
+              The agent prepares the next page<template v-if="status">: {{ status }}</template>
+            </p>
+            <p v-else-if="ending === 'asked'" role="status" class="asked">
+              You asked for the next page.
+              <template v-if="presence === 'connected' || presence === 'working'">
+                The agent gets the request when it waits again.
+              </template>
+              <template v-else>
+                No agent listens: ask your agent to run <code>qlearn wait</code>.
+              </template>
+            </p>
+            <button
+              v-else
+              type="button"
+              class="next"
+              :title="following ? `Open page ${following}` : 'Ask the agent for the next page'"
+              @click="store.next()"
+            >
+              Next
+            </button>
+          </footer>
+        </template>
+        <p v-else-if="course && presence === 'working'" role="status" class="preparing empty">
+          The agent prepares the first page<template v-if="status">: {{ status }}</template>
+        </p>
+        <p v-else-if="course" class="empty">
+          No page yet. The first page shows here when the agent writes it.
+        </p>
+      </main>
+    </div>
   </div>
 </template>

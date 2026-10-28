@@ -1,0 +1,51 @@
+---
+source: crates/qlearn/src/api/mod.rs
+assertion_line: 1377
+expression: body
+---
+{
+  "created": "2026-01-01T00:00:00Z",
+  "findings": [],
+  "followUp": null,
+  "goal": "",
+  "parts": [
+    {
+      "pages": [
+        {
+          "id": "2",
+          "kind": "lesson",
+          "score": null,
+          "state": "planned",
+          "title": "The vote"
+        },
+        {
+          "id": "1",
+          "kind": "lesson",
+          "score": null,
+          "state": "taught",
+          "title": "Two leaders"
+        }
+      ],
+      "title": "Why"
+    },
+    {
+      "pages": [
+        {
+          "id": "c1",
+          "kind": "checkpoint",
+          "score": null,
+          "state": "planned",
+          "title": "Checkpoint"
+        }
+      ],
+      "title": "Check"
+    }
+  ],
+  "profile": "",
+  "quizMode": "mixed",
+  "slug": "raft",
+  "status": "new",
+  "title": "Raft, the leader election",
+  "updated": "[updated]",
+  "version": 1
+}

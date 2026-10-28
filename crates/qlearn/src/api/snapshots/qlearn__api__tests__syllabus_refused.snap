@@ -1,0 +1,11 @@
+---
+source: crates/qlearn/src/api/mod.rs
+assertion_line: 1404
+expression: answer
+---
+{
+  "error": {
+    "code": "invalidSyllabus",
+    "message": "parts[0].pages[0].id: \"x1\" is not a page id. Use a number with an optional letter, such as 7 or 7a, or c1 for a checkpoint, or f1 for a follow-up\nparts[0].pages[1].kind: page c2 has the kind checkpoint, not lesson. A c id takes the kind checkpoint, an f id followup, and any other id lesson\nparts[0].pages[2]: unknown field \"state\". A page takes id, kind and title. The server keeps its state and its score\nparts[0].pages[2].title: empty. Give the page a title\nparts[0].pages[3].id: page 2 is in the syllabus twice\npage 1 (\"Two leaders, one term\") has content, and the syllabus drops it. Keep it in the syllabus: its answers would be lost"
+  }
+}

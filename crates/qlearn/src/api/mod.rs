@@ -23,8 +23,8 @@ use crate::git::exec::Git;
 use crate::highlight::Highlighter;
 use crate::lesson::{self, Fault};
 use crate::model::{
-    AgentStatus, Author, Batch, Block, BlockSource, Broken, Course, CourseChange, Detail, Event,
-    EventKind, Page, PageKind, Session, StatusText,
+    self, AgentStatus, Author, Batch, Block, BlockSource, Broken, Course, CourseChange, Detail,
+    Event, EventKind, Page, PageKind, Session, StatusText,
 };
 use crate::store::{self, PageFile, Store};
 
@@ -89,6 +89,7 @@ pub fn app(state: AppState) -> Router {
         .route("/api/events", get(wait_events))
         .route("/api/course", patch(change_course))
         .route("/api/status", put(set_status))
+        .route("/api/syllabus", put(write_syllabus))
         .route("/api/pages/{id}", get(page).put(push_page))
         .route("/api/pages/{id}/next", post(next))
         .route("/api/pages/{id}/broken", post(broken))
@@ -288,6 +289,34 @@ async fn change_course(
     state
         .events
         .push(EventKind::Course, Author::Agent, None, None);
+
+    Ok(Json(course.clone()))
+}
+
+/// Write the syllabus as a whole. Answers the course.
+///
+/// The state and the score of each page come from the store. A refused
+/// syllabus gets every fault at once, so the agent fixes them in one pass.
+async fn write_syllabus(
+    State(state): State<AppState>,
+    body: Result<Json<serde_json::Value>, JsonRejection>,
+) -> Result<Json<Course>, ApiError> {
+    let Json(body) = body.map_err(bad_json)?;
+
+    let mut course = state.course.write().await;
+    let parts = crate::syllabus::plan(&body, &course)
+        .map_err(|faults| ApiError::invalid_syllabus(&faults))?;
+    // The copy in memory changes only once `course.json` is written, so a
+    // write that fails leaves the course as the store has it.
+    let mut changed = course.clone();
+    changed.parts = parts;
+    changed.updated = model::stamp(OffsetDateTime::now_utc());
+    state.store.save(&changed)?;
+    *course = changed;
+    // Under the lock, so the events come in the order of the writes.
+    state
+        .events
+        .push(EventKind::Syllabus, Author::Agent, None, None);
 
     Ok(Json(course.clone()))
 }
@@ -499,6 +528,16 @@ impl ApiError {
             status: StatusCode::BAD_REQUEST,
             code: "invalidPage",
             message: lines.join("\n"),
+        }
+    }
+
+    /// A syllabus that fails a check. The message holds one line per
+    /// fault, each with its place in the body.
+    fn invalid_syllabus(faults: &[String]) -> Self {
+        Self {
+            status: StatusCode::BAD_REQUEST,
+            code: "invalidSyllabus",
+            message: faults.join("\n"),
         }
     }
 
@@ -1311,6 +1350,176 @@ mod tests {
         assert_eq!(*state.course.read().await, before);
         assert_eq!(state.events.after(None, events::HOLD).await.next, 0);
         assert_eq!(outside(dir.path()), untouched, "a write outside .learn/");
+    }
+
+    const SYLLABUS: &str = r#"{"parts":[
+        {"title":"Why","pages":[
+            {"id":"2","kind":"lesson","title":"The vote"},
+            {"id":"1","kind":"lesson","title":"Two leaders"}]},
+        {"title":"Check","pages":[{"id":"c1","kind":"checkpoint","title":"Checkpoint"}]}]}"#;
+
+    #[tokio::test]
+    async fn the_syllabus_route_writes_the_parts_and_answers_the_course() {
+        let dir = repo().await;
+        let state = state_in(dir.path());
+        let untouched = outside(dir.path());
+
+        let (status, mut body) = json(
+            app(state.clone()),
+            send_json("PUT", "/api/syllabus", SYLLABUS),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK, "{body}");
+        // `updated` takes the clock of the write, which a snapshot cannot pin.
+        assert_ne!(body["updated"], body["created"]);
+        body["updated"] = "[updated]".into();
+        insta::assert_json_snapshot!("syllabus", body);
+
+        let stored = Store::at(dir.path()).load("raft").unwrap().unwrap();
+        assert_eq!(stored, *state.course.read().await, "course.json holds it");
+        let batch = state.events.after(Some(0), events::HOLD).await;
+        assert_eq!(batch.events.len(), 1);
+        assert_eq!(batch.events[0].kind, EventKind::Syllabus);
+        assert_eq!(batch.events[0].author, Author::Agent);
+        assert_eq!(outside(dir.path()), untouched, "a write outside .learn/");
+    }
+
+    #[tokio::test]
+    async fn a_refused_syllabus_gets_every_fault_and_stores_nothing() {
+        let dir = repo().await;
+        let state = state_in(dir.path());
+        let untouched = outside(dir.path());
+        let before = state.course.read().await.clone();
+        let body = r#"{"parts":[{"title":"Why","pages":[
+            {"id":"x1","kind":"lesson","title":"A bad id"},
+            {"id":"c2","kind":"lesson","title":"A wrong kind"},
+            {"id":"2","kind":"lesson","title":"", "state":"debriefed"},
+            {"id":"2","kind":"lesson","title":"Twice"}]}]}"#;
+
+        let (status, answer) =
+            json(app(state.clone()), send_json("PUT", "/api/syllabus", body)).await;
+
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{answer}");
+        insta::assert_json_snapshot!("syllabus_refused", answer);
+
+        for body in ["", "not json", "[]", "{}", r#"{"parts":[]}"#] {
+            let (status, answer) =
+                json(app(state.clone()), send_json("PUT", "/api/syllabus", body)).await;
+            assert_eq!(status, StatusCode::BAD_REQUEST, "{body}: {answer}");
+            assert!(answer["error"]["message"].is_string(), "{answer}");
+        }
+        assert_eq!(files(dir.path()), Vec::<String>::new());
+        assert_eq!(*state.course.read().await, before);
+        assert_eq!(state.events.after(None, events::HOLD).await.next, 0);
+        assert_eq!(outside(dir.path()), untouched, "a write outside .learn/");
+    }
+
+    /// The answers of the learner live with the pages, so a syllabus moves
+    /// a page and its state and score go with it. The agent cannot set them.
+    #[tokio::test]
+    async fn a_syllabus_keeps_renames_and_reorders_the_pages_with_content() {
+        let dir = repo().await;
+        let state = state_in(dir.path());
+        for id in ["1", "2"] {
+            let (status, _) =
+                json(app(state.clone()), put(&format!("/api/pages/{id}"), LESSON)).await;
+            assert_eq!(status, StatusCode::OK);
+        }
+        let (_, before) = json(app(state.clone()), get_with_cookie("/api/pages/1", TOKEN)).await;
+        {
+            let mut course = state.course.write().await;
+            let page = &mut course.parts[0].pages[0];
+            page.state = PageState::Answered;
+            page.score = Some(crate::model::Score { right: 2, total: 3 });
+        }
+
+        let (status, body) = json(
+            app(state.clone()),
+            send_json("PUT", "/api/syllabus", SYLLABUS),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(
+            body["parts"],
+            serde_json::json!([
+                { "title": "Why", "pages": [
+                    { "id": "2", "kind": "lesson", "title": "The vote", "state": "taught",
+                      "score": null },
+                    { "id": "1", "kind": "lesson", "title": "Two leaders", "state": "answered",
+                      "score": { "right": 2, "total": 3 } },
+                ] },
+                { "title": "Check", "pages": [
+                    { "id": "c1", "kind": "checkpoint", "title": "Checkpoint",
+                      "state": "planned", "score": null },
+                ] },
+            ])
+        );
+        let (status, page) = json(app(state.clone()), get_with_cookie("/api/pages/1", TOKEN)).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(page, before, "the blocks stay as pushed");
+        let (_, session) = json(app(state), get_with_cookie("/api/session", TOKEN)).await;
+        assert_eq!(session["current"], "2", "the page pushed last");
+    }
+
+    #[tokio::test]
+    async fn a_syllabus_that_drops_a_page_with_content_names_each_one() {
+        let dir = repo().await;
+        let state = state_in(dir.path());
+        let (status, _) = json(app(state.clone()), put("/api/pages/c1", LESSON)).await;
+        assert_eq!(status, StatusCode::OK);
+        let before = state.course.read().await.clone();
+        let body =
+            r#"{"parts":[{"title":"","pages":[{"id":"2","kind":"lesson","title":"The vote"}]}]}"#;
+
+        let (status, answer) =
+            json(app(state.clone()), send_json("PUT", "/api/syllabus", body)).await;
+
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{answer}");
+        assert_eq!(answer["error"]["code"], "invalidSyllabus");
+        let message = answer["error"]["message"].as_str().unwrap();
+        let lines: Vec<_> = message.lines().collect();
+        assert_eq!(lines.len(), 2, "{message}");
+        assert!(
+            lines[0].starts_with("page 1 (\"Two leaders, one term\") has content"),
+            "{message}"
+        );
+        assert!(
+            lines[1].starts_with("page c1 (\"Two leaders, one term\") has content"),
+            "{message}"
+        );
+        assert_eq!(*state.course.read().await, before);
+    }
+
+    /// A page pushed before the syllabus goes at the end of the last part.
+    /// The syllabus that comes later puts it in its place.
+    #[tokio::test]
+    async fn a_page_outside_the_syllabus_is_moved_by_a_later_syllabus() {
+        let dir = repo().await;
+        let state = state_in(dir.path());
+        let (status, _) = json(app(state.clone()), put("/api/pages/c1", LESSON)).await;
+        assert_eq!(status, StatusCode::OK);
+        let (_, session) = json(app(state.clone()), get_with_cookie("/api/session", TOKEN)).await;
+        assert_eq!(session["course"]["parts"][0]["pages"][1]["id"], "c1");
+
+        let body = r#"{"parts":[
+            {"title":"Why","pages":[{"id":"1","kind":"lesson","title":"Two leaders"}]},
+            {"title":"Check","pages":[{"id":"c1","kind":"checkpoint","title":"Checkpoint one"}]}]}"#;
+        let (status, course) =
+            json(app(state.clone()), send_json("PUT", "/api/syllabus", body)).await;
+
+        assert_eq!(status, StatusCode::OK, "{course}");
+        assert_eq!(
+            course["parts"][1],
+            serde_json::json!({ "title": "Check", "pages": [
+                { "id": "c1", "kind": "checkpoint", "title": "Checkpoint one", "state": "taught",
+                  "score": null },
+            ] })
+        );
+        assert_eq!(course["parts"][0]["pages"].as_array().unwrap().len(), 1);
+        let (status, _) = json(app(state), get_with_cookie("/api/pages/c1", TOKEN)).await;
+        assert_eq!(status, StatusCode::OK);
     }
 
     /// A null reads as a field left out unless the server refuses it, and

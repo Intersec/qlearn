@@ -7,7 +7,7 @@ import { chromium } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import config from '../playwright.config.ts';
-import { PAGE_1, PAGE_2, PAGE_DIAGRAMS, PAGE_DIAGRAMS_FIXED } from './agent.ts';
+import { PAGE_1, PAGE_2, PAGE_DIAGRAMS, PAGE_DIAGRAMS_FIXED, SYLLABUS } from './agent.ts';
 import { start } from './server.ts';
 
 const OUT = join(import.meta.dirname, '.shots');
@@ -39,6 +39,7 @@ for (const scheme of ['light', 'dark'] as const) {
 
   try {
     await agent.course('Raft elections');
+    await agent.syllabus(SYLLABUS);
     await agent.page('1', PAGE_1);
     const waited = agent.wait(0);
 
@@ -92,6 +93,14 @@ for (const scheme of ['light', 'dark'] as const) {
     await broken.waitFor({ state: 'detached' });
     await page.locator('.diagram-svg svg').nth(1).scrollIntoViewIfNeeded();
     await page.screenshot({ path: join(OUT, `${scheme}-diagram-fixed.png`) });
+
+    // A narrow screen: the syllabus hides behind a button, and opens over
+    // the page.
+    await page.setViewportSize({ width: 420, height: 860 });
+    await page.screenshot({ path: join(OUT, `${scheme}-narrow.png`) });
+    await page.getByRole('button', { name: 'Syllabus' }).click();
+    await page.getByRole('navigation', { name: 'Syllabus' }).waitFor();
+    await page.screenshot({ path: join(OUT, `${scheme}-narrow-syllabus.png`) });
   } finally {
     if (complaints.length) {
       console.log(`${scheme}: the page complained\n  ${complaints.join('\n  ')}`);
