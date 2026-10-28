@@ -7,15 +7,17 @@ pub mod auth;
 
 use std::sync::Arc;
 
-use axum::extract::State;
+use axum::extract::rejection::QueryRejection;
+use axum::extract::{Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::{Json, Router, middleware};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 
-use crate::model::{Course, Session};
+use crate::events::{self, Events};
+use crate::model::{Batch, Course, Session};
 
 #[derive(Clone)]
 pub struct AppState {
@@ -25,6 +27,7 @@ pub struct AppState {
     /// The course of this server. The server is the only writer of the
     /// store, so the copy in memory is the course.
     pub course: Arc<RwLock<Course>>,
+    pub events: Arc<Events>,
 }
 
 impl AppState {
@@ -33,6 +36,7 @@ impl AppState {
             token: Arc::new(token),
             port,
             course: Arc::new(RwLock::new(course)),
+            events: Arc::new(Events::default()),
         }
     }
 }
@@ -45,6 +49,7 @@ impl AppState {
 pub fn app(state: AppState) -> Router {
     Router::new()
         .route("/api/session", get(session))
+        .route("/api/events", get(wait_events))
         .method_not_allowed_fallback(method_not_allowed)
         .fallback(interface)
         .layer(middleware::from_fn_with_state(state.clone(), auth::guard))
@@ -113,6 +118,41 @@ async fn session(State(state): State<AppState>) -> Json<Session> {
     })
 }
 
+#[derive(Deserialize)]
+struct EventsQuery {
+    after: Option<u64>,
+    who: Option<Who>,
+}
+
+/// Who waits. The server learns from it whether a page is open and whether
+/// an agent is present.
+#[derive(Clone, Copy, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+enum Who {
+    Page,
+    Agent,
+}
+
+/// The writes after a number, as soon as there is one. See section 8.3 of
+/// the design.
+///
+/// The course lock is not held: a wait of 30 seconds must not stop a write.
+async fn wait_events(
+    State(state): State<AppState>,
+    query: Result<Query<EventsQuery>, QueryRejection>,
+) -> Result<Json<Batch>, ApiError> {
+    let Query(query) = query.map_err(|rejection| ApiError::bad_request(rejection.body_text()))?;
+    let mut agent = (query.who == Some(Who::Agent)).then(|| state.events.agent_waits());
+    let _page = (query.who == Some(Who::Page)).then(|| state.events.page_waits());
+
+    let batch = state.events.after(query.after, events::HOLD).await;
+    // Reached only when the agent did not hang up, which drops this future.
+    if let Some(agent) = &mut agent {
+        agent.answered(&batch);
+    }
+    Ok(Json(batch))
+}
+
 /// One error shape for every route.
 pub struct ApiError {
     status: StatusCode,
@@ -121,6 +161,14 @@ pub struct ApiError {
 }
 
 impl ApiError {
+    fn bad_request(message: String) -> Self {
+        Self {
+            status: StatusCode::BAD_REQUEST,
+            code: "badRequest",
+            message,
+        }
+    }
+
     fn not_found(message: String) -> Self {
         Self {
             status: StatusCode::NOT_FOUND,
@@ -188,12 +236,16 @@ mod tests {
     use time::OffsetDateTime;
     use tower::ServiceExt;
 
-    use crate::model::{PageKind, PageRef, PageState, Part};
+    use crate::model::{Author, EventKind, PageKind, PageRef, PageState, Part};
 
     const TOKEN: &str = "0123456789abcdef";
     const PORT: u16 = 7420;
 
     fn server() -> Router {
+        app(state())
+    }
+
+    fn state() -> AppState {
         let at_new_year = OffsetDateTime::from_unix_timestamp(1_767_225_600).unwrap();
         let mut course = Course::new("raft", at_new_year);
         course.title = "Raft, the leader election".to_owned();
@@ -208,7 +260,7 @@ mod tests {
             }],
         }];
 
-        app(AppState::new(course, TOKEN.to_owned(), PORT))
+        AppState::new(course, TOKEN.to_owned(), PORT)
     }
 
     fn get(uri: &str) -> Request<Body> {
@@ -377,6 +429,86 @@ mod tests {
         assert_eq!(body["version"], crate::version::LONG);
         body["version"] = "[version]".into();
         insta::assert_json_snapshot!("session", body);
+    }
+
+    #[tokio::test]
+    async fn the_events_route_answers_the_writes_after_a_number() {
+        let state = state();
+        state
+            .events
+            .push(EventKind::Page, Author::Agent, Some("1"), None);
+        state
+            .events
+            .push(EventKind::Next, Author::Learner, Some("1"), None);
+
+        let (status, body) = json(
+            app(state),
+            get_with_cookie("/api/events?after=1&who=page", TOKEN),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        insta::assert_json_snapshot!("events", body);
+    }
+
+    #[tokio::test]
+    async fn a_wait_with_no_number_answers_the_one_to_start_from() {
+        let state = state();
+        state
+            .events
+            .push(EventKind::Page, Author::Agent, Some("1"), None);
+
+        let (status, body) = json(app(state), get_with_cookie("/api/events", TOKEN)).await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["next"], 1);
+        assert_eq!(body["events"], serde_json::json!([]));
+    }
+
+    #[tokio::test]
+    async fn a_request_that_the_wait_of_the_agent_hands_over_makes_it_work() {
+        let state = state();
+        let server = app(state.clone());
+        let waiting = tokio::spawn(
+            server
+                .clone()
+                .oneshot(get_with_cookie("/api/events?after=0&who=agent", TOKEN)),
+        );
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            while !state.events.agent_listens() {
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("the wait of the agent must count");
+
+        state
+            .events
+            .push(EventKind::Next, Author::Learner, Some("1"), None);
+        let response = waiting.await.unwrap().unwrap();
+        let bytes = axum::body::to_bytes(response.into_body(), 1 << 20)
+            .await
+            .unwrap();
+        let batch: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(batch["events"][0]["kind"], "next");
+
+        let (_, page) = json(server, get_with_cookie("/api/events?who=page", TOKEN)).await;
+        assert_eq!(page["agent"], true);
+        assert_eq!(
+            page["working"], true,
+            "the agent works until it waits again"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_wait_with_a_bad_query_gets_the_error_shape() {
+        for uri in ["/api/events?who=reader", "/api/events?after=-1"] {
+            let (status, body) = json(server(), get_with_cookie(uri, TOKEN)).await;
+
+            assert_eq!(status, StatusCode::BAD_REQUEST, "{uri}");
+            assert_eq!(body["error"]["code"], "badRequest");
+            assert!(body["error"]["message"].is_string(), "{body}");
+        }
     }
 
     /// A trace goes into a log or a bug report. The token must not.

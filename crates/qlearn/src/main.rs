@@ -7,6 +7,7 @@ mod cli;
 
 use std::future::IntoFuture;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
@@ -19,8 +20,10 @@ use tokio::sync::watch;
 use qlearn::agent::address::Address;
 use qlearn::agent::{self, Claim, Home, socket};
 use qlearn::api::{self, AppState, auth};
+use qlearn::events::Events;
 use qlearn::git::exec::Git;
 use qlearn::model::Course;
+use qlearn::status::{self, Agent, Snapshot, Terminal};
 use qlearn::store::{self, Store};
 use qlearn::trace;
 
@@ -107,7 +110,9 @@ async fn serve(port: u16, course: Course, no_open: bool, home: &Home, _claim: Cl
         .context("cannot listen on the loopback address")?;
     let addr = listener.local_addr()?;
     let token = auth::new_token();
-    let app = api::app(AppState::new(course, token.clone(), addr.port()));
+    let state = AppState::new(course, token.clone(), addr.port());
+    let events = state.events.clone();
+    let app = api::app(state);
 
     // The way in for an agent in a sandbox. The course works without it,
     // so a socket that cannot be made only gives a warning.
@@ -144,6 +149,16 @@ async fn serve(port: u16, course: Course, no_open: bool, home: &Home, _claim: Cl
     let on_stop = |mut stopped: watch::Receiver<bool>| async move {
         let _ = stopped.wait_for(|stop| *stop).await;
     };
+    let watcher = tokio::spawn(watch_parties(events.clone(), url));
+    // On a stop, the waits on the events answer at once, so the requests in
+    // flight end.
+    tokio::spawn({
+        let stopped = on_stop(stopped.clone());
+        async move {
+            stopped.await;
+            events.close();
+        }
+    });
 
     let on_port = axum::serve(listener, app.clone())
         .with_graceful_shutdown(on_stop(stopped.clone()))
@@ -163,11 +178,55 @@ async fn serve(port: u16, course: Course, no_open: bool, home: &Home, _claim: Cl
         on_stop(stopped.clone()).await;
         tokio::time::sleep(GRACE).await;
     };
-    tokio::select! {
+    let served = tokio::select! {
         (port, unix) = async { tokio::join!(on_port, on_unix) } => {
             port.and(unix).context("the server stopped with an error")
         }
         () = deadline => Ok(()),
+    };
+
+    // Awaited, so no draw comes after the line is cleared.
+    watcher.abort();
+    let _ = watcher.await;
+    status::clear();
+    served
+}
+
+/// Say in the terminal when the page of the course opens, closes, and
+/// comes back, and when the agent connects and leaves. The server goes
+/// on without either one. On a terminal, a status line under the messages
+/// says how things stand now.
+async fn watch_parties(events: Arc<Events>, url: String) {
+    let mut terminal = Terminal::new();
+    let mut page = None;
+    let mut agent = false;
+    let mut tick = tokio::time::interval(Duration::from_secs(1));
+    loop {
+        tick.tick().await;
+        let state = Snapshot::of(&events);
+        match (page, state.page) {
+            (Some(true), Some(false)) => {
+                terminal.say(&format!(
+                    "The course page closed. Go to {url} to open it again."
+                ));
+                terminal.say("Press Ctrl-C to stop.");
+            }
+            (None, Some(true)) => terminal.say("The course page is open."),
+            (Some(false), Some(true)) => terminal.say("The course page is open again."),
+            _ => {}
+        }
+        page = state.page;
+
+        // From the snapshot, so the message and the line agree.
+        let listens = matches!(state.agent, Agent::Connected | Agent::Working);
+        if listens && !agent {
+            terminal.say("The agent is connected.");
+        } else if agent && !listens {
+            terminal.say("The agent left. Ask it to run `qlearn wait` to connect it again.");
+        }
+        agent = listens;
+
+        terminal.draw(&state);
     }
 }
 

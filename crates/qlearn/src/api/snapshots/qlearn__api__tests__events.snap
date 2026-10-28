@@ -1,0 +1,21 @@
+---
+source: crates/qlearn/src/api/mod.rs
+expression: body
+---
+{
+  "agent": false,
+  "events": [
+    {
+      "author": "learner",
+      "id": null,
+      "kind": "next",
+      "page": "1",
+      "seq": 2
+    }
+  ],
+  "left": false,
+  "next": 2,
+  "reset": false,
+  "status": null,
+  "working": false
+}

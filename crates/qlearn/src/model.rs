@@ -147,6 +147,85 @@ pub struct Finding {
     pub checked: bool,
 }
 
+/// Who made a write. It names the writer, and grants no permission.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum Author {
+    Learner,
+    Agent,
+}
+
+/// What a write changed, or what the learner asks of the agent.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum EventKind {
+    Course,
+    Syllabus,
+    Page,
+    Quiz,
+    Debrief,
+    Status,
+    Thread,
+    Reply,
+    Choose,
+    Finding,
+    Cheatsheet,
+    /// The agent waits again after it wrote: its work is over, and a page
+    /// that held its reloads catches up once.
+    Idle,
+    Next,
+    Answer,
+    Ask,
+    Chosen,
+    Broken,
+}
+
+impl EventKind {
+    /// A request needs the agent. `qlearn wait` returns on a request only.
+    pub fn is_request(self) -> bool {
+        matches!(
+            self,
+            Self::Next | Self::Answer | Self::Ask | Self::Chosen | Self::Broken
+        )
+    }
+}
+
+/// One write of the server, numbered. See section 8.3 of the design.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct Event {
+    pub seq: u64,
+    pub kind: EventKind,
+    pub author: Author,
+    pub page: Option<String>,
+    /// The quiz, the thread, or the choice.
+    pub id: Option<String>,
+}
+
+/// What `GET /api/events` answers.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct Batch {
+    pub events: Vec<Event>,
+    /// The number to ask after next time.
+    pub next: u64,
+    /// The events asked for are gone, or this server never made them. The
+    /// party reads everything again.
+    pub reset: bool,
+    /// An agent is present: a `qlearn wait` is open, ended a moment ago,
+    /// or handed over a request that the agent works on.
+    pub agent: bool,
+    /// The agent works on a request that a wait handed over, and has not
+    /// waited again since. The page says that the agent prepares the next
+    /// page.
+    pub working: bool,
+    /// An agent was present on this server, and is present no more. The
+    /// page asks the learner to start it again.
+    pub left: bool,
+    /// What the agent says it does, until its next wait.
+    pub status: Option<String>,
+}
+
 fn stamp(time: OffsetDateTime) -> String {
     // Only a year outside 0..=9999 fails, which no clock gives.
     time.format(&Rfc3339)

@@ -34,4 +34,7 @@ insta = { version = "1", features = ["json"] }
 # disk, so they check what a release carries.
 rust-embed = { version = "8", features = ["debug-embed"] }
 tempfile = "3"
+# The clock of the tests is paused and moved forward: a presence of 30
+# minutes is tested in no time.
+tokio = { version = "1", features = ["test-util"] }
 tower = { version = "0.5", features = ["util"] }
