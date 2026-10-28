@@ -13,7 +13,7 @@ DIST_NAME := qlearn-linux-x86_64.gz
 # The port that web/vite.config.ts proxies the API to.
 DEV_PORT := 7420
 
-.PHONY: all setup web build check test fmt lint install dist musl-target dev clean
+.PHONY: all setup web build check test e2e shots fmt lint install dist musl-target dev clean
 
 all: build
 
@@ -37,6 +37,14 @@ check:
 test: web
 	$(CARGO) test --workspace
 	cd web && $(NPM) run test:run
+
+## The browser tests alone. They drive the browser already on the machine.
+e2e: build
+	cd web && $(NPM) run e2e
+
+## Screenshots of both themes, into web/e2e/.shots.
+shots: build
+	cd web && $(NPM) run shots
 
 ## Correct the format of everything.
 fmt:

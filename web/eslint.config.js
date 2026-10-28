@@ -18,4 +18,11 @@ export default defineConfigWithVueTs(
       'no-console': ['error', { allow: ['warn', 'error'] }],
     },
   },
+  {
+    // A script whose whole job is to say where the pictures went. This
+    // block is last on purpose: in a flat configuration the later one wins.
+    name: 'app/scripts',
+    files: ['e2e/shots.ts'],
+    rules: { 'no-console': 'off' },
+  },
 );

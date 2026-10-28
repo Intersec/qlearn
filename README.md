@@ -113,6 +113,8 @@ Rust and Node. Node builds the interface. It is not needed to run the tool.
 make setup         # the interface dependencies, once
 make build         # the interface, then the binary
 make check         # the gate: lint, format, tests, build
+make e2e           # the browser tests alone
+make shots         # screenshots of both themes, into web/e2e/.shots
 make install       # into ~/.local/bin
 make dist          # one static x86_64-unknown-linux-musl binary
 ```

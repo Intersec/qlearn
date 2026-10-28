@@ -170,7 +170,17 @@ fn class_of(stack: &ScopeStack) -> Option<String> {
         if GENERIC.contains(&first) {
             continue;
         }
-        return match atoms.next() {
+        let second = atoms.next();
+        // The marks of a comment or a string belong to the scope around
+        // them: `/*` takes the color of the comment, not that of a comma.
+        // Other marks stay apart: the `$` of `"$HOME"` is no string.
+        if first == "punctuation"
+            && second == Some("definition")
+            && matches!(atoms.next(), Some("comment" | "string"))
+        {
+            continue;
+        }
+        return match second {
             Some(second) => Some(format!("tok-{first} tok-{second}")),
             None => Some(format!("tok-{first}")),
         };
@@ -235,6 +245,42 @@ mod tests {
         let longest = out[0].iter().map(|s| s.end).max().unwrap_or(0);
 
         assert_eq!(longest, "// a comment".len());
+    }
+
+    /// The marks of a comment or a string are part of it, in the color of
+    /// the text between them.
+    #[test]
+    fn the_marks_of_a_comment_and_a_string_take_their_class() {
+        let text = "/* one */ char *s = \"hi\"; // two\n";
+        let line = classes(&spans(text, "c")[0], text.trim_end());
+
+        for mark in ["/*", "*/", "//"] {
+            assert!(
+                line.iter()
+                    .any(|(cls, t)| t.contains(mark) && cls.starts_with("tok-comment")),
+                "{mark} is not a comment: {line:?}"
+            );
+        }
+        assert!(
+            line.iter()
+                .any(|(cls, t)| t.starts_with('"') && cls.starts_with("tok-string")),
+            "the quote is not a string: {line:?}"
+        );
+    }
+
+    /// Only those marks: the `$` of a variable inside a string is not part
+    /// of the string.
+    #[test]
+    fn the_mark_of_a_variable_in_a_string_is_not_a_string() {
+        let text = "echo \"$HOME\"\n";
+        let line = classes(&spans(text, "sh")[0], text.trim_end());
+
+        assert!(
+            !line
+                .iter()
+                .any(|(cls, t)| t.contains('$') && cls.starts_with("tok-string")),
+            "$ is a string: {line:?}"
+        );
     }
 
     #[test]

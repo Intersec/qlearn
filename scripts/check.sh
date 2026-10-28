@@ -73,8 +73,7 @@ step "cargo build"     .   "$cargo" build --release
 # other step, and says plainly that it skipped this one rather than passing
 # quietly.
 if browser=$(find_browser); then
-    # --pass-with-no-tests goes away with the first spec in web/e2e/.
-    step "playwright"      web env QLEARN_BROWSER="$browser" "$npm" exec -- playwright test --pass-with-no-tests
+    step "playwright"      web env QLEARN_BROWSER="$browser" "$npm" exec -- playwright test
 else
     printf 'skip  playwright (no QLEARN_BROWSER, and no chrome or chromium on the PATH)\n'
 fi
