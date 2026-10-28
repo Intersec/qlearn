@@ -1,0 +1,27 @@
+---
+source: crates/qlearn/src/api/mod.rs
+expression: agent
+---
+{
+  "agent": true,
+  "events": [
+    {
+      "author": "learner",
+      "detail": {
+        "left": {
+          "id": "1",
+          "title": "Two leaders, one term"
+        }
+      },
+      "id": null,
+      "kind": "next",
+      "page": "1",
+      "seq": 1
+    }
+  ],
+  "left": false,
+  "next": 1,
+  "reset": false,
+  "status": null,
+  "working": false
+}

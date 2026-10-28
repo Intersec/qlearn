@@ -5,7 +5,7 @@
 //! does.
 
 use axum::extract::{Request, State};
-use axum::http::header;
+use axum::http::{Method, header};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 
@@ -44,6 +44,12 @@ pub async fn guard(State(state): State<AppState>, request: Request, next: Next) 
         )
         .into_response();
     }
+    if !from_this_site(&request, state.port) {
+        return ApiError::forbidden(
+            "a write must come from the page of this server, not from another site".to_owned(),
+        )
+        .into_response();
+    }
 
     let mut response = next.run(request).await;
 
@@ -59,6 +65,36 @@ pub async fn guard(State(state): State<AppState>, request: Request, next: Next) 
         }
     }
     response
+}
+
+/// Whether a write comes from the page of this server, or from no page.
+///
+/// The cookie does not tell: a browser sends it from every port of
+/// 127.0.0.1, and a POST in `text/plain` needs no preflight. A read is
+/// let through, because another site cannot read the answer, and a link
+/// from another site must still open the page.
+fn from_this_site(request: &Request, port: u16) -> bool {
+    if matches!(*request.method(), Method::GET | Method::HEAD) {
+        return true;
+    }
+    let headers = request.headers();
+    let fetch_site = headers
+        .get("sec-fetch-site")
+        .and_then(|value| value.to_str().ok());
+    if matches!(fetch_site, Some("same-site" | "cross-site")) {
+        return false;
+    }
+    // The commands of the agent send no Origin.
+    let Some(origin) = headers.get(header::ORIGIN) else {
+        return true;
+    };
+    let ours = [
+        format!("http://127.0.0.1:{port}"),
+        format!("http://localhost:{port}"),
+    ];
+    origin
+        .to_str()
+        .is_ok_and(|origin| ours.iter().any(|ours| ours == origin))
 }
 
 /// Every `t` of the query. Read by hand, because an extractor answers a

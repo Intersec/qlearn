@@ -15,7 +15,7 @@ use std::time::Duration;
 use tokio::sync::Notify;
 use tokio::time::Instant;
 
-use crate::model::{Author, Batch, Event, EventKind};
+use crate::model::{Author, Batch, Detail, Event, EventKind};
 
 /// How many events are kept. A party that falls further behind reads
 /// everything again.
@@ -234,23 +234,51 @@ impl Events {
             .filter(|left| !left.is_zero())
     }
 
-    /// Say what the agent does, until its next wait.
-    pub fn set_status(&self, text: &str) {
+    /// Say what the agent does, until its next wait. An empty text clears
+    /// it. Answers the status as the page shows it.
+    pub fn set_status(&self, text: &str) -> Option<String> {
+        let text = text.trim();
+        let status = (!text.is_empty()).then(|| text.to_owned());
         self.agent
             .lock()
             .expect("the agent state is poisoned")
-            .status = Some(text.to_owned());
+            .status = status.clone();
         self.push(EventKind::Status, Author::Agent, None, None);
+        status
     }
 
     pub fn push(&self, kind: EventKind, author: Author, page: Option<&str>, id: Option<&str>) {
+        self.record(kind, author, page, id, None);
+    }
+
+    /// Push a request of the learner, with what the agent needs to answer
+    /// it. Answers the event as the log holds it.
+    pub fn request(
+        &self,
+        kind: EventKind,
+        page: Option<&str>,
+        id: Option<&str>,
+        detail: Detail,
+    ) -> Event {
+        debug_assert!(kind.is_request(), "{kind:?} is not a request");
+        self.record(kind, Author::Learner, page, id, Some(detail))
+    }
+
+    fn record(
+        &self,
+        kind: EventKind,
+        author: Author,
+        page: Option<&str>,
+        id: Option<&str>,
+        detail: Option<Detail>,
+    ) -> Event {
         if author == Author::Agent && kind != EventKind::Idle {
             self.agent
                 .lock()
                 .expect("the agent state is poisoned")
                 .wrote = true;
         }
-        {
+        let event = {
             let mut log = self.log.lock().expect("the event log is poisoned");
             log.last += 1;
             let event = Event {
@@ -259,13 +287,16 @@ impl Events {
                 author,
                 page: page.map(str::to_owned),
                 id: id.map(str::to_owned),
+                detail,
             };
-            log.kept.push_back(event);
+            log.kept.push_back(event.clone());
             if log.kept.len() > KEPT {
                 log.kept.pop_front();
             }
-        }
+            event
+        };
         self.notify.notify_waiters();
+        event
     }
 
     /// Answer every wait now, and every later one at once.
@@ -401,6 +432,7 @@ mod tests {
                 author: Author::Agent,
                 page: Some("2".to_owned()),
                 id: None,
+                detail: None,
             }]
         );
         assert_eq!(batch.next, 2);
@@ -680,6 +712,39 @@ mod tests {
             EventKind::Idle,
             "the page learns of it"
         );
+    }
+
+    #[tokio::test]
+    async fn an_empty_status_clears_the_one_before() {
+        let events = Events::default();
+        assert_eq!(
+            events.set_status("  Writing lesson 4  ").as_deref(),
+            Some("Writing lesson 4"),
+            "a line of the top bar has no margin"
+        );
+
+        assert_eq!(events.set_status(" \n"), None);
+
+        let batch = events.after(Some(0), HOLD).await;
+        assert_eq!(batch.status, None);
+        assert_eq!(batch.events.len(), 2, "the page learns of each one");
+    }
+
+    #[tokio::test]
+    async fn a_request_keeps_its_detail_in_the_log() {
+        let events = Events::default();
+        let detail = Detail::Next {
+            left: crate::model::PageName {
+                id: "1".to_owned(),
+                title: "Two leaders".to_owned(),
+            },
+        };
+
+        let event = events.request(EventKind::Next, Some("1"), None, detail.clone());
+
+        assert_eq!(event.author, Author::Learner);
+        assert_eq!(event.detail, Some(detail));
+        assert_eq!(events.after(Some(0), HOLD).await.events, [event]);
     }
 
     #[tokio::test]

@@ -59,10 +59,22 @@ impl Course {
     /// written last in a push, so a page file that it does not back is the
     /// trace of a push that failed.
     pub fn has_content(&self, id: &str) -> bool {
+        self.page_with_content(id).is_some()
+    }
+
+    /// The id and the title of a page with content.
+    pub fn name_of(&self, id: &str) -> Option<PageName> {
+        self.page_with_content(id).map(|page| PageName {
+            id: page.id.clone(),
+            title: page.title.clone(),
+        })
+    }
+
+    fn page_with_content(&self, id: &str) -> Option<&PageRef> {
         self.parts
             .iter()
             .flat_map(|part| &part.pages)
-            .any(|page| page.id == id && page.state != PageState::Planned)
+            .find(|page| page.id == id && page.state != PageState::Planned)
     }
 
     /// Record that the agent pushed the blocks of a page.
@@ -111,6 +123,171 @@ impl Course {
             });
         }
     }
+}
+
+/// What `PATCH /api/course` changes. A field left out stays as it is.
+///
+/// Every field goes through `present`: a plain `Option` reads `null` as a
+/// field left out, and the rest of the change would pass without a word.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CourseChange {
+    #[serde(
+        default,
+        deserialize_with = "present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub title: Option<String>,
+    #[serde(
+        default,
+        deserialize_with = "present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub goal: Option<String>,
+    #[serde(
+        default,
+        deserialize_with = "present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub profile: Option<String>,
+    #[serde(
+        default,
+        deserialize_with = "present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub quiz_mode: Option<QuizMode>,
+    #[serde(
+        default,
+        deserialize_with = "present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub status: Option<CourseStatus>,
+    /// `null` drops the follow-up.
+    #[serde(
+        default,
+        deserialize_with = "present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub follow_up: Option<Option<String>>,
+    #[serde(
+        default,
+        deserialize_with = "present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub author: Option<AgentAuthor>,
+}
+
+/// The author that a body of the agent may name. The route already knows
+/// the writer, so the field changes nothing, but `learner` on a route of
+/// the agent is a mistake.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum AgentAuthor {
+    Agent,
+}
+
+/// A field that the body holds. `null` passes only when `T` takes it.
+fn present<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    T::deserialize(deserializer).map(Some)
+}
+
+impl Course {
+    /// Apply a change of the agent, or refuse it whole with the reason.
+    pub fn change(&mut self, change: CourseChange, now: OffsetDateTime) -> Result<(), String> {
+        // A call that changes nothing is a mistake of the agent, and an
+        // answer of success would hide it.
+        let named = CourseChange {
+            author: None,
+            ..change.clone()
+        };
+        if named == CourseChange::default() {
+            return Err(
+                "the change names no field: give title, goal, profile, quizMode, status or followUp"
+                    .to_owned(),
+            );
+        }
+        if change.title.as_deref().is_some_and(|t| t.trim().is_empty()) {
+            return Err("the title is empty".to_owned());
+        }
+        // Only the creation of a course makes it new.
+        if change.status == Some(CourseStatus::New) {
+            return Err("status takes running or finished, not new".to_owned());
+        }
+        if let Some(Some(date)) = &change.follow_up
+            && !is_date(date)
+        {
+            return Err(format!(
+                "followUp takes a date YYYY-MM-DD or null, not {date:?}"
+            ));
+        }
+
+        if let Some(title) = change.title {
+            self.title = title.trim().to_owned();
+        }
+        if let Some(goal) = change.goal {
+            self.goal = goal;
+        }
+        if let Some(profile) = change.profile {
+            self.profile = profile;
+        }
+        if let Some(mode) = change.quiz_mode {
+            self.quiz_mode = mode;
+        }
+        if let Some(status) = change.status {
+            self.status = status;
+        }
+        if let Some(follow_up) = change.follow_up {
+            self.follow_up = follow_up;
+        }
+        self.updated = stamp(now);
+        Ok(())
+    }
+}
+
+/// Whether `text` is a day of the calendar, as YYYY-MM-DD.
+fn is_date(text: &str) -> bool {
+    let bytes = text.as_bytes();
+    let shape = bytes.len() == 10
+        && bytes.iter().enumerate().all(|(at, b)| match at {
+            4 | 7 => *b == b'-',
+            _ => b.is_ascii_digit(),
+        });
+    if !shape {
+        return false;
+    }
+    let (Ok(year), Ok(month), Ok(day)) = (
+        text[..4].parse::<i32>(),
+        text[5..7].parse::<u8>(),
+        text[8..].parse::<u8>(),
+    ) else {
+        return false;
+    };
+    time::Month::try_from(month)
+        .is_ok_and(|month| time::Date::from_calendar_date(year, month, day).is_ok())
+}
+
+/// The body of `PUT /api/status`. An empty text clears the status.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct StatusText {
+    pub text: String,
+    #[serde(
+        default,
+        deserialize_with = "present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub author: Option<AgentAuthor>,
+}
+
+/// What `PUT /api/status` answers: the status as the page shows it.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentStatus {
+    pub status: Option<String>,
 }
 
 /// What `GET /api/session` answers. The syllabus is in `course.parts`.
@@ -321,6 +498,30 @@ pub struct Event {
     pub page: Option<String>,
     /// The quiz, the thread, or the choice.
     pub id: Option<String>,
+    /// What the agent needs to answer a request. Only the view of the
+    /// agent carries it: the page holds all of it already.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detail: Option<Detail>,
+}
+
+/// The detail of a request, so that the agent needs no second command to
+/// answer it. See the table of section 8.3 of the design. The kind of the
+/// event says which request it is, so the detail carries no tag.
+///
+/// The requests of the later steps add their own variant.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(untagged)]
+pub enum Detail {
+    /// `next`: the page that the learner left.
+    Next { left: PageName },
+}
+
+/// A page as the agent names it to the learner.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PageName {
+    pub id: String,
+    pub title: String,
 }
 
 /// What `GET /api/events` answers.
@@ -498,6 +699,68 @@ mod tests {
                   "score": null },
             ] }])
         );
+    }
+
+    #[test]
+    fn a_follow_up_takes_a_day_of_the_calendar() {
+        for date in ["2026-11-04", "2028-02-29", "0001-01-01"] {
+            assert!(is_date(date), "{date}");
+        }
+        for date in [
+            "",
+            "2026-11-4",
+            "2026/11/04",
+            "2026-13-01",
+            "2026-00-01",
+            "2026-02-29",
+            "2026-04-31",
+            "2026-11-04T00:00:00Z",
+            "+026-11-04",
+            "２026-11-04",
+        ] {
+            assert!(!is_date(date), "{date:?}");
+        }
+    }
+
+    #[test]
+    fn a_follow_up_left_out_differs_from_a_null_one() {
+        let change: CourseChange = serde_json::from_str(r#"{"followUp":null}"#).unwrap();
+        assert_eq!(change.follow_up, Some(None));
+        let change: CourseChange = serde_json::from_str(r#"{"title":"Raft"}"#).unwrap();
+        assert_eq!(change.follow_up, None);
+    }
+
+    #[test]
+    fn a_null_is_refused_but_for_the_follow_up() {
+        for body in [
+            r#"{"title":null}"#,
+            r#"{"goal":"x","title":null}"#,
+            r#"{"goal":null}"#,
+            r#"{"profile":null}"#,
+            r#"{"quizMode":null}"#,
+            r#"{"status":null}"#,
+            r#"{"author":null}"#,
+        ] {
+            assert!(
+                serde_json::from_str::<CourseChange>(body).is_err(),
+                "{body}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_refused_change_leaves_the_course_as_it_was() {
+        let mut course = Course::new("raft", at_new_year());
+        let before = course.clone();
+
+        let refused = CourseChange {
+            goal: Some("Read the election".to_owned()),
+            follow_up: Some(Some("2026-02-30".to_owned())),
+            ..CourseChange::default()
+        };
+        assert!(course.change(refused, at_new_year()).is_err());
+
+        assert_eq!(course, before);
     }
 
     #[test]

@@ -7,11 +7,11 @@ pub mod auth;
 
 use std::sync::{Arc, Mutex};
 
-use axum::extract::rejection::{PathRejection, QueryRejection, StringRejection};
+use axum::extract::rejection::{JsonRejection, PathRejection, QueryRejection, StringRejection};
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use axum::routing::get;
+use axum::routing::{get, patch, post, put};
 use axum::{Json, Router, middleware};
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
@@ -20,7 +20,10 @@ use tokio::sync::RwLock;
 use crate::events::{self, Events};
 use crate::highlight::Highlighter;
 use crate::lesson::{self, Fault};
-use crate::model::{Author, Batch, Course, EventKind, Page, PageKind, Session};
+use crate::model::{
+    AgentStatus, Author, Batch, Course, CourseChange, Detail, Event, EventKind, Page, PageKind,
+    Session, StatusText,
+};
 use crate::store::{self, PageFile, Store};
 
 #[derive(Clone)]
@@ -74,7 +77,10 @@ pub fn app(state: AppState) -> Router {
     Router::new()
         .route("/api/session", get(session))
         .route("/api/events", get(wait_events))
+        .route("/api/course", patch(change_course))
+        .route("/api/status", put(set_status))
         .route("/api/pages/{id}", get(page).put(push_page))
+        .route("/api/pages/{id}/next", post(next))
         .method_not_allowed_fallback(method_not_allowed)
         .fallback(interface)
         .layer(middleware::from_fn_with_state(state.clone(), auth::guard))
@@ -229,6 +235,74 @@ async fn push_page(
     }))
 }
 
+/// Change the title, the goal, the profile, the quiz mode, the status or
+/// the follow-up date. Answers the course.
+async fn change_course(
+    State(state): State<AppState>,
+    body: Result<Json<CourseChange>, JsonRejection>,
+) -> Result<Json<Course>, ApiError> {
+    let Json(change) = body.map_err(bad_json)?;
+
+    let mut course = state.course.write().await;
+    // The copy in memory changes only once `course.json` is written, so a
+    // write that fails leaves the course as the store has it.
+    let mut changed = course.clone();
+    changed
+        .change(change, OffsetDateTime::now_utc())
+        .map_err(ApiError::bad_request)?;
+    state.store.save(&changed)?;
+    *course = changed;
+    // Under the lock, so the events come in the order of the writes.
+    state
+        .events
+        .push(EventKind::Course, Author::Agent, None, None);
+
+    Ok(Json(course.clone()))
+}
+
+/// Say what the agent does, until its next wait.
+async fn set_status(
+    State(state): State<AppState>,
+    body: Result<Json<StatusText>, JsonRejection>,
+) -> Result<Json<AgentStatus>, ApiError> {
+    let Json(body) = body.map_err(bad_json)?;
+
+    Ok(Json(AgentStatus {
+        status: state.events.set_status(&body.text),
+    }))
+}
+
+/// The learner asks the agent for the next page. Answers the request.
+async fn next(
+    State(state): State<AppState>,
+    path: Result<Path<String>, PathRejection>,
+) -> Result<Json<Event>, ApiError> {
+    let Path(id) = path.map_err(bad_path)?;
+
+    // Held while the request is pushed, so the events come in the order of
+    // the writes.
+    let course = state.course.read().await;
+    // The page sends Next from a page that it shows, so a page with no
+    // content is a request that went astray.
+    let left = course
+        .name_of(&id)
+        .ok_or_else(|| ApiError::not_found(format!("page {id} has no content yet")))?;
+    let mut event = state
+        .events
+        .request(EventKind::Next, Some(&id), None, Detail::Next { left });
+    drop(course);
+
+    event.detail = None;
+    Ok(Json(event))
+}
+
+/// An extractor answers a body that it cannot read with plain text. Every
+/// refusal of a body is a bad request, whichever check of the extractor
+/// fails, so the agent reads one code.
+fn bad_json(rejection: JsonRejection) -> ApiError {
+    ApiError::bad_request(rejection.body_text())
+}
+
 /// An extractor answers a path that it cannot read with plain text.
 fn bad_path(rejection: PathRejection) -> ApiError {
     ApiError {
@@ -265,10 +339,15 @@ async fn wait_events(
     let mut agent = (query.who == Some(Who::Agent)).then(|| state.events.agent_waits());
     let _page = (query.who == Some(Who::Page)).then(|| state.events.page_waits());
 
-    let batch = state.events.after(query.after, events::HOLD).await;
+    let mut batch = state.events.after(query.after, events::HOLD).await;
     // Reached only when the agent did not hang up, which drops this future.
-    if let Some(agent) = &mut agent {
-        agent.answered(&batch);
+    match &mut agent {
+        Some(agent) => agent.answered(&batch),
+        // Only the agent answers a request.
+        None => batch
+            .events
+            .iter_mut()
+            .for_each(|event| event.detail = None),
     }
     Ok(Json(batch))
 }
@@ -316,6 +395,14 @@ impl ApiError {
             status: StatusCode::BAD_REQUEST,
             code: "invalidPage",
             message: lines.join("\n"),
+        }
+    }
+
+    fn forbidden(message: String) -> Self {
+        Self {
+            status: StatusCode::FORBIDDEN,
+            code: "forbidden",
+            message,
         }
     }
 
@@ -428,6 +515,24 @@ mod tests {
             )
             .body(body.into())
             .unwrap()
+    }
+
+    /// A request of the agent with a JSON body, as `qlearn` sends it.
+    fn send_json(method: &str, uri: &str, body: &str) -> Request<Body> {
+        Request::builder()
+            .method(method)
+            .uri(uri)
+            .header(
+                header::COOKIE,
+                format!("{}={TOKEN}", auth::cookie_name(PORT)),
+            )
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(body.to_owned()))
+            .unwrap()
+    }
+
+    fn post(uri: &str) -> Request<Body> {
+        send_json("POST", uri, "")
     }
 
     /// Every file under `dir`, relative to it.
@@ -876,6 +981,328 @@ mod tests {
             assert!(body["error"]["message"].is_string(), "{body}");
         }
         assert_eq!(files(dir.path()), Vec::<String>::new());
+    }
+
+    #[tokio::test]
+    async fn the_course_route_changes_the_fields_named_and_answers_the_course() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = state_in(dir.path());
+        let body = r#"{"title":"Raft, the election","goal":"Know **why** a term ends.",
+                       "profile":"C, no Raft yet.","quizMode":"current",
+                       "status":"running","followUp":"2026-11-04"}"#;
+
+        let (status, mut body) =
+            json(app(state.clone()), send_json("PATCH", "/api/course", body)).await;
+
+        assert_eq!(status, StatusCode::OK, "{body}");
+        // `updated` takes the clock of the write, which a snapshot cannot pin.
+        assert_ne!(body["updated"], body["created"]);
+        body["updated"] = "[updated]".into();
+        insta::assert_json_snapshot!("change_course", body);
+
+        let stored = Store::at(dir.path()).load("raft").unwrap().unwrap();
+        assert_eq!(stored, *state.course.read().await, "course.json holds it");
+        let batch = state.events.after(Some(0), events::HOLD).await;
+        assert_eq!(batch.events.len(), 1);
+        assert_eq!(batch.events[0].kind, EventKind::Course);
+        assert_eq!(batch.events[0].author, Author::Agent);
+    }
+
+    #[tokio::test]
+    async fn a_field_left_out_stays_and_a_null_follow_up_drops_the_date() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = state_in(dir.path());
+        let patch = |body: &'static str| send_json("PATCH", "/api/course", body);
+
+        json(app(state.clone()), patch(r#"{"followUp":"2026-11-04"}"#)).await;
+        let (_, body) = json(app(state.clone()), patch(r#"{"goal":"Read it"}"#)).await;
+        assert_eq!(body["followUp"], "2026-11-04");
+        assert_eq!(body["title"], "Raft, the leader election");
+
+        let (status, body) = json(app(state.clone()), patch(r#"{"followUp":null}"#)).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["followUp"], serde_json::Value::Null);
+        assert_eq!(body["goal"], "Read it");
+    }
+
+    #[tokio::test]
+    async fn a_bad_change_of_the_course_is_refused_and_stores_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = state_in(dir.path());
+        let before = state.course.read().await.clone();
+
+        for body in [
+            "",
+            "{}",
+            "[]",
+            "not json",
+            r#"{"title":"Raft","author":"learner"}"#,
+            r#"{"author":"agent"}"#,
+            r#"{"slug":"other"}"#,
+            r#"{"parts":[]}"#,
+            r#"{"title":"  "}"#,
+            r#"{"title":null}"#,
+            r#"{"goal":"A goal","title":null}"#,
+            r#"{"goal":"A goal","status":null}"#,
+            r#"{"goal":"A goal","quizMode":null}"#,
+            r#"{"goal":"A goal","profile":null}"#,
+            r#"{"profile":"C","goal":null}"#,
+            r#"{"quizMode":"all"}"#,
+            r#"{"status":"new"}"#,
+            r#"{"status":"paused"}"#,
+            r#"{"followUp":"next week"}"#,
+            r#"{"followUp":"2026-02-30"}"#,
+            r#"{"goal":"A goal","followUp":"2026-13-01"}"#,
+        ] {
+            let request = send_json("PATCH", "/api/course", body);
+            let (status, answer) = json(app(state.clone()), request).await;
+
+            assert_eq!(status, StatusCode::BAD_REQUEST, "{body}: {answer}");
+            assert_eq!(answer["error"]["code"], "badRequest", "{body}");
+            assert!(answer["error"]["message"].is_string(), "{answer}");
+        }
+        // With no JSON content type, the body is refused too.
+        let request = Request::builder()
+            .method("PATCH")
+            .uri("/api/course")
+            .header(
+                header::COOKIE,
+                format!("{}={TOKEN}", auth::cookie_name(PORT)),
+            )
+            .body(Body::from(r#"{"title":"Raft"}"#))
+            .unwrap();
+        let (status, answer) = json(app(state.clone()), request).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(answer["error"]["code"], "badRequest");
+
+        assert_eq!(files(dir.path()), Vec::<String>::new());
+        assert_eq!(*state.course.read().await, before);
+        assert_eq!(state.events.after(None, events::HOLD).await.next, 0);
+    }
+
+    /// A null reads as a field left out unless the server refuses it, and
+    /// the rest of the change would then pass without a word.
+    #[tokio::test]
+    async fn a_null_field_is_refused_by_its_name() {
+        let request = send_json("PATCH", "/api/course", r#"{"title":null}"#);
+        let (status, answer) = json(server(), request).await;
+
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{answer}");
+        let message = answer["error"]["message"].as_str().unwrap();
+        assert!(message.contains("title"), "{message}");
+        assert!(!message.contains("names no field"), "{message}");
+    }
+
+    /// The commands of the agent may send `"author": "agent"`. It names
+    /// the writer and changes nothing else.
+    #[tokio::test]
+    async fn a_write_of_the_agent_may_name_its_author() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = state_in(dir.path());
+
+        let body = r#"{"title":"Raft","author":"agent"}"#;
+        let (status, answer) =
+            json(app(state.clone()), send_json("PATCH", "/api/course", body)).await;
+        assert_eq!(status, StatusCode::OK, "{answer}");
+        assert_eq!(answer["title"], "Raft");
+
+        let body = r#"{"text":"Reading","author":"agent"}"#;
+        let (status, answer) =
+            json(app(state.clone()), send_json("PUT", "/api/status", body)).await;
+        assert_eq!(status, StatusCode::OK, "{answer}");
+        assert_eq!(answer["status"], "Reading");
+
+        let batch = state.events.after(Some(0), events::HOLD).await;
+        assert!(batch.events.iter().all(|e| e.author == Author::Agent));
+    }
+
+    /// A browser sends the cookie of 127.0.0.1 to every port, and a POST in
+    /// text/plain needs no preflight. Another local site could then push a
+    /// request for the agent.
+    #[tokio::test]
+    async fn a_write_sent_from_another_site_is_forbidden() {
+        let state = state();
+        let from = |origin: Option<&str>, fetch_site: Option<&str>| {
+            let mut request = Request::builder()
+                .method("POST")
+                .uri("/api/pages/1/next")
+                .header(
+                    header::COOKIE,
+                    format!("{}={TOKEN}", auth::cookie_name(PORT)),
+                )
+                .header(header::CONTENT_TYPE, "text/plain");
+            if let Some(origin) = origin {
+                request = request.header(header::ORIGIN, origin);
+            }
+            if let Some(site) = fetch_site {
+                request = request.header("sec-fetch-site", site);
+            }
+            request.body(Body::from("x")).unwrap()
+        };
+
+        for request in [
+            from(Some("http://127.0.0.1:3000"), Some("same-site")),
+            from(Some("http://127.0.0.1:3000"), None),
+            from(Some("https://example.com"), Some("cross-site")),
+            from(Some("null"), None),
+            from(None, Some("same-site")),
+            from(None, Some("cross-site")),
+        ] {
+            let (status, body) = json(app(state.clone()), request).await;
+
+            assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+            assert_eq!(body["error"]["code"], "forbidden");
+        }
+        assert_eq!(state.events.after(None, events::HOLD).await.next, 0);
+
+        for request in [
+            from(
+                Some(&format!("http://127.0.0.1:{PORT}")),
+                Some("same-origin"),
+            ),
+            from(Some(&format!("http://localhost:{PORT}")), None),
+            from(None, Some("none")),
+            // The commands of the agent send neither.
+            from(None, None),
+        ] {
+            let (status, body) = json(app(state.clone()), request).await;
+
+            assert_eq!(status, StatusCode::OK, "{body}");
+        }
+
+        // A link from another site still opens the page.
+        let request = Request::builder()
+            .uri("/api/session")
+            .header(
+                header::COOKIE,
+                format!("{}={TOKEN}", auth::cookie_name(PORT)),
+            )
+            .header("sec-fetch-site", "cross-site")
+            .body(Body::empty())
+            .unwrap();
+        let (status, _) = json(app(state), request).await;
+        assert_eq!(status, StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn the_status_route_sets_the_text_until_the_next_wait_of_the_agent() {
+        let state = state();
+        let body = r#"{"text":"Writing lesson 2: the vote"}"#;
+
+        let (status, answer) =
+            json(app(state.clone()), send_json("PUT", "/api/status", body)).await;
+
+        assert_eq!(status, StatusCode::OK, "{answer}");
+        insta::assert_json_snapshot!("set_status", answer);
+        let (_, page) = json(
+            app(state.clone()),
+            get_with_cookie("/api/events?after=0&who=page", TOKEN),
+        )
+        .await;
+        assert_eq!(page["status"], "Writing lesson 2: the vote");
+        assert_eq!(page["events"][0]["kind"], "status");
+        assert_eq!(page["events"][0]["author"], "agent");
+
+        json(
+            app(state.clone()),
+            get_with_cookie("/api/events?who=agent", TOKEN),
+        )
+        .await;
+        let (_, page) = json(app(state), get_with_cookie("/api/events?who=page", TOKEN)).await;
+        assert_eq!(page["status"], serde_json::Value::Null);
+    }
+
+    #[tokio::test]
+    async fn an_empty_status_clears_it_and_a_bad_body_is_refused() {
+        let state = state();
+        json(
+            app(state.clone()),
+            send_json("PUT", "/api/status", r#"{"text":"Reading"}"#),
+        )
+        .await;
+
+        let (status, answer) = json(
+            app(state.clone()),
+            send_json("PUT", "/api/status", r#"{"text":""}"#),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(answer, serde_json::json!({ "status": null }));
+        assert_eq!(state.events.after(None, events::HOLD).await.status, None);
+
+        for body in [
+            "",
+            "{}",
+            r#"{"text":null}"#,
+            r#"{"text":"a","page":"1"}"#,
+            r#"{"text":3}"#,
+        ] {
+            let (status, answer) =
+                json(app(state.clone()), send_json("PUT", "/api/status", body)).await;
+            assert_eq!(status, StatusCode::BAD_REQUEST, "{body}: {answer}");
+            assert_eq!(answer["error"]["code"], "badRequest", "{body}");
+        }
+    }
+
+    #[tokio::test]
+    async fn the_next_route_pushes_a_request_with_the_page_that_the_learner_left() {
+        let state = state();
+
+        let (status, answer) = json(app(state.clone()), post("/api/pages/1/next")).await;
+
+        assert_eq!(status, StatusCode::OK, "{answer}");
+        insta::assert_json_snapshot!("next", answer);
+
+        let (_, agent) = json(
+            app(state.clone()),
+            get_with_cookie("/api/events?after=0&who=agent", TOKEN),
+        )
+        .await;
+        insta::assert_json_snapshot!("events_of_the_agent", agent);
+        assert!(
+            state.events.agent_works(),
+            "the wait handed the request over"
+        );
+
+        let (_, page) = json(
+            app(state),
+            get_with_cookie("/api/events?after=0&who=page", TOKEN),
+        )
+        .await;
+        assert_eq!(
+            page["events"],
+            serde_json::json!([
+                { "seq": 1, "kind": "next", "author": "learner", "page": "1", "id": null }
+            ]),
+            "the page needs no detail"
+        );
+    }
+
+    #[tokio::test]
+    async fn next_on_a_page_with_no_content_is_not_found() {
+        let state = state();
+        let mut course = state.course.write().await;
+        course.parts[0].pages.push(PageRef {
+            id: "2".to_owned(),
+            kind: PageKind::Lesson,
+            title: "The vote".to_owned(),
+            state: PageState::Planned,
+            score: None,
+        });
+        drop(course);
+
+        for uri in [
+            "/api/pages/2/next",
+            "/api/pages/9/next",
+            "/api/pages/x/next",
+            "/api/pages/..%2Fcourse/next",
+        ] {
+            let (status, body) = json(app(state.clone()), post(uri)).await;
+
+            assert_eq!(status, StatusCode::NOT_FOUND, "{uri}");
+            assert_eq!(body["error"]["code"], "notFound", "{uri}");
+        }
+        assert_eq!(state.events.after(None, events::HOLD).await.next, 0);
     }
 
     /// A trace goes into a log or a bug report. The token must not.

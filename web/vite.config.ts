@@ -43,6 +43,9 @@ export default defineConfig({
             if (cookie) {
               request.setHeader('cookie', cookie);
             }
+            // The server refuses a write from another origin, and the
+            // origin of Vite is another one.
+            request.removeHeader('origin');
           });
         },
       },

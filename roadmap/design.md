@@ -31,6 +31,9 @@ another course, the learner stops that server first.
 loopback address only. It makes a random token at startup. The first page
 request carries the token in the query string, and the server answers with
 a session cookie. A request without the cookie or the token gets 401.
+A browser sends that cookie from every port of 127.0.0.1, so a write whose
+`Origin` is not the page of the server, or whose `Sec-Fetch-Site` is
+`same-site` or `cross-site`, gets 403.
 
 The server also listens on `/tmp/qlearn-<uid>/<worktree-id>.sock`, for the
 commands of the agent. An agent in a sandbox runs each command in a network
@@ -527,7 +530,7 @@ writer, and grants no permission.
 |---|---|---|
 | `GET /api/session` | page | The course, the syllabus, the tool version |
 | `GET /api/pages/:id` | page | The blocks, the quizzes without their answers until answered, the threads |
-| `POST /api/pages/:id/next` | page | Ask the agent for the next page |
+| `POST /api/pages/:id/next` | page | Ask the agent for the next page. Answers the request |
 | `POST /api/pages/:id/quizzes/:n/open` | page | Send the open answer |
 | `POST /api/pages/:id/quizzes/:n/choices` | page | Send the choices. The server grades them |
 | `POST /api/pages/:id/threads` | both | Open a thread. Body: `{ block, quote, body }` |
@@ -539,14 +542,14 @@ writer, and grants no permission.
 | `GET /api/cheatsheet.md` | both | The cheatsheet as Markdown (section 9) |
 | `GET /api/media/:name` | page | An image. Raw bytes |
 | `GET /api/events?after=<n>&who=<page\|agent>` | both | Wait for the next writes. See section 8.3 |
-| `PATCH /api/course` | agent | Change the title, the goal, the profile, the quiz mode, the status, the follow-up date |
+| `PATCH /api/course` | agent | Change the title, the goal, the profile, the quiz mode, the status, the follow-up date. Refuses the whole change for an unknown field, a `null` but for the follow-up, a bad value, the status `new`, or a body that names no field. Trims the title. Answers the course |
 | `PUT /api/syllabus` | agent | Write the syllabus (section 3.1) |
 | `PUT /api/pages/:id` | agent | Push the blocks of a page. Body: the source. Answers the errors of section 4.7 |
 | `POST /api/pages/:id/quizzes` | agent | Add a quiz to a page |
 | `PUT /api/pages/:id/quizzes/:n/debrief` | agent | Write the debrief. Body: `{ source, points: { id: ok } }` |
 | `POST /api/choices` | agent | Ask a choice. Answers its id |
 | `PUT /api/findings/:id` | agent | Write a finding |
-| `PUT /api/status` | agent | Say what the agent does. Body: `{ text }` |
+| `PUT /api/status` | agent | Say what the agent does. Body: `{ text }`. Answers `{ status }` |
 | `PUT /api/cheatsheet` | agent | Write the source of the cheatsheet |
 | `GET /api/export` | agent | The whole course as JSON, for a resume after a reset |
 
@@ -560,7 +563,8 @@ pages that the learner read. A reload comes back to the same place.
 
 `qlearn status "<text>"` shows a line in the top bar of the page, for
 example "Writing lesson 4: the code tour". The agent sets it before a long
-piece of work. The next `wait` of the agent clears it.
+piece of work. The next `wait` of the agent clears it, and so does an empty
+text. The server trims the text.
 
 ### 8.3 Events
 

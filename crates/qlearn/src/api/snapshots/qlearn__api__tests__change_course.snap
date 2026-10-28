@@ -1,0 +1,31 @@
+---
+source: crates/qlearn/src/api/mod.rs
+expression: body
+---
+{
+  "created": "2026-01-01T00:00:00Z",
+  "findings": [],
+  "followUp": "2026-11-04",
+  "goal": "Know **why** a term ends.",
+  "parts": [
+    {
+      "pages": [
+        {
+          "id": "1",
+          "kind": "lesson",
+          "score": null,
+          "state": "taught",
+          "title": "Two leaders, one term"
+        }
+      ],
+      "title": "Why"
+    }
+  ],
+  "profile": "C, no Raft yet.",
+  "quizMode": "current",
+  "slug": "raft",
+  "status": "running",
+  "title": "Raft, the election",
+  "updated": "[updated]",
+  "version": 1
+}
