@@ -8,6 +8,7 @@
 //! source comes out as text, so a page never holds a script or a style that
 //! the agent typed.
 
+use std::collections::HashMap;
 use std::ops::Range;
 
 use pulldown_cmark::{Alignment, CodeBlockKind, Event, HeadingLevel, Options, Parser, Tag, TagEnd};
@@ -74,6 +75,7 @@ pub fn parse(source: &str, highlighter: &Highlighter) -> Result<Parsed, Vec<Faul
         source,
         blocks: Vec::new(),
         open: None,
+        seen: HashMap::new(),
     };
     let mut title = None;
     let mut faults = Vec::new();
@@ -122,12 +124,16 @@ pub fn parse(source: &str, highlighter: &Highlighter) -> Result<Parsed, Vec<Faul
 
 /// The id of a block: the first 12 hexadecimal characters of the SHA-256
 /// of its kind and its source. An unchanged block keeps its id when the
-/// agent pushes the page again, so its threads stay on it.
-pub fn block_id(kind: &str, source: &str) -> String {
+/// agent pushes the page again, so its threads stay on it. A later copy of
+/// the same block hashes its rank too, so two copies never share threads.
+pub fn block_id(kind: &str, source: &str, rank: usize) -> String {
     let mut hasher = Sha256::new();
     hasher.update(kind.as_bytes());
     hasher.update(b"\n");
     hasher.update(source.as_bytes());
+    if rank > 1 {
+        hasher.update(format!("\n{rank}").as_bytes());
+    }
 
     hex::encode(&hasher.finalize()[..6])
 }
@@ -236,9 +242,17 @@ struct Page<'s> {
     blocks: Vec<Block>,
     /// The text block being written: the bytes that it covers, and its HTML.
     open: Option<(Range<usize>, String)>,
+    /// How many times each kind and source came, for the rank of a copy.
+    seen: HashMap<(&'static str, &'s str), usize>,
 }
 
-impl Page<'_> {
+impl<'s> Page<'s> {
+    fn id(&mut self, kind: &'static str, source: &'s str) -> String {
+        let rank = self.seen.entry((kind, source)).or_default();
+        *rank += 1;
+        block_id(kind, source, *rank)
+    }
+
     /// Add a node to the open text block, or open one.
     fn text(&mut self, node: &[Item], highlighter: &Highlighter) {
         let range = node[0].1.clone();
@@ -262,10 +276,8 @@ impl Page<'_> {
         // again with one more section keeps the id of this one.
         let source = self.source[covered].trim_end();
 
-        self.blocks.push(Block::Text {
-            id: block_id("text", source),
-            html,
-        });
+        let id = self.id("text", source);
+        self.blocks.push(Block::Text { id, html });
     }
 }
 
@@ -610,7 +622,7 @@ mod tests {
     #[test]
     fn the_id_is_the_hash_of_the_kind_and_the_source() {
         // printf 'text\n# One' | sha256sum
-        assert_eq!(block_id("text", "# One"), "5b1eb887548a");
+        assert_eq!(block_id("text", "# One", 1), "5b1eb887548a");
         assert_eq!(ids("# One\n"), ["5b1eb887548a"]);
     }
 
@@ -627,6 +639,14 @@ mod tests {
         assert_eq!(after.len(), 3);
         assert_eq!(after[0], before[0], "the first section did not change");
         assert_ne!(after[1], before[1], "the second section changed");
+    }
+
+    #[test]
+    fn two_copies_of_one_block_get_two_ids() {
+        let ids = ids("# One\n\n# One\n\n# One\n");
+
+        // printf 'text\n# One' | sha256sum, then with '\n2' and '\n3'
+        assert_eq!(ids, ["5b1eb887548a", "300e24ac0238", "7cd404852f2e"]);
     }
 
     #[test]
