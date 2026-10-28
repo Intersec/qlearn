@@ -1,9 +1,10 @@
 ---
 source: crates/qlearn/src/lesson/mod.rs
-description: "# Several errors\n\nSome text that is fine.\n\n```excerpt\npath: src/raft.c\nlines: 1-10\n```\n\n![A figure](docs/figure.svg)\n\n## A section\n\n- A list item with a fence:\n\n  ```chart\n  {}\n  ```\n\n```mermaid\ngraph LR\n```\n\n> [!pitfall]\n> Two leaders in one term.\n\n```steps\n{}\n```\n"
+assertion_line: 862
+description: "# Several errors\n\nSome text that is fine.\n\n```excerpt\npath: src/raft.h\nlines: 1-10\n```\n\n![A figure](docs/figure.svg)\n\n## A section\n\n- A list item with a fence:\n\n  ```chart\n  {}\n  ```\n\n```mermaid\ngraph LR\n```\n\n> [!pitfall]\n> Two leaders in one term.\n\n```steps\n{}\n```\n"
 ---
 refused
-refused-several.md:5: excerpt: this release of qlearn does not support excerpt blocks yet
+refused-several.md:6: excerpt: src/raft.h is not a file at commit <top HEAD>
 refused-several.md:10: image: this release of qlearn does not support image blocks yet
 refused-several.md:16: chart: this release of qlearn does not support chart blocks yet
 refused-several.md:20: diagram: this release of qlearn does not support diagram blocks yet

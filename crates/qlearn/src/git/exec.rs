@@ -50,6 +50,15 @@ impl Git {
         &self.root
     }
 
+    /// The repository at `root`, with no git call to find it. A test of a
+    /// route that reads no code needs no repository.
+    #[cfg(test)]
+    pub fn at(root: &Path) -> Self {
+        Self {
+            root: root.to_path_buf(),
+        }
+    }
+
     /// Run git and return its standard output as text.
     pub async fn text<S: AsRef<OsStr>>(&self, args: &[S]) -> Result<String> {
         let out = run_in(&self.root, args).await?;

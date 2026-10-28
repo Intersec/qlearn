@@ -1,0 +1,11 @@
+---
+source: crates/qlearn/src/lesson/mod.rs
+assertion_line: 862
+description: "# What the repository does not hold\n\n```excerpt\npath: src/election.c\nlines: 1-10\n```\n\n```excerpt\npath: src\nlines: 1-10\n```\n\n```excerpt\npath: src/raft.c\nlines: 1-10\nrev: no-such-branch\n```\n\n```excerpt\npath: vendor/lib/src/lib.c\nlines: 1-3\nrev: stale\n```\n\n```excerpt\npath: vendor/lib/src/lib.c\nlines: 2-9\n```\n"
+---
+refused
+refused-excerpt-read.md:4: excerpt: src/election.c is not a file at commit <top HEAD>
+refused-excerpt-read.md:9: excerpt: src is a directory at commit <top HEAD>
+refused-excerpt-read.md:16: excerpt: no-such-branch is not a commit
+refused-excerpt-read.md:20: excerpt: the submodule vendor/lib does not hold commit <lib unfetched>. Run git --git-dir .git/modules/vendor/lib --work-tree . fetch --no-recurse-submodules
+refused-excerpt-read.md:27: excerpt: vendor/lib/src/lib.c has 3 lines at HEAD, the excerpt asks for 2-9

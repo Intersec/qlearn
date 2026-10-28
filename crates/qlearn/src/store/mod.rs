@@ -4,6 +4,7 @@
 //! course. One server per worktree, and `.learn/` belongs to one worktree,
 //! so no lock is needed.
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::io::{ErrorKind, Write};
 use std::path::{Path, PathBuf};
@@ -15,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
 use crate::git::exec::Git;
-use crate::model::{self, Block, Course, PageKind};
+use crate::model::{self, Block, Course, Line, PageKind};
 
 /// The name of the store, in the worktree and in `.git/info/exclude`.
 const DIR: &str = ".learn";
@@ -228,7 +229,24 @@ impl Store {
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", default)]
 pub struct PageFile {
+    /// The hidden line of an excerpt is None here too, so a route that
+    /// sends the blocks as stored gives nothing away.
     pub blocks: Vec<Block>,
+    /// The text of each hidden line, by the id of its excerpt.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub hidden: BTreeMap<String, Line>,
+}
+
+impl PageFile {
+    /// The blocks as the page may see them.
+    ///
+    /// A hidden line stays None until the learner answers every quiz of the
+    /// page, and while the page has no quiz, because the agent pushes the
+    /// quiz after the page. This release has no quiz, so every hidden line
+    /// stays None. Every route that sends blocks goes through here.
+    pub fn shown(&self) -> Vec<Block> {
+        self.blocks.clone()
+    }
 }
 
 impl Store {
@@ -799,6 +817,7 @@ mod tests {
                 id: "0123456789ab".to_owned(),
                 html: html.to_owned(),
             }],
+            hidden: BTreeMap::new(),
         }
     }
 
@@ -826,6 +845,43 @@ mod tests {
                 "a.txt"
             ]
         );
+    }
+
+    /// The text of a hidden line is kept for the day the page may show it,
+    /// and the blocks as shown never carry it.
+    #[tokio::test]
+    async fn a_hidden_line_is_stored_apart_from_the_blocks() {
+        let repo = repo().await;
+        let store = Store::at(repo.path());
+        store.open(Some("raft"), at_new_year()).unwrap();
+        let line = |text: &str| Line {
+            text: text.to_owned(),
+            spans: Vec::new(),
+        };
+        let page = PageFile {
+            blocks: vec![Block::Excerpt {
+                id: "0123456789ab".to_owned(),
+                excerpt: model::Excerpt {
+                    path: "a.c".to_owned(),
+                    repo: String::new(),
+                    commit: "0".repeat(40),
+                    from: 1,
+                    to: 2,
+                    lang: "c".to_owned(),
+                    lines: vec![Some(line("int a;")), None],
+                    marked: Vec::new(),
+                },
+            }],
+            hidden: BTreeMap::from([("0123456789ab".to_owned(), line("int b;"))]),
+        };
+
+        store.save_page("raft", "1", "source", &page).unwrap();
+        let read = store.load_page("raft", "1").unwrap().unwrap();
+
+        assert_eq!(read, page);
+        assert_eq!(read.shown(), page.blocks);
+        let shown = serde_json::to_string(&read.shown()).unwrap();
+        assert!(!shown.contains("int b;"), "{shown}");
     }
 
     #[tokio::test]

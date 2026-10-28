@@ -78,7 +78,44 @@ export interface TextBlock {
   html: string;
 }
 
-export type Block = TextBlock;
+/** Lines of the repository, read by the server at the push. */
+export interface ExcerptBlock {
+  id: string;
+  kind: 'excerpt';
+  excerpt: Excerpt;
+}
+
+export type Block = TextBlock | ExcerptBlock;
+
+export interface Excerpt {
+  /** From the top level directory of the worktree. */
+  path: string;
+  /** "" for the main repository, or the path of the submodule. */
+  repo: string;
+  /** The full hash, in the repository that holds the file. */
+  commit: string;
+  from: number;
+  to: number;
+  /** The token that named the grammar, such as `c`, or "" for plain text. */
+  lang: string;
+  /** null: the hidden line, before the answer. */
+  lines: (Line | null)[];
+  marked: number[];
+}
+
+/** A line of code with its syntax classes. */
+export interface Line {
+  text: string;
+  spans: Span[];
+}
+
+/** A range of a line with its syntax class, in UTF-16 code units of the line. */
+export interface Span {
+  start: number;
+  end: number;
+  /** One or two classes, such as `tok-keyword tok-control`. */
+  cls: string;
+}
 
 /** What `GET /api/pages/:id` and `PUT /api/pages/:id` answer. */
 export interface Page {

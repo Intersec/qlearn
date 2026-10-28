@@ -1,6 +1,7 @@
 ---
 source: crates/qlearn/src/lesson/mod.rs
+assertion_line: 862
 description: "# The tick\n\nThe code:\n\n```excerpt\npath: src/raft.c\nlines: 120-135\n```\n"
 ---
 refused
-refused-excerpt.md:5: excerpt: this release of qlearn does not support excerpt blocks yet
+refused-excerpt-short.md:7: excerpt: src/raft.c has 34 lines at HEAD, the excerpt asks for 120-135

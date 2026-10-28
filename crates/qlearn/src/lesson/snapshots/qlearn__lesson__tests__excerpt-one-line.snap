@@ -1,0 +1,13 @@
+---
+source: crates/qlearn/src/lesson/mod.rs
+assertion_line: 862
+description: "One line, at a rev that names a branch:\n\n```excerpt\npath: src/raft.c\nrev: main\nlines: 21\n```\n"
+---
+title: (none)
+
+text 0bd47dcb86f9
+<p>One line, at a rev that names a branch:</p>
+
+excerpt fc3cadaf2706
+src/raft.c:21 in "" at <top HEAD>, lang "c"
+  21   <span class="tok-punctuation tok-section">{</span>

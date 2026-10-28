@@ -1,0 +1,14 @@
+---
+source: crates/qlearn/src/lesson/mod.rs
+assertion_line: 862
+description: "A file of no known language shows as plain text:\n\n```excerpt\npath: src/terms.xyz\nlines: 1-2\n```\n"
+---
+title: (none)
+
+text 2846046cf9c8
+<p>A file of no known language shows as plain text:</p>
+
+excerpt a7e31dab46dd
+src/terms.xyz:1-2 in "" at <top HEAD>, lang ""
+   1   term 1: S1 leads
+   2   term 2: S2 leads

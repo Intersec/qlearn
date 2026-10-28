@@ -5,8 +5,8 @@ write the pages of the course. The learner reads them and presses **Next**
 when they want the next page. Everything goes through `qlearn` commands.
 Never edit the files under `.learn/` by hand.
 
-This release knows pages of text and the **Next** button. It has no quiz
-and no syllabus yet.
+This release knows pages of text, excerpts of the code, and the **Next**
+button. It has no quiz and no syllabus yet.
 
 ## Start
 
@@ -103,7 +103,7 @@ stores nothing, exits with 1, and prints every error on standard error, one
 per line, with the line of the source:
 
 ```
-lesson.md:14: excerpt: this release of qlearn does not support excerpt blocks yet
+lesson.md:14: excerpt: src/raft.c has 98 lines at HEAD, the excerpt asks for 120-135
 ```
 
 Fix every error, then push the whole page again.
@@ -118,15 +118,52 @@ A page is Markdown. This release takes:
 - Code fences. The info string names the language, such as `c` or
   `rust`, and the page colors the code. The page shows a fence with no
   path and no commit, so use it for a command or a sketch.
+- Excerpts of the repository (see "Show the code").
 
 This release refuses these blocks, with an error at their line:
 
-- A fence with the info string `excerpt`, `mermaid`, `chart` or `steps`.
+- A fence with the info string `mermaid`, `chart` or `steps`.
 - A callout: a quote whose first line is `[!hook]`, `[!teaser]`,
   `[!pitfall]` or `[!note]`.
 - An image, `![alt](path)`, alone in a paragraph.
 
 The server escapes raw HTML, so it shows as text. Write no HTML.
+
+## Show the code
+
+Show the code of the repository with an `excerpt` fence only. Never copy
+the code into a code fence: the server reads the lines of an excerpt in the
+repository, and refuses the page if the file does not hold them.
+
+````
+```excerpt
+path: src/raft.c
+lines: 120-135
+rev: HEAD
+mark: 127, 130-131
+```
+````
+
+| Key | Required | What it does |
+|---|---|---|
+| `path` | yes | The file, from the top level directory of the worktree |
+| `lines` | yes | `<from>-<to>`, or one line. 60 lines at most |
+| `rev` | no | A branch, a tag or a commit. `HEAD` by default |
+| `mark` | no | Lines to mark, inside `lines`. A list of lines and ranges |
+| `hide` | no | One line to hide, inside `lines`, for "Complete the code" |
+
+- The server reads the lines at the commit that `rev` names when you push
+  the page, and keeps that commit. The page shows the same code after the
+  code changes.
+- A path inside a submodule works. If the submodule does not hold the
+  commit that the tree names, the error gives the command that fetches it.
+- The page shows a hidden line as a blank. The server keeps its text
+  until the learner answers the quiz of the page. This release has no
+  quiz, so a hidden line never shows: do not use `hide` yet.
+- Put an excerpt at the top level of the page, not inside a list or a
+  quote.
+- Read the file before you write the fence, so that `lines` names the code
+  that you explain.
 
 ## Next
 

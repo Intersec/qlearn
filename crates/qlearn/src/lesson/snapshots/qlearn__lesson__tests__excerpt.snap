@@ -1,0 +1,29 @@
+---
+source: crates/qlearn/src/lesson/mod.rs
+assertion_line: 862
+description: "# The election timer\n\nThe timeout has a random part:\n\n```excerpt\npath: src/raft.c\nlines: 6-17\nmark: 13, 15-16\nhide: 13\n```\n\nTwo followers rarely time out at once.\n"
+---
+title: The election timer
+
+text 5f806c1a2217
+<h1>The election timer</h1>
+<p>The timeout has a random part:</p>
+
+excerpt 2f1013f8dd2d
+src/raft.c:6-17 in "" at <top HEAD>, lang "c"
+   6   <span class="tok-comment tok-block">/* The election timer.</span>
+   7   <span class="tok-comment tok-block"> *</span>
+   8   <span class="tok-comment tok-block"> * A follower that hears no leader for a while starts an election. The</span>
+   9   <span class="tok-comment tok-block"> * timeout has a random part, so two followers rarely start at once.</span>
+  10   <span class="tok-comment tok-block"> */</span>
+  11   <span class="tok-storage tok-type">int</span> <span class="tok-entity tok-name">election_timeout</span><span class="tok-punctuation tok-section">(</span><span class="tok-storage tok-type">int</span> <span class="tok-variable tok-parameter">base</span><span class="tok-punctuation tok-section">)</span>
+  12   <span class="tok-punctuation tok-section">{</span>
+  13 > (hidden)
+  14   
+  15 >     <span class="tok-variable tok-function">log_debug</span><span class="tok-punctuation tok-section">(</span><span class="tok-string tok-quoted">&quot;next election in </span><span class="tok-constant tok-other">%d</span><span class="tok-string tok-quoted"> ms&quot;</span><span class="tok-punctuation tok-separator">,</span> timeout<span class="tok-punctuation tok-section">)</span><span class="tok-punctuation tok-terminator">;</span>
+  16 >     <span class="tok-keyword tok-control">return</span> timeout<span class="tok-punctuation tok-terminator">;</span>
+  17   <span class="tok-punctuation tok-section">}</span>
+hidden on the server: "    int timeout = base + rand() % base;"
+
+text 51776d5e62d8
+<p>Two followers rarely time out at once.</p>

@@ -1,0 +1,7 @@
+---
+source: crates/qlearn/src/lesson/mod.rs
+assertion_line: 862
+description: "A range of 61 lines:\n\n```excerpt\npath: src/raft.c\nlines: 1-61\n```\n"
+---
+refused
+refused-excerpt-over-60.md:5: excerpt: lines 1-61 holds 61 lines, and an excerpt shows 60 at most

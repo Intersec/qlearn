@@ -5,6 +5,7 @@
 //! a stylesheet, and the light and dark pair costs one pass, not two.
 
 pub mod lang;
+pub mod offsets;
 
 use std::sync::LazyLock;
 
@@ -89,6 +90,24 @@ impl Highlighter {
             }
         }
         lines
+    }
+
+    /// The language of a file of the repository, as `spans` takes it: its
+    /// extension, or its name when it has none, such as `Makefile`. ""
+    /// when no grammar knows it, so the file shows as plain text.
+    pub fn language_of_path(&self, path: &str) -> String {
+        let name = path.rsplit('/').next().unwrap_or(path);
+        let token = match name.rsplit_once('.') {
+            // `.bashrc` is a name, not an extension.
+            Some((stem, extension)) if !stem.is_empty() => extension,
+            _ => name,
+        };
+
+        let plain = self.syntaxes.find_syntax_plain_text().name.as_str();
+        match self.syntax_of(token).1.name.as_str() {
+            name if name == plain => String::new(),
+            _ => token.to_owned(),
+        }
     }
 
     /// The grammar of a language, and whether it comes from `OURS`.
@@ -376,6 +395,26 @@ mod tests {
 
             assert_eq!(out.len(), 1, "{language:?}");
             assert!(out[0].is_empty(), "{language:?}: {:?}", out[0]);
+        }
+    }
+
+    #[test]
+    fn the_language_of_a_path_is_its_extension_or_its_name() {
+        let h = Highlighter::new();
+
+        assert_eq!(h.language_of_path("src/raft.c"), "c");
+        assert_eq!(h.language_of_path("crates/a/lib.rs"), "rs");
+        assert_eq!(h.language_of_path("net/core.blk"), "blk");
+        assert_eq!(h.language_of_path("api/user.iop"), "iop");
+        assert_eq!(h.language_of_path("Makefile"), "Makefile");
+    }
+
+    #[test]
+    fn a_path_that_no_grammar_knows_is_plain_text() {
+        let h = Highlighter::new();
+
+        for path in ["data/table.xyz", "LICENSE", "notes.txt", "a.b/README"] {
+            assert_eq!(h.language_of_path(path), "", "{path}");
         }
     }
 

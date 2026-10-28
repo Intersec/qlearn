@@ -275,6 +275,13 @@ mod tests {
         let path = dir.path().join("crashed.sock");
         // A crash leaves the socket file behind.
         drop(std::os::unix::net::UnixListener::bind(&path).unwrap());
+        // A git child that another test forks holds a copy of the listener
+        // until its exec, and it takes connections until then.
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        while std::os::unix::net::UnixStream::connect(&path).is_ok() {
+            assert!(std::time::Instant::now() < deadline, "the listener is gone");
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
         let port = anyone_on_a_port().await;
 
         let error = client(port, &path).get("/api/session").await.unwrap_err();

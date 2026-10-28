@@ -18,6 +18,7 @@ use time::OffsetDateTime;
 use tokio::sync::RwLock;
 
 use crate::events::{self, Events};
+use crate::git::exec::Git;
 use crate::highlight::Highlighter;
 use crate::lesson::{self, Fault};
 use crate::model::{
@@ -38,12 +39,15 @@ pub struct AppState {
     /// lock of the course.
     pub current: Arc<Mutex<Option<String>>>,
     pub store: Arc<Store>,
+    /// The repository that the excerpts are read in.
+    pub git: Git,
     pub events: Arc<Events>,
 }
 
 impl AppState {
     /// `current` is the page that the agent pushed last, as the store says.
     pub fn new(
+        git: Git,
         store: Store,
         course: Course,
         current: Option<String>,
@@ -56,6 +60,7 @@ impl AppState {
             course: Arc::new(RwLock::new(course)),
             current: Arc::new(Mutex::new(current)),
             store: Arc::new(store),
+            git,
             events: Arc::new(Events::default()),
         }
     }
@@ -175,7 +180,7 @@ async fn page(
 
     Ok(Json(Page {
         id,
-        blocks: file.blocks,
+        blocks: file.shown(),
     }))
 }
 
@@ -197,7 +202,8 @@ async fn push_page(
     })?;
 
     let started = crate::trace::start();
-    let parsed = lesson::parse(&source, Highlighter::shared())
+    let parsed = lesson::parse(&source, &state.git, Highlighter::shared())
+        .await
         .map_err(|faults| ApiError::invalid_page(&id, &faults))?;
     crate::trace::since(started, || {
         format!("parse page {id}, {} bytes", source.len())
@@ -216,6 +222,7 @@ async fn push_page(
     );
     let file = PageFile {
         blocks: parsed.blocks,
+        hidden: parsed.hidden,
     };
     let undo = state.store.save_page(&changed.slug, &id, &source, &file)?;
     if let Err(error) = state.store.save(&changed) {
@@ -231,7 +238,7 @@ async fn push_page(
 
     Ok(Json(Page {
         id,
-        blocks: file.blocks,
+        blocks: file.shown(),
     }))
 }
 
@@ -458,6 +465,7 @@ mod tests {
     use tower::ServiceExt;
 
     use crate::model::{PageRef, PageState, Part};
+    use crate::testutil::{Repo, build_repo, commit};
 
     const TOKEN: &str = "0123456789abcdef";
     const PORT: u16 = 7420;
@@ -487,7 +495,14 @@ mod tests {
             }],
         }];
 
-        AppState::new(Store::at(root), course, None, TOKEN.to_owned(), PORT)
+        AppState::new(
+            Git::at(root),
+            Store::at(root),
+            course,
+            None,
+            TOKEN.to_owned(),
+            PORT,
+        )
     }
 
     fn get(uri: &str) -> Request<Body> {
@@ -535,10 +550,22 @@ mod tests {
         send_json("POST", uri, "")
     }
 
-    /// Every file under `dir`, relative to it.
+    /// The repository of the excerpts. Its only commit is fixed, so a
+    /// snapshot names the same hash on every run.
+    async fn repo() -> Repo {
+        build_repo(&[commit("raft").file("src/raft.c", RAFT)]).await
+    }
+
+    const RAFT: &str = "/* The election timer. */\n\
+                        int election_timeout(int base)\n\
+                        {\n\
+                        \x20   return base + rand() % base;\n\
+                        }\n";
+
+    /// Every file under `.learn/` of `dir`, relative to `dir`.
     fn files(dir: &std::path::Path) -> Vec<String> {
         let mut out = Vec::new();
-        let mut todo = vec![dir.to_path_buf()];
+        let mut todo = vec![dir.join(".learn")];
         while let Some(at) = todo.pop() {
             let Ok(entries) = std::fs::read_dir(&at) else {
                 continue;
@@ -552,6 +579,30 @@ mod tests {
             }
         }
         out.sort();
+        out
+    }
+
+    /// Every file of `dir` outside `.learn/`, `.git/` included, with the
+    /// hash of its content: the server writes nothing there.
+    fn outside(dir: &std::path::Path) -> std::collections::BTreeMap<String, String> {
+        use sha2::{Digest, Sha256};
+
+        let mut out = std::collections::BTreeMap::new();
+        let mut todo = vec![dir.to_path_buf()];
+        while let Some(at) = todo.pop() {
+            for entry in std::fs::read_dir(&at).unwrap() {
+                let path = entry.unwrap().path();
+                let name = path.strip_prefix(dir).unwrap().display().to_string();
+                match path.is_dir() {
+                    true if name == ".learn" => {}
+                    true => todo.push(path),
+                    false => {
+                        let hash = hex::encode(Sha256::digest(std::fs::read(&path).unwrap()));
+                        out.insert(name, hash);
+                    }
+                }
+            }
+        }
         out
     }
 
@@ -795,8 +846,9 @@ mod tests {
 
     #[tokio::test]
     async fn the_push_route_stores_the_page_and_answers_it() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = repo().await;
         let state = state_in(dir.path());
+        let untouched = outside(dir.path());
 
         let (status, body) = json(app(state.clone()), put("/api/pages/1", LESSON)).await;
 
@@ -824,11 +876,12 @@ mod tests {
 
         let (_, session) = json(app(state), get_with_cookie("/api/session", TOKEN)).await;
         assert_eq!(session["current"], "1");
+        assert_eq!(outside(dir.path()), untouched, "a write outside .learn/");
     }
 
     #[tokio::test]
     async fn the_page_route_answers_the_blocks_that_were_pushed() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = repo().await;
         let state = state_in(dir.path());
         let (_, pushed) = json(app(state.clone()), put("/api/pages/1", LESSON)).await;
 
@@ -839,9 +892,56 @@ mod tests {
         insta::assert_json_snapshot!("page", body);
     }
 
+    const EXCERPT: &str = "# The timer\n\n\
+                           ```excerpt\npath: src/raft.c\nlines: 1-4\nmark: 2\nhide: 4\n```\n";
+
+    /// The hidden line crosses the wire as null, and its text stays in the
+    /// store for the day the page may show it.
+    #[tokio::test]
+    async fn an_excerpt_crosses_the_wire_with_its_hidden_line_as_null() {
+        let dir = repo().await;
+        let state = state_in(dir.path());
+        let untouched = outside(dir.path());
+
+        let (status, pushed) = json(app(state.clone()), put("/api/pages/1", EXCERPT)).await;
+        assert_eq!(status, StatusCode::OK, "{pushed}");
+        let (status, body) = json(app(state), get_with_cookie("/api/pages/1", TOKEN)).await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body, pushed);
+        insta::assert_json_snapshot!("page_excerpt", body);
+        assert_eq!(
+            body["blocks"][1]["excerpt"]["lines"][3],
+            serde_json::Value::Null
+        );
+        assert!(!body.to_string().contains("return base"), "{body}");
+        let stored = std::fs::read_to_string(dir.path().join(".learn/raft/pages/1.json")).unwrap();
+        assert!(stored.contains("return base + rand() % base;"), "{stored}");
+        assert_eq!(outside(dir.path()), untouched, "a write outside .learn/");
+    }
+
+    /// The page shows the code as the lesson taught it, even after the
+    /// code changes.
+    #[tokio::test]
+    async fn an_excerpt_keeps_its_commit_after_a_new_commit() {
+        let dir = repo().await;
+        let state = state_in(dir.path());
+        let (_, pushed) = json(app(state.clone()), put("/api/pages/1", EXCERPT)).await;
+        let taught = dir.sha("HEAD").await;
+
+        dir.commit(&commit("faster").file("src/raft.c", "int election_timeout;\n"))
+            .await;
+        let (status, body) = json(app(state), get_with_cookie("/api/pages/1", TOKEN)).await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body, pushed);
+        assert_eq!(body["blocks"][1]["excerpt"]["commit"], taught.as_str());
+        assert_ne!(dir.sha("HEAD").await, taught);
+    }
+
     #[tokio::test]
     async fn a_page_with_no_content_is_not_found() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = repo().await;
         let state = state_in(dir.path());
         state.course.write().await.parts[0].pages[0].state = PageState::Planned;
 
@@ -860,8 +960,9 @@ mod tests {
 
     #[tokio::test]
     async fn a_refused_page_gets_every_error_and_stores_nothing() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = repo().await;
         let state = state_in(dir.path());
+        let untouched = outside(dir.path());
         let before = state.course.read().await.clone();
         let source = "# Refused\n\nText.\n\n```excerpt\npath: a.c\n```\n\n\
                       ![A figure](figure.png)\n";
@@ -874,11 +975,12 @@ mod tests {
         assert_eq!(*state.course.read().await, before);
         assert_eq!(state.current(), None);
         assert_eq!(state.events.after(None, events::HOLD).await.next, 0);
+        assert_eq!(outside(dir.path()), untouched, "a write outside .learn/");
     }
 
     #[tokio::test]
     async fn a_page_outside_the_syllabus_goes_at_the_end_of_the_last_part() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = repo().await;
         let state = state_in(dir.path());
 
         let source = "Intro.\n\n# Checkpoint one\n\nWhat holds?\n";
@@ -913,8 +1015,9 @@ mod tests {
     /// agent can trust the error and push again.
     #[tokio::test]
     async fn a_push_that_cannot_write_the_course_leaves_the_pages_as_they_were() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = repo().await;
         let state = state_in(dir.path());
+        let untouched = outside(dir.path());
         let (_, first) = json(app(state.clone()), put("/api/pages/1", LESSON)).await;
         let course_file = dir.path().join(".learn/raft/course.json");
         std::fs::remove_file(&course_file).unwrap();
@@ -943,16 +1046,21 @@ mod tests {
         assert_eq!(*state.course.read().await, before);
         assert_eq!(state.current().as_deref(), Some("1"));
         assert_eq!(state.events.after(None, events::HOLD).await.next, 1);
+        assert_eq!(outside(dir.path()), untouched, "a write outside .learn/");
     }
 
     /// A page file that `course.json` does not back is the trace of a push
     /// that stopped halfway. It is not served.
     #[tokio::test]
     async fn a_page_file_that_the_course_does_not_hold_is_not_found() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = repo().await;
         let state = state_in(dir.path());
+        let parsed = lesson::parse(LESSON, &state.git, Highlighter::shared())
+            .await
+            .unwrap();
         let page = PageFile {
-            blocks: lesson::parse(LESSON, Highlighter::shared()).unwrap().blocks,
+            blocks: parsed.blocks,
+            hidden: parsed.hidden,
         };
         state.store.save_page("raft", "2", LESSON, &page).unwrap();
 
@@ -964,8 +1072,9 @@ mod tests {
 
     #[tokio::test]
     async fn a_push_with_a_bad_id_or_a_bad_body_gets_the_error_shape() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = repo().await;
         let state = state_in(dir.path());
+        let untouched = outside(dir.path());
 
         for request in [
             put("/api/pages/x1", "Text.\n"),
@@ -981,11 +1090,12 @@ mod tests {
             assert!(body["error"]["message"].is_string(), "{body}");
         }
         assert_eq!(files(dir.path()), Vec::<String>::new());
+        assert_eq!(outside(dir.path()), untouched, "a write outside .learn/");
     }
 
     #[tokio::test]
     async fn the_course_route_changes_the_fields_named_and_answers_the_course() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = repo().await;
         let state = state_in(dir.path());
         let body = r#"{"title":"Raft, the election","goal":"Know **why** a term ends.",
                        "profile":"C, no Raft yet.","quizMode":"current",
@@ -1010,7 +1120,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_field_left_out_stays_and_a_null_follow_up_drops_the_date() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = repo().await;
         let state = state_in(dir.path());
         let patch = |body: &'static str| send_json("PATCH", "/api/course", body);
 
@@ -1027,8 +1137,9 @@ mod tests {
 
     #[tokio::test]
     async fn a_bad_change_of_the_course_is_refused_and_stores_nothing() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = repo().await;
         let state = state_in(dir.path());
+        let untouched = outside(dir.path());
         let before = state.course.read().await.clone();
 
         for body in [
@@ -1078,6 +1189,7 @@ mod tests {
         assert_eq!(files(dir.path()), Vec::<String>::new());
         assert_eq!(*state.course.read().await, before);
         assert_eq!(state.events.after(None, events::HOLD).await.next, 0);
+        assert_eq!(outside(dir.path()), untouched, "a write outside .learn/");
     }
 
     /// A null reads as a field left out unless the server refuses it, and
@@ -1097,7 +1209,7 @@ mod tests {
     /// the writer and changes nothing else.
     #[tokio::test]
     async fn a_write_of_the_agent_may_name_its_author() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = repo().await;
         let state = state_in(dir.path());
 
         let body = r#"{"title":"Raft","author":"agent"}"#;

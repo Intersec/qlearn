@@ -417,14 +417,46 @@ pub enum Block {
     /// heading. The HTML is written by the server, from a short list of
     /// tags.
     Text { id: String, html: String },
+    /// Lines of the repository, read by the server at the push.
+    Excerpt { id: String, excerpt: Excerpt },
 }
 
 impl Block {
     pub fn id(&self) -> &str {
         match self {
-            Self::Text { id, .. } => id,
+            Self::Text { id, .. } | Self::Excerpt { id, .. } => id,
         }
     }
+}
+
+/// Lines of a file of the repository. See section 4.2 of the design.
+///
+/// The commit is the one that the rev named at the push, so the excerpt
+/// shows the code as the lesson taught it, even after the code changes.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct Excerpt {
+    /// From the top level directory of the worktree.
+    pub path: String,
+    /// "" for the main repository, or the path of the submodule.
+    pub repo: String,
+    /// The full hash, in the repository that holds the file.
+    pub commit: String,
+    pub from: u32,
+    pub to: u32,
+    /// The token that named the grammar, such as `c`, or "" for plain text.
+    pub lang: String,
+    /// None: the hidden line, until the page may show it.
+    pub lines: Vec<Option<Line>>,
+    pub marked: Vec<u32>,
+}
+
+/// A line of code with its syntax classes.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct Line {
+    pub text: String,
+    pub spans: Vec<Span>,
 }
 
 /// What `GET /api/pages/:id` answers. Quizzes and threads join it later.
@@ -435,7 +467,10 @@ pub struct Page {
     pub blocks: Vec<Block>,
 }
 
-/// A range of a line of code with its syntax class, in bytes of the line.
+/// A range of a line of code with its syntax class.
+///
+/// The offsets count bytes inside the server. A line of an excerpt leaves
+/// it in UTF-16 code units, which is what a browser slices with.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct Span {

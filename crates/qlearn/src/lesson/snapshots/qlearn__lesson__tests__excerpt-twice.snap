@@ -1,0 +1,17 @@
+---
+source: crates/qlearn/src/lesson/mod.rs
+assertion_line: 862
+description: "The same fence twice gets two ids:\n\n```excerpt\npath: src/raft.c\nlines: 11\n```\n\n```excerpt\npath: src/raft.c\nlines: 11\n```\n"
+---
+title: (none)
+
+text 0cd199da244f
+<p>The same fence twice gets two ids:</p>
+
+excerpt a1e00f3d5d4b
+src/raft.c:11 in "" at <top HEAD>, lang "c"
+  11   <span class="tok-storage tok-type">int</span> <span class="tok-entity tok-name">election_timeout</span><span class="tok-punctuation tok-section">(</span><span class="tok-storage tok-type">int</span> <span class="tok-variable tok-parameter">base</span><span class="tok-punctuation tok-section">)</span>
+
+excerpt 1964681586c3
+src/raft.c:11 in "" at <top HEAD>, lang "c"
+  11   <span class="tok-storage tok-type">int</span> <span class="tok-entity tok-name">election_timeout</span><span class="tok-punctuation tok-section">(</span><span class="tok-storage tok-type">int</span> <span class="tok-variable tok-parameter">base</span><span class="tok-punctuation tok-section">)</span>

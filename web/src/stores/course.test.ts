@@ -6,6 +6,12 @@ import { ApiError, api } from '@/api/client';
 import type { Course, Event, EventBatch, Page, PageRef } from '@/api/types';
 import { useCourse } from './course';
 
+/** The HTML of the first block, which these pages hold as text. */
+function firstHtml(page: Page | null | undefined): string | undefined {
+  const block = page?.blocks[0];
+  return block?.kind === 'text' ? block.html : undefined;
+}
+
 function pageRef(id: string, state: PageRef['state'] = 'taught'): PageRef {
   return { id, kind: 'lesson', title: `Page ${id}`, state, score: null };
 }
@@ -249,7 +255,7 @@ describe('the place', () => {
     const release = server.hold('2');
     const opening = store.open('2');
     server.send(batch({ next: 11, events: [server.push('1', 11, '<p>fixed</p>')] }));
-    await vi.waitFor(() => expect(store.page?.blocks[0].html).toBe('<p>fixed</p>'));
+    await vi.waitFor(() => expect(firstHtml(store.page)).toBe('<p>fixed</p>'));
     release();
     await opening;
 
@@ -277,7 +283,7 @@ describe('the events', () => {
 
     await vi.waitFor(() => expect(store.course?.title).toBe('Raft, the log'));
     expect(server.reads.session).toBe(sessions + 1);
-    expect(store.page?.blocks[0].html).toBe('<p>written again</p>');
+    expect(firstHtml(store.page)).toBe('<p>written again</p>');
     // A new start: the wait after a reset takes the number again.
     expect(server.waits).toEqual([undefined, 10, undefined, 10]);
   });
@@ -345,7 +351,7 @@ describe('a page that the agent pushes', () => {
 
     server.send(batch({ next: 11, events: [server.push('1', 11, '<p>fixed</p>')] }));
 
-    await vi.waitFor(() => expect(store.page?.blocks[0].html).toBe('<p>fixed</p>'));
+    await vi.waitFor(() => expect(firstHtml(store.page)).toBe('<p>fixed</p>'));
     expect(store.ready).toBeNull();
   });
 

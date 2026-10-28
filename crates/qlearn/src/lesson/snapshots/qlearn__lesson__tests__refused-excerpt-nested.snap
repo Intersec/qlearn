@@ -1,0 +1,8 @@
+---
+source: crates/qlearn/src/lesson/mod.rs
+assertion_line: 862
+description: "An excerpt stands at the top level of the page:\n\n- In a list:\n\n  ```excerpt\n  path: src/raft.c\n  lines: 1-10\n  ```\n\n> In a quote:\n>\n> ```excerpt\n> path: src/raft.c\n> lines: 1-10\n> ```\n"
+---
+refused
+refused-excerpt-nested.md:5: excerpt: an excerpt cannot sit inside a list or a quote: put it at the top level of the page
+refused-excerpt-nested.md:12: excerpt: an excerpt cannot sit inside a list or a quote: put it at the top level of the page

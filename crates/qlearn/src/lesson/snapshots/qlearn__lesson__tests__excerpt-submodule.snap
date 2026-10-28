@@ -1,0 +1,16 @@
+---
+source: crates/qlearn/src/lesson/mod.rs
+assertion_line: 862
+description: "# The servers\n\nThe list lives in the library, a submodule:\n\n```excerpt\npath: vendor/lib/src/lib.c\nlines: 1-3\nmark: 2\n```\n"
+---
+title: The servers
+
+text a7bf8f3c2045
+<h1>The servers</h1>
+<p>The list lives in the library, a submodule:</p>
+
+excerpt 061b64d5dce5
+vendor/lib/src/lib.c:1-3 in "vendor/lib" at <lib HEAD>, lang "c"
+   1   <span class="tok-comment tok-block">/* A list of the servers. */</span>
+   2 > <span class="tok-storage tok-type">struct</span> server <span class="tok-keyword tok-operator">*</span>servers<span class="tok-punctuation tok-terminator">;</span>
+   3   <span class="tok-storage tok-type">int</span> count<span class="tok-punctuation tok-terminator">;</span>

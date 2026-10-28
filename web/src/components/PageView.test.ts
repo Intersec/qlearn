@@ -39,4 +39,34 @@ describe('PageView', () => {
 
     expect(wrapper.find('.md-code .tok-keyword').text()).toBe('return');
   });
+
+  it('draws an excerpt between the text blocks', () => {
+    const page: Page = {
+      id: '1',
+      blocks: [
+        { id: 'a', kind: 'text', html: '<p>Before.</p>' },
+        {
+          id: 'b',
+          kind: 'excerpt',
+          excerpt: {
+            path: 'src/raft.c',
+            repo: '',
+            commit: '5aba991acd07dbe98266c4898e6bc5950240d118',
+            from: 1,
+            to: 1,
+            lang: 'c',
+            lines: [{ text: 'int x;', spans: [] }],
+            marked: [],
+          },
+        },
+        { id: 'c', kind: 'text', html: '<p>After.</p>' },
+      ],
+    };
+    const wrapper = mount(PageView, { props: { page } });
+
+    const blocks = wrapper.findAll('[data-block]');
+    expect(blocks.map((block) => block.attributes('data-block'))).toEqual(['a', 'b', 'c']);
+    expect(blocks[1].find('.excerpt-path').text()).toBe('src/raft.c:1');
+    expect(blocks[1].find('.excerpt-text').text()).toBe('int x;');
+  });
 });

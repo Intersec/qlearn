@@ -56,7 +56,7 @@ export interface Waited {
   reset?: boolean;
 }
 
-/** The first page of the lesson: text, a table and a fence of C. */
+/** The first page of the lesson: text, a table, a fence of C, and an excerpt. */
 export const PAGE_1 = `# The election timer
 
 A follower that hears no leader for a while starts an election. The
@@ -82,6 +82,17 @@ int election_timeout(int base)
 
 With one fixed timeout, every follower would start an election at the same
 time, and the votes would split again and again.
+
+## In the repository
+
+\`\`\`excerpt
+path: src/election.c
+lines: 1-6
+mark: 3
+hide: 5
+\`\`\`
+
+The marked line draws the random part.
 `;
 
 /** The second page of the lesson. */

@@ -47,6 +47,11 @@ for (const scheme of ['light', 'dark'] as const) {
     await page.locator('.agent-pill', { hasText: 'Agent connected' }).waitFor();
     await page.screenshot({ path: join(OUT, `${scheme}-page.png`) });
 
+    // An excerpt of the repository, with a marked line and a hidden one.
+    const excerpt = page.locator('.excerpt');
+    await excerpt.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: join(OUT, `${scheme}-excerpt.png`) });
+
     // Next, and the agent at work on the page after.
     await page.getByRole('button', { name: 'Next' }).click();
     const { next } = await waited;

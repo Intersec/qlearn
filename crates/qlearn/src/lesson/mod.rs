@@ -8,22 +8,29 @@
 //! source comes out as text, so a page never holds a script or a style that
 //! the agent typed.
 
-use std::collections::HashMap;
+pub mod excerpt;
+
+use std::collections::{BTreeMap, HashMap};
 use std::ops::Range;
 
 use pulldown_cmark::{Alignment, CodeBlockKind, Event, HeadingLevel, Options, Parser, Tag, TagEnd};
 use sha2::{Digest, Sha256};
 
+use crate::git::exec::Git;
 use crate::highlight::Highlighter;
-use crate::model::{Block, Span};
+use crate::model::{Block, Line, Span};
 
 /// A page that passed every check.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Parsed {
+    /// The hidden line of an excerpt is None here.
     pub blocks: Vec<Block>,
     /// The text of the first heading. It titles a page that the syllabus
     /// does not hold.
     pub title: Option<String>,
+    /// The hidden line of each excerpt that has one, by the id of its block.
+    /// It stays on the server until the page may show it.
+    pub hidden: BTreeMap<String, Line>,
 }
 
 /// One error of a source, at its line.
@@ -58,11 +65,62 @@ const CALLOUTS: [&str; 4] = ["hook", "teaser", "pitfall", "note"];
 /// One event of the parser, with the bytes of the source that it covers.
 type Item<'a> = (Event<'a>, Range<usize>);
 
-/// Split a source into blocks, or say every error that it holds.
+/// Split a source into blocks, read its excerpts in the repository, or say
+/// every error that it holds.
 ///
 /// Nothing is stored before this returns `Ok`, so a page with one error
 /// leaves the course as it was.
-pub fn parse(source: &str, highlighter: &Highlighter) -> Result<Parsed, Vec<Fault>> {
+pub async fn parse(
+    source: &str,
+    git: &Git,
+    highlighter: &Highlighter,
+) -> Result<Parsed, Vec<Fault>> {
+    let (pieces, title, mut faults) = split(source, highlighter);
+
+    // Every excerpt is read, even on a page already refused, so the agent
+    // gets every error in one pass.
+    let mut revs = excerpt::Revs::new();
+    let mut blocks = Vec::new();
+    let mut hidden = BTreeMap::new();
+    for piece in pieces {
+        match piece {
+            Piece::Block(block) => blocks.push(block),
+            Piece::Excerpt(id, spec) => {
+                match excerpt::read(&spec, git, highlighter, &mut revs).await {
+                    Ok((excerpt, line)) => {
+                        if let Some(line) = line {
+                            hidden.insert(id.clone(), line);
+                        }
+                        blocks.push(Block::Excerpt { id, excerpt });
+                    }
+                    Err(fault) => faults.push(fault),
+                }
+            }
+        }
+    }
+
+    match faults.is_empty() {
+        true => Ok(Parsed {
+            blocks,
+            title,
+            hidden,
+        }),
+        false => {
+            // Stable: the errors of one line keep their order.
+            faults.sort_by_key(|fault| fault.line);
+            Err(faults)
+        }
+    }
+}
+
+/// A block as the split finds it. An excerpt waits for its read.
+enum Piece {
+    Block(Block),
+    Excerpt(String, excerpt::Spec),
+}
+
+/// The pieces of a page, its title, and the errors that need no git call.
+fn split(source: &str, highlighter: &Highlighter) -> (Vec<Piece>, Option<String>, Vec<Fault>) {
     let options =
         Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS;
     let items: Vec<Item> = Parser::new_ext(source, options)
@@ -90,7 +148,7 @@ pub fn parse(source: &str, highlighter: &Highlighter) -> Result<Parsed, Vec<Faul
         // that the server never checked.
         for (event, range) in &node[1..] {
             if let Some(kind) = fence_kind(event) {
-                faults.push(refused(line_of(range.start), kind));
+                faults.push(nested(line_of(range.start), kind));
             }
         }
 
@@ -104,6 +162,20 @@ pub fn parse(source: &str, highlighter: &Highlighter) -> Result<Parsed, Vec<Faul
                 page.text(node, highlighter);
             }
             Role::Text => page.text(node, highlighter),
+            Role::Excerpt => {
+                page.close();
+                let fence = line_of(range.start);
+                let body = fence_body(node);
+                // The blank lines after a fence are not part of it.
+                let fence_source = source[range].trim_end();
+                match excerpt::spec(&body, fence) {
+                    Ok(spec) => {
+                        let id = page.id("excerpt", fence_source);
+                        page.blocks.push(Piece::Excerpt(id, spec));
+                    }
+                    Err(found) => faults.extend(found),
+                }
+            }
             Role::Refused(kind) => {
                 page.close();
                 faults.push(refused(line_of(range.start), kind));
@@ -113,13 +185,7 @@ pub fn parse(source: &str, highlighter: &Highlighter) -> Result<Parsed, Vec<Faul
     }
     page.close();
 
-    match faults.is_empty() {
-        true => Ok(Parsed {
-            blocks: page.blocks,
-            title,
-        }),
-        false => Err(faults),
-    }
+    (page.blocks, title, faults)
 }
 
 /// The id of a block: the first 12 hexadecimal characters of the SHA-256
@@ -146,6 +212,30 @@ fn refused(line: usize, kind: &'static str) -> Fault {
     }
 }
 
+/// A fence of a block kind inside a list or a quote.
+fn nested(line: usize, kind: &'static str) -> Fault {
+    match kind {
+        "excerpt" => Fault {
+            line,
+            kind,
+            message: "an excerpt cannot sit inside a list or a quote: put it at the top \
+                      level of the page"
+                .to_owned(),
+        },
+        _ => refused(line, kind),
+    }
+}
+
+/// The text inside a fence, without its marks.
+fn fence_body(node: &[Item]) -> String {
+    node.iter()
+        .filter_map(|(event, _)| match event {
+            Event::Text(text) => Some(text.as_ref()),
+            _ => None,
+        })
+        .collect()
+}
+
 /// The kind of the block that a fence opens, or None for a fence of code.
 fn fence_kind(event: &Event) -> Option<&'static str> {
     let Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(info))) = event else {
@@ -163,6 +253,7 @@ fn fence_kind(event: &Event) -> Option<&'static str> {
 enum Role {
     Heading,
     Text,
+    Excerpt,
     /// A block of a kind that this release does not draw yet.
     Refused(&'static str),
 }
@@ -171,6 +262,7 @@ fn role(source: &str, node: &[Item]) -> Role {
     match &node[0].0 {
         Event::Start(Tag::Heading { .. }) => Role::Heading,
         event @ Event::Start(Tag::CodeBlock(_)) => match fence_kind(event) {
+            Some("excerpt") => Role::Excerpt,
             Some(kind) => Role::Refused(kind),
             None => Role::Text,
         },
@@ -239,7 +331,7 @@ fn plain_text(node: &[Item]) -> String {
 /// The blocks of a page, as the parse finds them.
 struct Page<'s> {
     source: &'s str,
-    blocks: Vec<Block>,
+    blocks: Vec<Piece>,
     /// The text block being written: the bytes that it covers, and its HTML.
     open: Option<(Range<usize>, String)>,
     /// How many times each kind and source came, for the rank of a copy.
@@ -277,7 +369,7 @@ impl<'s> Page<'s> {
         let source = self.source[covered].trim_end();
 
         let id = self.id("text", source);
-        self.blocks.push(Block::Text { id, html });
+        self.blocks.push(Piece::Block(Block::Text { id, html }));
     }
 }
 
@@ -559,13 +651,136 @@ mod tests {
     use std::path::Path;
 
     use super::*;
+    use crate::testutil::{Repo, build_repo, commit};
 
-    fn parse(source: &str) -> Result<Parsed, Vec<Fault>> {
-        super::parse(source, Highlighter::shared())
+    /// The code that the excerpts of the corpus read. A comment opens above
+    /// line 10, so the colors of an excerpt that starts inside it show
+    /// whether the parse ran from the first line.
+    const RAFT: &str = "\
+#include <stdlib.h>
+
+#include \"log.h\"
+#include \"raft.h\"
+
+/* The election timer.
+ *
+ * A follower that hears no leader for a while starts an election. The
+ * timeout has a random part, so two followers rarely start at once.
+ */
+int election_timeout(int base)
+{
+    int timeout = base + rand() % base;
+
+    log_debug(\"next election in %d ms\", timeout);
+    return timeout;
+}
+
+/* A server votes once per term, for the first candidate that asks. */
+bool grant_vote(struct server *s, int term, int candidate)
+{
+    if (term < s->term) {
+        return false;
+    }
+    if (term > s->term) {
+        s->term = term;
+        s->voted_for = -1;
+    }
+    if (s->voted_for != -1 && s->voted_for != candidate) {
+        return false;
+    }
+    s->voted_for = candidate;
+    return true;
+}
+";
+
+    /// The repository of the corpus: `src/raft.c`, a file of no known
+    /// language, a file outside ASCII, and `lib` as the submodule
+    /// `vendor/lib`. The branch `stale` names a commit of `lib` that the
+    /// submodule never fetched.
+    struct Corpus {
+        top: Repo,
+        git: Git,
+        /// The full hashes that a snapshot names, and the name it gives
+        /// them: the path of the submodule changes the hash of `top` at
+        /// every run.
+        labels: Vec<(String, &'static str)>,
+        _lib: Repo,
     }
 
-    fn ids(source: &str) -> Vec<String> {
-        parse(source)
+    async fn corpus() -> Corpus {
+        let lib = build_repo(&[commit("lib").file(
+            "src/lib.c",
+            "/* A list of the servers. */\nstruct server *servers;\nint count;\n",
+        )])
+        .await;
+        let top = build_repo(&[commit("raft")
+            .file("src/raft.c", RAFT)
+            .file("src/terms.xyz", "term 1: S1 leads\nterm 2: S2 leads\n")
+            .file(
+                "src/names.c",
+                "/* Les élections. */\nchar *chef = \"Ægir\"; /* the leader */\n",
+            )
+            .submodule("vendor/lib", &lib)])
+        .await;
+        let head = top.sha("HEAD").await;
+
+        lib.commit(&commit("two").file("src/lib.c", "int two;\n"))
+            .await;
+        let unfetched = lib.sha("HEAD").await;
+        top.git(&["checkout", "--quiet", "-b", "stale"]).await;
+        top.commit(&commit("bump lib").gitlink("vendor/lib", &unfetched))
+            .await;
+        let stale = top.sha("HEAD").await;
+        top.git(&["checkout", "--quiet", "main"]).await;
+
+        let labels = vec![
+            (head, "<top HEAD>"),
+            (stale, "<top stale>"),
+            (lib.sha("HEAD~1").await, "<lib HEAD>"),
+            (unfetched, "<lib unfetched>"),
+        ];
+        let git = Git::discover(top.path()).await.unwrap();
+        Corpus {
+            top,
+            git,
+            labels,
+            _lib: lib,
+        }
+    }
+
+    impl Corpus {
+        async fn parse(&self, source: &str) -> Result<Parsed, Vec<Fault>> {
+            super::parse(source, &self.git, Highlighter::shared()).await
+        }
+
+        /// A text with each known hash, whole or cut short, by its name.
+        fn label(&self, text: &str) -> String {
+            let mut text = text.to_owned();
+            for (hash, name) in &self.labels {
+                text = text.replace(hash.as_str(), name);
+                text = text.replace(&hash[..12], name);
+            }
+            text
+        }
+    }
+
+    /// A repository for the tests that read no excerpt.
+    async fn plain() -> Corpus {
+        let top = build_repo(&[commit("first").file("a.c", "int a;\n")]).await;
+        let git = Git::discover(top.path()).await.unwrap();
+        Corpus {
+            _lib: build_repo(&[]).await,
+            top,
+            git,
+            labels: Vec::new(),
+        }
+    }
+
+    async fn ids(source: &str) -> Vec<String> {
+        plain()
+            .await
+            .parse(source)
+            .await
             .unwrap()
             .blocks
             .iter()
@@ -575,13 +790,17 @@ mod tests {
 
     /// What a case of the corpus gives, in a form that a reader checks at
     /// a glance: each block with its id, or each error as the agent reads it.
-    fn outcome(file: &str, source: &str) -> String {
-        match parse(source) {
+    async fn outcome(corpus: &Corpus, file: &str, source: &str) -> String {
+        let out = match corpus.parse(source).await {
             Ok(parsed) => {
                 let mut out = format!("title: {}\n", parsed.title.as_deref().unwrap_or("(none)"));
                 for block in &parsed.blocks {
-                    let Block::Text { id, html } = block;
-                    out.push_str(&format!("\ntext {id}\n{html}\n"));
+                    match block {
+                        Block::Text { id, html } => out.push_str(&format!("\ntext {id}\n{html}\n")),
+                        Block::Excerpt { id, excerpt } => {
+                            out.push_str(&excerpt_outcome(id, excerpt, parsed.hidden.get(id)))
+                        }
+                    }
                 }
                 out
             }
@@ -593,12 +812,65 @@ mod tests {
                 }
                 out
             }
+        };
+        corpus.label(&out)
+    }
+
+    /// An excerpt as a reader checks it: where it comes from, then each
+    /// line with its number, `>` on a marked line, and its colors.
+    fn excerpt_outcome(id: &str, excerpt: &crate::model::Excerpt, hidden: Option<&Line>) -> String {
+        let lines = match excerpt.from == excerpt.to {
+            true => excerpt.from.to_string(),
+            false => format!("{}-{}", excerpt.from, excerpt.to),
+        };
+        let mut out = format!(
+            "\nexcerpt {id}\n{}:{lines} in {:?} at {}, lang {:?}\n",
+            excerpt.path, excerpt.repo, excerpt.commit, excerpt.lang
+        );
+        for (number, line) in (excerpt.from..).zip(&excerpt.lines) {
+            let mark = match excerpt.marked.contains(&number) {
+                true => '>',
+                false => ' ',
+            };
+            let text = match line {
+                Some(line) => painted(&line.text, &in_bytes(line)),
+                None => "(hidden)".to_owned(),
+            };
+            out.push_str(&format!("{number:>4} {mark} {text}\n"));
         }
+        if let Some(line) = hidden {
+            out.push_str(&format!("hidden on the server: {:?}\n", line.text));
+        }
+        out
+    }
+
+    /// The spans of an excerpt line in bytes again, for `painted`: they
+    /// leave the server in UTF-16 units.
+    fn in_bytes(line: &Line) -> Vec<Span> {
+        let byte = |utf16: usize| {
+            let mut units = 0;
+            for (at, ch) in line.text.char_indices() {
+                if units >= utf16 {
+                    return at;
+                }
+                units += ch.len_utf16();
+            }
+            line.text.len()
+        };
+        line.spans
+            .iter()
+            .map(|span| Span {
+                start: byte(span.start),
+                end: byte(span.end),
+                cls: span.cls.clone(),
+            })
+            .collect()
     }
 
     /// Every shape and every error of a page is a case of the corpus.
-    #[test]
-    fn the_corpus_of_pages() {
+    #[tokio::test]
+    async fn the_corpus_of_pages() {
+        let corpus = corpus().await;
         let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data/pages");
         let mut files: Vec<_> = std::fs::read_dir(&dir)
             .unwrap()
@@ -612,69 +884,148 @@ mod tests {
             let file = path.file_name().unwrap().to_string_lossy().into_owned();
             let name = path.file_stem().unwrap().to_string_lossy().into_owned();
             let source = std::fs::read_to_string(&path).unwrap();
+            let out = outcome(&corpus, &file, &source).await;
 
             insta::with_settings!({ description => source.clone(), omit_expression => true }, {
-                insta::assert_snapshot!(name, outcome(&file, &source));
+                insta::assert_snapshot!(name, out);
             });
         }
     }
 
-    #[test]
-    fn the_id_is_the_hash_of_the_kind_and_the_source() {
+    #[tokio::test]
+    async fn the_id_is_the_hash_of_the_kind_and_the_source() {
         // printf 'text\n# One' | sha256sum
         assert_eq!(block_id("text", "# One", 1), "5b1eb887548a");
-        assert_eq!(ids("# One\n"), ["5b1eb887548a"]);
+        assert_eq!(ids("# One\n").await, ["5b1eb887548a"]);
     }
 
-    #[test]
-    fn an_unchanged_block_keeps_its_id_when_the_page_is_pushed_again() {
+    #[tokio::test]
+    async fn the_id_of_an_excerpt_is_the_hash_of_its_fence() {
+        let fence = "```excerpt\npath: a.c\nlines: 1\n```";
+        let source = format!("{fence}\n\n{fence}\n");
+
+        // printf 'excerpt\n```excerpt\npath: a.c\nlines: 1\n```' | sha256sum
+        assert_eq!(block_id("excerpt", fence, 1), "f97986e2c189");
+        assert_eq!(
+            ids(&source).await,
+            [block_id("excerpt", fence, 1), block_id("excerpt", fence, 2)]
+        );
+    }
+
+    #[tokio::test]
+    async fn an_unchanged_block_keeps_its_id_when_the_page_is_pushed_again() {
         let first = "# One\n\nThe first section.\n\n## Two\n\nThe second.\n";
         let second = "# One\n\nThe first section.\n\n## Two\n\nThe second, rewritten.\n\n\
                       ## Three\n\nA new section.\n";
 
-        let before = ids(first);
-        let after = ids(second);
+        let before = ids(first).await;
+        let after = ids(second).await;
 
-        assert_eq!(before, ids(first), "the same source gives the same ids");
+        assert_eq!(
+            before,
+            ids(first).await,
+            "the same source gives the same ids"
+        );
         assert_eq!(after.len(), 3);
         assert_eq!(after[0], before[0], "the first section did not change");
         assert_ne!(after[1], before[1], "the second section changed");
     }
 
-    #[test]
-    fn two_copies_of_one_block_get_two_ids() {
-        let ids = ids("# One\n\n# One\n\n# One\n");
+    #[tokio::test]
+    async fn two_copies_of_one_block_get_two_ids() {
+        let ids = ids("# One\n\n# One\n\n# One\n").await;
 
         // printf 'text\n# One' | sha256sum, then with '\n2' and '\n3'
         assert_eq!(ids, ["5b1eb887548a", "300e24ac0238", "7cd404852f2e"]);
     }
 
-    #[test]
-    fn the_blank_lines_around_a_block_do_not_change_its_id() {
-        assert_eq!(ids("Some text.\n"), ids("\n\nSome text.\n\n\n"));
+    #[tokio::test]
+    async fn the_blank_lines_around_a_block_do_not_change_its_id() {
+        assert_eq!(ids("Some text.\n").await, ids("\n\nSome text.\n\n\n").await);
     }
 
-    #[test]
-    fn consecutive_text_forms_one_block_and_a_heading_starts_one() {
-        let parsed = parse("One.\n\n- a\n- b\n\nTwo.\n\n# Title\n\nThree.\n").unwrap();
+    #[tokio::test]
+    async fn consecutive_text_forms_one_block_and_a_heading_starts_one() {
+        let parsed = plain()
+            .await
+            .parse("One.\n\n- a\n- b\n\nTwo.\n\n# Title\n\nThree.\n")
+            .await
+            .unwrap();
 
         assert_eq!(parsed.blocks.len(), 2);
         assert_eq!(parsed.title.as_deref(), Some("Title"));
     }
 
-    #[test]
-    fn the_title_is_the_text_of_the_first_heading() {
-        let parsed = parse("Intro.\n\n## The `term` and *the* leader\n\n# Later\n").unwrap();
+    #[tokio::test]
+    async fn an_excerpt_closes_the_text_block_before_it() {
+        let parsed = plain()
+            .await
+            .parse("One.\n\n```excerpt\npath: a.c\nlines: 1\n```\nTwo.\n")
+            .await
+            .unwrap();
 
-        assert_eq!(parsed.title.as_deref(), Some("The term and the leader"));
-        assert_eq!(parse("No heading.\n").unwrap().title, None);
+        let kinds: Vec<_> = parsed
+            .blocks
+            .iter()
+            .map(|block| match block {
+                Block::Text { .. } => "text",
+                Block::Excerpt { .. } => "excerpt",
+            })
+            .collect();
+        assert_eq!(kinds, ["text", "excerpt", "text"]);
     }
 
-    #[test]
-    fn a_fence_of_code_inside_a_list_stays_in_the_text() {
-        let parsed = parse("- Run it:\n\n  ```sh\n  make check\n  ```\n").unwrap();
-        let Block::Text { html, .. } = &parsed.blocks[0];
+    #[tokio::test]
+    async fn the_title_is_the_text_of_the_first_heading() {
+        let corpus = plain().await;
+        let parsed = corpus
+            .parse("Intro.\n\n## The `term` and *the* leader\n\n# Later\n")
+            .await
+            .unwrap();
+
+        assert_eq!(parsed.title.as_deref(), Some("The term and the leader"));
+        assert_eq!(corpus.parse("No heading.\n").await.unwrap().title, None);
+    }
+
+    #[tokio::test]
+    async fn a_fence_of_code_inside_a_list_stays_in_the_text() {
+        let parsed = plain()
+            .await
+            .parse("- Run it:\n\n  ```sh\n  make check\n  ```\n")
+            .await
+            .unwrap();
+        let Block::Text { html, .. } = &parsed.blocks[0] else {
+            panic!("{:?}", parsed.blocks[0]);
+        };
 
         assert!(html.contains("<pre class=\"md-code\">"), "{html}");
+    }
+
+    /// The commit is stored with the lines, so a page pushed before a
+    /// change of the code shows the code as it was.
+    #[tokio::test]
+    async fn an_excerpt_names_the_commit_of_the_push() {
+        let corpus = corpus().await;
+        let source = "```excerpt\npath: src/raft.c\nlines: 13\n```\n";
+        let before = corpus.parse(source).await.unwrap();
+
+        corpus
+            .top
+            .commit(&commit("faster").file("src/raft.c", "int x;\n"))
+            .await;
+        let after = corpus.parse(source).await.unwrap_err();
+
+        let Block::Excerpt { excerpt, .. } = &before.blocks[0] else {
+            panic!("{:?}", before.blocks[0]);
+        };
+        assert_eq!(excerpt.commit, corpus.labels[0].0);
+        assert_eq!(
+            excerpt.lines[0].as_ref().unwrap().text,
+            "    int timeout = base + rand() % base;"
+        );
+        assert_eq!(
+            after[0].message,
+            "src/raft.c has 1 line at HEAD, the excerpt asks for 13"
+        );
     }
 }

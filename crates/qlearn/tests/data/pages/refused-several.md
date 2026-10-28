@@ -3,7 +3,7 @@
 Some text that is fine.
 
 ```excerpt
-path: src/raft.c
+path: src/raft.h
 lines: 1-10
 ```
 

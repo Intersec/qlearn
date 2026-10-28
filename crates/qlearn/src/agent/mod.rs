@@ -345,7 +345,13 @@ mod tests {
         assert!(claim(&home).unwrap().is_none(), "the first holds it");
 
         drop(first);
-        assert!(claim(&home).unwrap().is_some(), "free again");
+        // A git child that another test forks holds a copy of the lock until
+        // its exec, so the lock may outlive the drop for a moment.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        while claim(&home).unwrap().is_none() {
+            assert!(std::time::Instant::now() < deadline, "free again");
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
     }
 
     #[test]

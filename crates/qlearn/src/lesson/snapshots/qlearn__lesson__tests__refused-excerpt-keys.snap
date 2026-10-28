@@ -1,0 +1,18 @@
+---
+source: crates/qlearn/src/lesson/mod.rs
+assertion_line: 862
+description: "# Every error of the keys\n\n```excerpt\npath: src/raft.c\nlines: 1-10\ncolour: red\n```\n\n```excerpt\nlines: 1-10\n```\n\n```excerpt\npath: src/raft.c\n```\n\n```excerpt\npath: src/raft.c\nlines: 12-3\n```\n\n```excerpt\npath: src/raft.c\nlines: 0\n```\n\n```excerpt\npath: src/raft.c\nlines: 1-10\nmark: 2, 9-12\nhide: 11\n```\n\n```excerpt\npath: src/raft.c\nlines: 1-10\nhide: 3, 4\n```\n\n```excerpt\npath: src/raft.c\nlines: 1-10\nhide: 3\nhide: 4\n```\n\n```excerpt\npath: ../secrets.c\nlines: 1-10\nno colon here\nrev:\n```\n"
+---
+refused
+refused-excerpt-keys.md:6: excerpt: unknown key "colour": an excerpt takes path, lines, rev, mark and hide
+refused-excerpt-keys.md:9: excerpt: path is missing
+refused-excerpt-keys.md:13: excerpt: lines is missing
+refused-excerpt-keys.md:19: excerpt: lines takes <from>-<to> or one line, from 1, not "12-3"
+refused-excerpt-keys.md:24: excerpt: lines takes <from>-<to> or one line, from 1, not "0"
+refused-excerpt-keys.md:30: excerpt: mark 9-12 is outside lines 1-10
+refused-excerpt-keys.md:31: excerpt: hide 11 is outside lines 1-10
+refused-excerpt-keys.md:37: excerpt: hide takes one line, not "3, 4"
+refused-excerpt-keys.md:44: excerpt: hide is given twice
+refused-excerpt-keys.md:48: excerpt: path "../secrets.c" must name a file from the top level directory of the worktree, with no leading `/`, no `.` and no `..`
+refused-excerpt-keys.md:50: excerpt: expected `key: value`, not "no colon here"
+refused-excerpt-keys.md:51: excerpt: rev is empty

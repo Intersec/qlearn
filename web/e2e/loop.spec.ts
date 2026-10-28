@@ -45,7 +45,7 @@ test('an agent teaches a lesson of two pages', async ({ page }) => {
 
   const lesson = page.locator('article.lesson');
   await expect(title(page)).toHaveText('The election timer');
-  await expect(lesson.getByRole('table')).toContainText('becomes a candidate');
+  await expect(lesson.locator('.md-doc').getByRole('table')).toContainText('becomes a candidate');
   await expect(page).toHaveURL(/#page=1$/);
 
   // The fence comes in colors: the server marks the tokens, the theme
@@ -59,6 +59,23 @@ test('an agent teaches a lesson of two pages', async ({ page }) => {
     return { pre: getComputedStyle(pre).color, token: token && getComputedStyle(token).color };
   });
   expect(colors.token).not.toBe(colors.pre);
+
+  // The excerpt comes from the repository, at the commit of the push. Its
+  // hidden line holds no text: the server keeps it.
+  const excerpt = lesson.locator('.excerpt');
+  await expect(excerpt.locator('.excerpt-path')).toHaveText('src/election.c:1-6');
+  await expect(excerpt.locator('.excerpt-commit')).toHaveText(/^[0-9a-f]{7}$/);
+  await expect(excerpt.locator('[data-line="3"]')).toHaveClass(/excerpt-marked/);
+  await expect(excerpt.locator('[data-line="3"] .excerpt-text')).toHaveText(
+    '    int timeout = base + rand() % base;',
+  );
+  await expect(excerpt.locator('[data-line="5"] .excerpt-hidden')).toBeVisible();
+  // An empty line holds no character, and stays one line high.
+  const empty = excerpt.locator('[data-line="4"]');
+  expect(await empty.locator('.excerpt-text').evaluate((cell) => cell.textContent)).toBe('');
+  const full = await excerpt.locator('[data-line="3"]').boundingBox();
+  expect((await empty.boundingBox())?.height).toBe(full?.height);
+  await expect(excerpt).not.toContainText('log_debug');
 
   const waited = agent.wait(0);
   await expect(pill(page)).toHaveText('Agent connected');

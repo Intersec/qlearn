@@ -1,0 +1,13 @@
+---
+source: crates/qlearn/src/lesson/mod.rs
+description: "A line with letters outside ASCII keeps each color on its text:\n\n```excerpt\npath: src/names.c\nlines: 1-2\n```\n"
+---
+title: (none)
+
+text bb6e5475f5df
+<p>A line with letters outside ASCII keeps each color on its text:</p>
+
+excerpt 8124d0532b03
+src/names.c:1-2 in "" at <top HEAD>, lang "c"
+   1   <span class="tok-comment tok-block">/* Les élections. */</span>
+   2   <span class="tok-storage tok-type">char</span> <span class="tok-keyword tok-operator">*</span>chef <span class="tok-keyword tok-operator">=</span> <span class="tok-string tok-quoted">&quot;Ægir&quot;</span><span class="tok-punctuation tok-terminator">;</span> <span class="tok-comment tok-block">/* the leader */</span>

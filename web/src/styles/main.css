@@ -34,6 +34,8 @@
   --tok-variable: #c5221f;
   --tok-invalid: #c5221f;
   --tok-invalid-ink: #ffffff;
+  --marked: #fef7e0;
+  --marked-edge: #f9ab00;
 
   --code-font:
     'Roboto Mono', ui-monospace, 'SF Mono', 'JetBrains Mono', 'Fira Code', Consolas, monospace;
@@ -78,6 +80,8 @@
     --tok-variable: #e06c75;
     --tok-invalid: #f28b82;
     --tok-invalid-ink: #131416;
+    --marked: #2e2a1a;
+    --marked-edge: #fdd663;
   }
 }
 
@@ -109,6 +113,8 @@
   --tok-variable: #e06c75;
   --tok-invalid: #f28b82;
   --tok-invalid-ink: #131416;
+  --marked: #2e2a1a;
+  --marked-edge: #fdd663;
 }
 
 html,
@@ -447,6 +453,82 @@ body {
   border-top: 2px solid var(--edge);
 }
 
+/* --------------------------------------------------------- the excerpt */
+
+/* Lines of the repository: a header that says where they come from, then
+   the lines with their numbers. */
+.excerpt {
+  margin: 0 0 0.9em;
+  overflow: hidden;
+  border: 1px solid var(--edge);
+  border-radius: 4px;
+  background: var(--pane);
+}
+.excerpt-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 4px 12px;
+  border-bottom: 1px solid var(--edge);
+  background: var(--edge-soft);
+  color: var(--ink-quiet);
+  font-family: var(--code-font);
+  font-size: 12px;
+}
+.excerpt-path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink);
+  font-weight: 600;
+}
+.excerpt-commit {
+  margin-left: auto;
+}
+.excerpt-body {
+  overflow-x: auto;
+  padding: 6px 0;
+}
+.excerpt-code {
+  min-width: 100%;
+  border-collapse: collapse;
+  font-family: var(--code-font);
+  font-size: var(--code-size);
+  line-height: var(--code-line);
+  tab-size: var(--tab-width);
+}
+.excerpt-number {
+  width: 1%;
+  padding: 0 12px 0 14px;
+  border-left: 3px solid transparent;
+  color: var(--ink-faint);
+  text-align: right;
+  user-select: none;
+  white-space: nowrap;
+}
+.excerpt-text {
+  padding: 0 12px 0 0;
+  color: var(--ink);
+  white-space: pre;
+}
+.excerpt-marked td {
+  background: var(--marked);
+}
+.excerpt-marked .excerpt-number {
+  border-left-color: var(--marked-edge);
+  color: var(--ink-quiet);
+}
+/* The hidden line: a blank across the code, one line high. Its text stays
+   on the server, so the page cannot know how long it is. */
+.excerpt-hidden {
+  display: block;
+  height: calc(var(--code-line) * 1em);
+  border: 1px dashed var(--ink-faint);
+  border-radius: 3px;
+  background: var(--page);
+}
+
 /* ---------------------------------------------------------- the syntax */
 
 /*
@@ -457,29 +539,38 @@ body {
  * Tailwind's `display: block` would break the line.
  */
 .md-code .tok-keyword,
-.md-code .tok-storage {
+.md-code .tok-storage,
+.excerpt .tok-keyword,
+.excerpt .tok-storage {
   color: var(--tok-keyword);
 }
-.md-code .tok-string {
+.md-code .tok-string,
+.excerpt .tok-string {
   color: var(--tok-string);
 }
-.md-code .tok-comment {
+.md-code .tok-comment,
+.excerpt .tok-comment {
   color: var(--tok-comment);
   font-style: italic;
 }
-.md-code .tok-constant {
+.md-code .tok-constant,
+.excerpt .tok-constant {
   color: var(--tok-constant);
 }
-.md-code .tok-entity {
+.md-code .tok-entity,
+.excerpt .tok-entity {
   color: var(--tok-entity);
 }
-.md-code .tok-support {
+.md-code .tok-support,
+.excerpt .tok-support {
   color: var(--tok-support);
 }
-.md-code .tok-variable {
+.md-code .tok-variable,
+.excerpt .tok-variable {
   color: var(--tok-variable);
 }
-.md-code .tok-invalid {
+.md-code .tok-invalid,
+.excerpt .tok-invalid {
   color: var(--tok-invalid-ink);
   background: var(--tok-invalid);
 }

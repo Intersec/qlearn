@@ -81,7 +81,7 @@ async fn main() -> Result<()> {
     }
 
     let current = store.current(&course)?;
-    let state = |token, port| AppState::new(store, course, current, token, port);
+    let state = |token, port| AppState::new(git, store, course, current, token, port);
 
     serve(cli.port, state, cli.no_open, &home, claim).await
 }

@@ -4,25 +4,32 @@
 import { computed } from 'vue';
 import type { Page } from '@/api/types';
 import { clean } from '@/html';
+import ExcerptView from './ExcerptView.vue';
 
 const props = defineProps<{ page: Page }>();
 
 // Cleaned once per page, not at every render.
 const blocks = computed(() =>
-  props.page.blocks.map((block) => ({ id: block.id, html: clean(block.html) })),
+  props.page.blocks.map((block) =>
+    block.kind === 'text' ? { ...block, html: clean(block.html) } : block,
+  ),
 );
 </script>
 
 <template>
   <article class="lesson">
-    <!-- eslint-disable vue/no-v-html -- written by the server, cleaned in html.ts -->
-    <section
-      v-for="block in blocks"
-      :key="block.id"
-      class="md-doc block"
-      :data-block="block.id"
-      v-html="block.html"
-    />
-    <!-- eslint-enable vue/no-v-html -->
+    <template v-for="block in blocks" :key="block.id">
+      <!-- eslint-disable vue/no-v-html -- written by the server, cleaned in html.ts -->
+      <section
+        v-if="block.kind === 'text'"
+        class="md-doc block"
+        :data-block="block.id"
+        v-html="block.html"
+      />
+      <!-- eslint-enable vue/no-v-html -->
+      <section v-else class="block" :data-block="block.id">
+        <ExcerptView :excerpt="block.excerpt" />
+      </section>
+    </template>
   </article>
 </template>
