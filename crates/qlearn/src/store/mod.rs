@@ -31,6 +31,11 @@ impl Store {
         }
     }
 
+    /// `.learn/` itself.
+    pub fn dir(&self) -> &Path {
+        &self.dir
+    }
+
     /// The directory of a course.
     pub fn course_dir(&self, slug: &str) -> PathBuf {
         self.dir.join(slug)

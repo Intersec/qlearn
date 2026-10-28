@@ -10,8 +10,10 @@ MUSL_TARGET := x86_64-unknown-linux-musl
 # the package registry both carry that, and a name that never changes is
 # what a permanent link can point at.
 DIST_NAME := qlearn-linux-x86_64.gz
+# The port that web/vite.config.ts proxies the API to.
+DEV_PORT := 7420
 
-.PHONY: all setup web build check test fmt lint install dist musl-target clean
+.PHONY: all setup web build check test fmt lint install dist musl-target dev clean
 
 all: build
 
@@ -76,6 +78,15 @@ musl-target:
 		echo "adding the $(MUSL_TARGET) target"; \
 		rustup target add $(MUSL_TARGET); \
 	}
+
+## The server and Vite together, with hot reload on the interface.
+## Open the URL that Vite prints. Its proxy reads the token in
+## .learn/server.json, so that URL needs none.
+dev:
+	@trap 'kill 0' EXIT INT TERM; \
+	$(CARGO) run -- --port $(DEV_PORT) --no-open & \
+	cd web && $(NPM) run dev; \
+	wait
 
 clean:
 	rm -rf dist

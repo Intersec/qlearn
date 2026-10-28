@@ -56,6 +56,15 @@ impl Course {
     }
 }
 
+/// What `GET /api/session` answers. The syllabus is in `course.parts`.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct Session {
+    pub course: Course,
+    /// The release and the commit under it, as `qlearn --version` says.
+    pub version: String,
+}
+
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum QuizMode {

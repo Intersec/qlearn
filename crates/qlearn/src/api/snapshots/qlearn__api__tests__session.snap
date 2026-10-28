@@ -1,0 +1,34 @@
+---
+source: crates/qlearn/src/api/mod.rs
+expression: body
+---
+{
+  "course": {
+    "created": "2026-01-01T00:00:00Z",
+    "findings": [],
+    "followUp": null,
+    "goal": "",
+    "parts": [
+      {
+        "pages": [
+          {
+            "id": "1",
+            "kind": "lesson",
+            "score": null,
+            "state": "taught",
+            "title": "Two leaders, one term"
+          }
+        ],
+        "title": "Why"
+      }
+    ],
+    "profile": "",
+    "quizMode": "mixed",
+    "slug": "raft",
+    "status": "new",
+    "title": "Raft, the leader election",
+    "updated": "2026-01-01T00:00:00Z",
+    "version": 1
+  },
+  "version": "[version]"
+}

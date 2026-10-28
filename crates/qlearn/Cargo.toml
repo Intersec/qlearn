@@ -7,7 +7,10 @@ rust-version.workspace = true
 
 [dependencies]
 anyhow.workspace = true
+axum = "0.8"
 clap = { version = "4", features = ["derive"] }
+form_urlencoded = "1"
+getrandom = "0.3"
 hex = "0.4"
 mime_guess = "2"
 rust-embed = "8"
@@ -26,7 +29,9 @@ tokio = { version = "1", features = [
 ] }
 
 [dev-dependencies]
+insta = { version = "1", features = ["json"] }
 # The tests embed the interface as a release does, rather than read it from
 # disk, so they check what a release carries.
 rust-embed = { version = "8", features = ["debug-embed"] }
 tempfile = "3"
+tower = { version = "0.5", features = ["util"] }

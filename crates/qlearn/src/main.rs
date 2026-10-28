@@ -5,19 +5,42 @@
 
 mod cli;
 
-use anyhow::{Context, Result};
+use std::future::IntoFuture;
+use std::path::PathBuf;
+use std::time::Duration;
+
+use anyhow::{Context, Result, bail};
 use clap::Parser;
 use time::OffsetDateTime;
+use tokio::net::{TcpListener, UnixListener};
+use tokio::signal::unix::{SignalKind, signal};
+use tokio::sync::watch;
 
+use qlearn::agent::address::Address;
+use qlearn::agent::{self, Claim, Home, socket};
+use qlearn::api::{self, AppState, auth};
 use qlearn::git::exec::Git;
+use qlearn::model::Course;
 use qlearn::store::{self, Store};
+use qlearn::trace;
+
+/// What a request in flight gets after the stop. The learner asked for it.
+const GRACE: Duration = Duration::from_secs(3);
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = cli::Cli::parse();
 
+    // Before the first git call, so the whole start is timed.
+    trace::enable_from_env();
+    if cli.trace {
+        trace::enable();
+    }
+
     let cwd = std::env::current_dir().context("cannot read the working directory")?;
+    let started = trace::start();
     let git = Git::discover(&cwd).await?;
+    trace::since(started, || "find the worktree".to_owned());
     let store = Store::at(git.root());
 
     if let Some(cli::Command::List) = cli.command {
@@ -25,10 +48,188 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
+    // One server per worktree. An agent that starts qlearn twice gets the
+    // course that is open, not a second server and a second tab. This comes
+    // before the course is opened, so a new slug creates nothing.
+    let home = Home::of(git.root());
+    let Some(claim) = agent::claim(&home)? else {
+        return report_running(&home, cli.slug.as_deref()).await;
+    };
+
+    let started = trace::start();
     let course = store.open(cli.slug.as_deref(), OffsetDateTime::now_utc())?;
     store::exclude(&git).await?;
+    trace::since(started, || format!("open the course {}", course.slug));
 
-    // Until the server exists, the course directory is all there is to show.
-    println!("{}", store.course_dir(&course.slug).display());
+    if cli.verbose {
+        print!("{}", qlearn::report::outline(&course));
+        println!();
+    }
+
+    serve(cli.port, course, cli.no_open, &home, claim).await
+}
+
+/// Print the server that holds the worktree, as a second qlearn does.
+async fn report_running(home: &Home, asked: Option<&str>) -> Result<()> {
+    let Some((client, session)) = agent::running_soon(home).await else {
+        bail!(
+            "stop the other qlearn of this worktree, or resume it if it is \
+             suspended: it holds the worktree but does not answer"
+        );
+    };
+    let slug = &session.course.slug;
+
+    println!(
+        "qlearn already runs on this worktree, with the course {slug}, at {}",
+        client.address().url()
+    );
+    if asked.is_some_and(|asked| asked != slug) {
+        println!("To open another course, stop that server first, with Ctrl-C.");
+    }
     Ok(())
+}
+
+/// The claim is a parameter, so it is dropped after `Leftovers`: no other
+/// server may start before the files of this one are gone.
+async fn serve(port: u16, course: Course, no_open: bool, home: &Home, _claim: Claim) -> Result<()> {
+    // First, before any file is made: a signal that came before the
+    // handlers would kill the process and leave its files behind.
+    let stopped = stop_signals()?;
+    let mut leftovers = Leftovers {
+        home,
+        address: None,
+        socket: None,
+    };
+
+    // The loopback address only. Never another interface.
+    let listener = TcpListener::bind(("127.0.0.1", port))
+        .await
+        .context("cannot listen on the loopback address")?;
+    let addr = listener.local_addr()?;
+    let token = auth::new_token();
+    let app = api::app(AppState::new(course, token.clone(), addr.port()));
+
+    // The way in for an agent in a sandbox. The course works without it,
+    // so a socket that cannot be made only gives a warning.
+    let unix = match unix_listener(home) {
+        Ok((listener, path)) => {
+            leftovers.socket = Some(path);
+            Some(listener)
+        }
+        Err(error) => {
+            eprintln!("qlearn: an agent in a sandbox will not reach this server: {error:#}");
+            None
+        }
+    };
+
+    // The commands of an agent find the server here. The course still
+    // works without them, so a file that cannot be written only gives a
+    // warning.
+    match agent::announce(home, addr.port(), &token, leftovers.socket.as_deref()) {
+        Ok(address) => leftovers.address = Some(address),
+        Err(error) => {
+            eprintln!("qlearn: the commands of an agent will not find this server: {error:#}");
+        }
+    }
+
+    // Printed after the address file and the socket, so whoever reads the
+    // URL can reach the server at once.
+    let url = format!("http://{addr}/?t={token}");
+    println!("qlearn is at {url}");
+    println!("Press Ctrl-C to stop.");
+    if !no_open {
+        open_browser(&url);
+    }
+
+    let on_stop = |mut stopped: watch::Receiver<bool>| async move {
+        let _ = stopped.wait_for(|stop| *stop).await;
+    };
+
+    let on_port = axum::serve(listener, app.clone())
+        .with_graceful_shutdown(on_stop(stopped.clone()))
+        .into_future();
+    let on_unix = async {
+        match unix {
+            Some(listener) => {
+                axum::serve(listener, app)
+                    .with_graceful_shutdown(on_stop(stopped.clone()))
+                    .await
+            }
+            None => Ok(()),
+        }
+    };
+    // A request that still hangs after the stop gets a few seconds, no more.
+    let deadline = async {
+        on_stop(stopped.clone()).await;
+        tokio::time::sleep(GRACE).await;
+    };
+    tokio::select! {
+        (port, unix) = async { tokio::join!(on_port, on_unix) } => {
+            port.and(unix).context("the server stopped with an error")
+        }
+        () = deadline => Ok(()),
+    }
+}
+
+/// Ctrl-C, a `kill`, or a terminal that closes: each stops the server, and
+/// each leaves the cleanup to run.
+fn stop_signals() -> Result<watch::Receiver<bool>> {
+    let catch = |kind| signal(kind).context("cannot catch the signals that stop the server");
+    let mut interrupt = catch(SignalKind::interrupt())?;
+    let mut terminate = catch(SignalKind::terminate())?;
+    let mut hangup = catch(SignalKind::hangup())?;
+
+    let (stopping, stopped) = watch::channel(false);
+    tokio::spawn(async move {
+        tokio::select! {
+            _ = interrupt.recv() => {}
+            _ = terminate.recv() => {}
+            _ = hangup.recv() => {}
+        }
+        let _ = stopping.send(true);
+    });
+    Ok(stopped)
+}
+
+/// What a server leaves on disk. It is removed when `serve` returns, by
+/// any path, an early error included.
+struct Leftovers<'a> {
+    home: &'a Home,
+    address: Option<Address>,
+    socket: Option<PathBuf>,
+}
+
+impl Drop for Leftovers<'_> {
+    fn drop(&mut self) {
+        if let Some(address) = &self.address {
+            agent::address::remove(self.home, address);
+        }
+        if let Some(path) = &self.socket {
+            socket::clear(path);
+        }
+    }
+}
+
+/// A Unix socket for the server, in the private directory of the user.
+fn unix_listener(home: &Home) -> Result<(UnixListener, PathBuf)> {
+    let path = socket::path_for(home)?;
+
+    Ok((socket::bind(&path)?, path))
+}
+
+/// Show the course in the browser of the user.
+///
+/// Linux is the only target, so `xdg-open` is what a desktop provides. A
+/// failure is not worth stopping for: the URL is printed above it.
+fn open_browser(url: &str) {
+    let started = std::process::Command::new("xdg-open")
+        .arg(url)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn();
+
+    if started.is_err() {
+        eprintln!("qlearn: no browser opened. Open the address above by hand.");
+    }
 }

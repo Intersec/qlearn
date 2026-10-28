@@ -13,6 +13,22 @@ pub struct Cli {
     /// The course, `.learn/<slug>/`. It is created when it is new. The only
     /// course of `.learn/` by default.
     pub slug: Option<String>,
+
+    /// Print the URL, open no browser.
+    #[arg(long)]
+    pub no_open: bool,
+
+    /// Print the course before the URL.
+    #[arg(short, long)]
+    pub verbose: bool,
+
+    /// Print, on standard error, what every piece of work costs.
+    #[arg(long)]
+    pub trace: bool,
+
+    /// The port to listen on. 0 asks the system for a free one.
+    #[arg(long, default_value_t = 0)]
+    pub port: u16,
 }
 
 #[derive(Subcommand, Debug)]
@@ -41,5 +57,18 @@ mod tests {
         assert!(matches!(cli.command, Some(Command::List)));
 
         assert!(Cli::try_parse_from(["qlearn", "raft", "list"]).is_err());
+    }
+
+    #[test]
+    fn the_server_options_parse() {
+        let cli = Cli::try_parse_from(["qlearn"]).unwrap();
+        assert_eq!(cli.port, 0, "the system picks a free port by default");
+        assert!(!cli.no_open && !cli.verbose && !cli.trace);
+
+        let cli = Cli::try_parse_from(["qlearn", "raft", "--no-open", "-v", "--trace"]).unwrap();
+        assert!(cli.no_open && cli.verbose && cli.trace);
+
+        let cli = Cli::try_parse_from(["qlearn", "--port", "7420"]).unwrap();
+        assert_eq!(cli.port, 7420);
     }
 }
