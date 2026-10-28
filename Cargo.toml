@@ -1,0 +1,17 @@
+[workspace]
+members = ["crates/qlearn"]
+resolver = "3"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.92"
+
+[workspace.dependencies]
+anyhow = "1"
+
+[profile.release]
+# The binary is handed to a colleague as one file. Trade build time for size.
+strip = true
+lto = "thin"
+codegen-units = 1

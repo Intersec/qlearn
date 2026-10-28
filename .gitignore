@@ -1,0 +1,19 @@
+# Rust
+/target/
+
+# Interface
+/web/node_modules/
+/web/dist/
+# The release archive that `make dist` packs.
+/dist/
+
+# Browser tests
+/web/e2e/.results/
+/web/e2e/.shots/
+
+# Editors
+*.swp
+.DS_Store
+
+# Node
+node_modules/

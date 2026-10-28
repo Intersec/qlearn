@@ -1,0 +1,10 @@
+[package]
+name = "qlearn"
+description = "A course on a code base, in the browser, taught by an agent in a terminal."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+clap = { version = "4", features = ["derive"] }
