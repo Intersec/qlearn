@@ -8,10 +8,22 @@ rust-version.workspace = true
 [dependencies]
 anyhow.workspace = true
 clap = { version = "4", features = ["derive"] }
+hex = "0.4"
 mime_guess = "2"
 rust-embed = "8"
+sha2 = "0.11"
+tokio = { version = "1", features = [
+    "io-util",
+    "macros",
+    "net",
+    "process",
+    "rt-multi-thread",
+    "signal",
+    "time",
+] }
 
 [dev-dependencies]
 # The tests embed the interface as a release does, rather than read it from
 # disk, so they check what a release carries.
 rust-embed = { version = "8", features = ["debug-embed"] }
+tempfile = "3"

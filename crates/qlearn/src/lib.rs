@@ -5,4 +5,8 @@
 //! lives here, so it can be tested without a process.
 
 pub mod assets;
+pub mod git;
 pub mod version;
+
+#[cfg(test)]
+mod testutil;
