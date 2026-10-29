@@ -1,0 +1,13 @@
+---
+source: crates/qlearn/src/lesson/mod.rs
+description: "# Texts\n\n```chart\n{\n  \"kind\": \"bar\",\n  \"title\": \"  \",\n  \"x\": { \"label\": \"\", \"values\": [\"1\", \"2\"] },\n  \"y\": { \"label\": \"Votes\\nper term\", \"unit\": \"votes of the servers\" },\n  \"series\": [\n    { \"name\": \"S1\", \"values\": [1, 2] },\n    { \"name\": \"S1\", \"values\": [2, 1] },\n    { \"name\": \"A name far longer than any legend can hold well\", \"values\": [2, 1] }\n  ]\n}\n```\n\n```chart\n{\n  \"kind\": \"line\",\n  \"title\": \"A title that runs on and on, far past the width that a chart gives to it on a narrow screen, and then runs on a bit more\",\n  \"x\": { \"label\": \"Term\", \"values\": [\"1\", \"2\"] },\n  \"y\": { \"label\": \"Votes\" },\n  \"series\": [{ \"name\": \"\", \"values\": [1, 2] }]\n}\n```\n"
+---
+refused
+refused-chart-texts.md:3: chart: title: empty
+refused-chart-texts.md:3: chart: x.label: empty
+refused-chart-texts.md:3: chart: y.label: holds a line break. Keep it on one line
+refused-chart-texts.md:3: chart: y.unit: holds 20 characters, and 12 at most fit on the chart
+refused-chart-texts.md:3: chart: series[1].name: "S1" comes twice in series
+refused-chart-texts.md:3: chart: series[2].name: holds 47 characters, and 40 at most fit on the chart
+refused-chart-texts.md:17: chart: title: holds 120 characters, and 100 at most fit on the chart
+refused-chart-texts.md:17: chart: series[0].name: empty

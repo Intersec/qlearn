@@ -1849,6 +1849,29 @@ mod tests {
         insta::assert_json_snapshot!("page", body);
     }
 
+    const CHART: &str = "# Election time\n\n\
+                         ```chart\n{ \"kind\": \"bar\", \"title\": \"Election <b>time</b>\",\n  \
+                         \"x\": { \"label\": \"Timeout range (ms)\", \"values\": [\"150-300\", 150] },\n  \
+                         \"y\": { \"label\": \"Median election time\", \"unit\": \"ms\" },\n  \
+                         \"series\": [{ \"name\": \"5 servers\", \"values\": [283, 1520.5] }] }\n```\n";
+
+    /// The chart crosses the wire as JSON, with its texts as the agent
+    /// wrote them: the page escapes them when it draws them.
+    #[tokio::test]
+    async fn a_chart_crosses_the_wire_as_json() {
+        let dir = repo().await;
+        let state = state_in(dir.path());
+
+        let (status, pushed) = json(app(state.clone()), put("/api/pages/1", CHART)).await;
+        assert_eq!(status, StatusCode::OK, "{pushed}");
+        let (status, body) = json(app(state), get_with_cookie("/api/pages/1", TOKEN)).await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body, pushed);
+        insta::assert_json_snapshot!("page_chart", body);
+        assert_eq!(body["blocks"][1]["chart"]["title"], "Election <b>time</b>");
+    }
+
     const EXCERPT: &str = "# The timer\n\n\
                            ```excerpt\npath: src/raft.c\nlines: 1-4\nmark: 2\nhide: 4\n```\n";
 

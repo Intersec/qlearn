@@ -752,6 +752,70 @@ keeps the rule of a reload that the threads of a block follow.
 - **The button after the threads of an earlier version.** Those threads
   come last on the page, as the entry "Holes found by the threads" says.
 
+## 2026-10-29 — Holes found by the chart
+
+Section 4.4 names the fields of a chart and two rules: one value per `x`
+value, and 8 series at most. The code needed more answers.
+
+**Decisions.**
+
+- **The page gets the chart as JSON.** The block is
+  `{ id, kind: "chart", chart }`, and `chart` has the fields of the fence.
+  Section 4.4 holds the type. The texts stay plain text, and the page
+  escapes them when it draws them.
+- **Every field is checked at once.** A fault names the line of the fence
+  and the JSON path of the field, such as
+  `series[2].values: holds 3 values, and x holds 4`. A JSON syntax error
+  names its own line in the page. A field that the format does not name
+  is refused, at every level.
+- **`x` values are categories.** A string or a number, which the server
+  turns into its text. The page draws them at equal steps, in order, even
+  in a line chart. No value comes twice.
+- **`null` is a gap in a line chart.** A bar chart refuses it: a missing
+  bar would read as a zero. A series of `null` only is refused.
+- **`unit` is optional.** It is `""` on the wire when the values have
+  none, such as a count.
+- **The limits.** `x` holds 1 to 50 values. A bar chart draws 60 bars at
+  most, `x` values times series. A title holds 100 characters, an axis
+  label 60, an `x` value 24, a series name 40, a unit 12. Each text holds
+  one line. Two series never share a name, because the legend tells them
+  apart by name.
+- **The size of a value.** A value lies within ±1e15. The y axis spans
+  0.0001 at least, and at least a billionth of the largest value: from 0
+  in a bar chart, from the lowest value in a line. A fault asks for
+  another unit of y.
+- **A tick in the thousands** is short, such as `1.5K`, when the step
+  allows two decimals at most. A finer step writes the whole number, such
+  as `1,505`, so that two ticks never share a text.
+- **The drawing.** A bar chart starts its axis at zero. A line chart
+  takes the range of its values. The ticks are round numbers, 1, 2 or 5
+  times a power of ten. The page shows a legend for 2 series or more, the
+  values of an `x` value under the pointer, and a table of the values for
+  a screen reader.
+- **The colors.** Eight tokens of the page, `--series-1` to `--series-8`,
+  in a fixed order, with their own values in the dark theme. Each pair of
+  neighbors stays apart for a reader with a color deficiency. A series
+  always takes the color of its rank in the fence.
+
+**Why.** The page draws every chart that the server takes. A chart of more
+than 50 points or 60 bars does not fit a narrow screen. A label that is
+too long overlaps the next one. A number as an `x` value is natural for a
+count of servers or a second, and the agent should not need to quote it.
+A gap is how a line shows a server that was down. A bar has no such
+reading. The page writes a tick with 6 decimals at most and computes in
+floats: a narrower axis, or a larger value, would show the same text at
+each tick or no tick at all.
+
+**Rejected:**
+
+- **A numeric `x` axis for a line chart.** The format would need a second
+  kind of axis, and the server could not check the spacing that the agent
+  means.
+- **A color in the fence.** Every chart of every course keeps one style,
+  as section 4.4 wants.
+- **A chart library.** The page draws two kinds of chart, and a library
+  weighs more than the code that draws them.
+
 ## Open questions
 
 - **The URL of the repository.** The host is decided: a public repository

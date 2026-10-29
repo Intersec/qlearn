@@ -1,0 +1,56 @@
+---
+source: crates/qlearn/src/lesson/mod.rs
+description: "# Terms over time\n\n```chart\n{\n  \"kind\": \"line\",\n  \"title\": \"The term of each server, second by second\",\n  \"x\": { \"label\": \"Time (s)\", \"values\": [0, 1, 2, 3, 4, 5] },\n  \"y\": { \"label\": \"Term\" },\n  \"series\": [\n    { \"name\": \"S1\", \"values\": [1, 1, 2, null, 4, 4] },\n    { \"name\": \"S2\", \"values\": [1, 2, 2, 3, 4, -1] }\n  ]\n}\n```\n\nS1 was down at second 3, so the line has a gap there.\n"
+---
+title: Terms over time
+
+text 3342708650a6
+<h1>Terms over time</h1>
+
+chart 8bbebaefd769
+{
+  "kind": "line",
+  "title": "The term of each server, second by second",
+  "x": {
+    "label": "Time (s)",
+    "values": [
+      "0",
+      "1",
+      "2",
+      "3",
+      "4",
+      "5"
+    ]
+  },
+  "y": {
+    "label": "Term",
+    "unit": ""
+  },
+  "series": [
+    {
+      "name": "S1",
+      "values": [
+        1,
+        1,
+        2,
+        null,
+        4,
+        4
+      ]
+    },
+    {
+      "name": "S2",
+      "values": [
+        1,
+        2,
+        2,
+        3,
+        4,
+        -1
+      ]
+    }
+  ]
+}
+
+text 1b45886eca31
+<p>S1 was down at second 3, so the line has a gap there.</p>

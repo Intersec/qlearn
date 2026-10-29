@@ -1,0 +1,51 @@
+---
+source: crates/qlearn/src/lesson/mod.rs
+description: "# Election time\n\nA wider range of timeouts ends an election sooner.\n\n```chart\n{\n  \"kind\": \"bar\",\n  \"title\": \"Election time, by timeout range\",\n  \"x\": { \"label\": \"Timeout range (ms)\", \"values\": [\"150-300\", \"150-200\", \"150-155\", \"150-151\"] },\n  \"y\": { \"label\": \"Median election time\", \"unit\": \"ms\" },\n  \"series\": [\n    { \"name\": \"5 servers\", \"values\": [283, 410, 1100, 1520] },\n    { \"name\": \"9 servers\", \"values\": [301, 455, 1290, 1985.5] }\n  ]\n}\n```\n\nThe narrowest range splits the votes most often.\n"
+---
+title: Election time
+
+text df9a434c0691
+<h1>Election time</h1>
+<p>A wider range of timeouts ends an election sooner.</p>
+
+chart 697a4aa674fa
+{
+  "kind": "bar",
+  "title": "Election time, by timeout range",
+  "x": {
+    "label": "Timeout range (ms)",
+    "values": [
+      "150-300",
+      "150-200",
+      "150-155",
+      "150-151"
+    ]
+  },
+  "y": {
+    "label": "Median election time",
+    "unit": "ms"
+  },
+  "series": [
+    {
+      "name": "5 servers",
+      "values": [
+        283,
+        410,
+        1100,
+        1520
+      ]
+    },
+    {
+      "name": "9 servers",
+      "values": [
+        301,
+        455,
+        1290,
+        1985.5
+      ]
+    }
+  ]
+}
+
+text 1e830f24a13f
+<p>The narrowest range splits the votes most often.</p>

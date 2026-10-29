@@ -1,0 +1,11 @@
+---
+source: crates/qlearn/src/lesson/mod.rs
+description: "# Values\n\n```chart\n{\n  \"kind\": \"bar\",\n  \"title\": \"Votes per term\",\n  \"x\": { \"label\": \"Term\", \"values\": [\"1\", \"2\", \"3\", \"4\"] },\n  \"y\": { \"label\": \"Votes\" },\n  \"series\": [\n    { \"name\": \"S1\", \"values\": [3, 2, 1] },\n    { \"name\": \"S2\", \"values\": [3, null, \"2\", true] },\n    { \"name\": \"S3\", \"values\": [3, 2, 1, 0, 5] }\n  ]\n}\n```\n\n```chart\n{\n  \"kind\": \"line\",\n  \"title\": \"Votes per term\",\n  \"x\": { \"label\": \"Term\", \"values\": [\"1\", \"2\"] },\n  \"y\": { \"label\": \"Votes\" },\n  \"series\": [\n    { \"name\": \"S1\", \"values\": [null, null] },\n    { \"name\": \"S2\", \"values\": [1, null] }\n  ]\n}\n```\n"
+---
+refused
+refused-chart-values.md:3: chart: series[0].values: holds 3 values, and x holds 4. Give one value for each x value
+refused-chart-values.md:3: chart: series[1].values[1]: a bar chart takes a number, not null. Write 0, or take the x value out
+refused-chart-values.md:3: chart: series[1].values[2]: takes a number, not a string
+refused-chart-values.md:3: chart: series[1].values[3]: takes a number, not a boolean
+refused-chart-values.md:3: chart: series[2].values: holds 5 values, and x holds 4. Give one value for each x value
+refused-chart-values.md:17: chart: series[0].values: holds null only. Give a number for at least one x value

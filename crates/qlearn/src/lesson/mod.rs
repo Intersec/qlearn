@@ -8,6 +8,7 @@
 //! source comes out as text, so a page never holds a script or a style that
 //! the agent typed.
 
+pub mod chart;
 pub mod excerpt;
 
 use std::collections::{BTreeMap, HashMap};
@@ -293,6 +294,20 @@ fn split(source: &str, highlighter: &Highlighter, within: Within) -> Split {
                     Err(fault) => faults.push(fault),
                 }
             }
+            Role::Chart => {
+                page.close();
+                let line = line_of(range.start);
+                let body = fence_body(node);
+                // The blank lines after a fence are not part of it.
+                let fence_source = source[range].trim_end();
+                match chart::parse(&body, line) {
+                    Ok(chart) => {
+                        let id = page.id("chart", fence_source);
+                        page.blocks.push(Piece::Block(Block::Chart { id, chart }));
+                    }
+                    Err(found) => faults.extend(found),
+                }
+            }
             Role::Refused(kind) => {
                 page.close();
                 faults.push(refused(line_of(range.start), kind));
@@ -397,6 +412,7 @@ fn nested(line: usize, kind: &'static str) -> Fault {
     let block = match kind {
         "excerpt" => "an excerpt",
         "diagram" => "a diagram",
+        "chart" => "a chart",
         _ => return refused(line, kind),
     };
     Fault {
@@ -496,6 +512,7 @@ enum Role {
     Callout(Opening),
     Excerpt,
     Diagram,
+    Chart,
     /// A block of a kind that this release does not draw yet.
     Refused(&'static str),
 }
@@ -506,6 +523,7 @@ fn role(source: &str, node: &[Item]) -> Role {
         event @ Event::Start(Tag::CodeBlock(_)) => match fence_kind(event) {
             Some("excerpt") => Role::Excerpt,
             Some("diagram") => Role::Diagram,
+            Some("chart") => Role::Chart,
             Some(kind) => Role::Refused(kind),
             None => Role::Text,
         },
@@ -1131,6 +1149,10 @@ bool grant_vote(struct server *s, int term, int candidate)
                         Block::Diagram { id, source } => {
                             out.push_str(&format!("\ndiagram {id}\n{source}"))
                         }
+                        Block::Chart { id, chart } => out.push_str(&format!(
+                            "\nchart {id}\n{}\n",
+                            serde_json::to_string_pretty(chart).unwrap()
+                        )),
                     }
                 }
                 out
@@ -1386,6 +1408,53 @@ bool grant_vote(struct server *s, int term, int candidate)
                 id: block_id("diagram", fence, 1, Within::Lesson),
                 source: "graph LR\n  A --> B\n".to_owned(),
             }
+        );
+    }
+
+    #[tokio::test]
+    async fn the_id_of_a_chart_is_the_hash_of_its_fence() {
+        let fence = "```chart\n{ \"kind\": \"bar\", \"title\": \"Votes\", \
+                     \"x\": { \"label\": \"Term\", \"values\": [\"1\"] }, \
+                     \"y\": { \"label\": \"Votes\" }, \
+                     \"series\": [{ \"name\": \"S1\", \"values\": [3] }] }\n```";
+        let source = format!("{fence}\n\n{fence}\n");
+
+        assert_eq!(
+            ids(&source).await,
+            [
+                block_id("chart", fence, 1, Within::Lesson),
+                block_id("chart", fence, 2, Within::Lesson)
+            ]
+        );
+    }
+
+    /// A debrief is a page source: it takes a chart, and refuses a wrong
+    /// one with the same faults.
+    #[tokio::test]
+    async fn a_debrief_takes_a_chart() {
+        let corpus = plain().await;
+        let chart = "```chart\n{ \"kind\": \"line\", \"title\": \"Votes\", \
+                     \"x\": { \"label\": \"Term\", \"values\": [1, 2] }, \
+                     \"y\": { \"label\": \"Votes\" }, \
+                     \"series\": [{ \"name\": \"S1\", \"values\": [3, null] }] }\n```\n";
+
+        let parsed = parse_debrief(chart, 1, &corpus.git, Highlighter::shared())
+            .await
+            .unwrap();
+        let refused = parse_debrief(
+            &chart.replace("[3, null]", "[3]"),
+            1,
+            &corpus.git,
+            Highlighter::shared(),
+        )
+        .await
+        .unwrap_err();
+
+        assert_eq!(parsed.blocks[0].kind(), "chart");
+        assert_eq!(
+            refused[0].display("debrief.md"),
+            "debrief.md:1: chart: series[0].values: holds 1 value, and x holds 2. Give one \
+             value for each x value"
         );
     }
 

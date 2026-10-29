@@ -1,0 +1,10 @@
+---
+source: crates/qlearn/src/lesson/mod.rs
+description: "# The x values\n\n```chart\n{\n  \"kind\": \"bar\",\n  \"title\": \"Votes\",\n  \"x\": { \"label\": \"Term\", \"values\": [] },\n  \"y\": { \"label\": \"Votes\" },\n  \"series\": [{ \"name\": \"S1\", \"values\": [] }]\n}\n```\n\n```chart\n{\n  \"kind\": \"line\",\n  \"title\": \"Votes\",\n  \"x\": { \"label\": \"Term\", \"values\": [\"1\", \" \", null, 1, \"a value far longer than a tick\"] },\n  \"y\": { \"label\": \"Votes\" },\n  \"series\": [{ \"name\": \"S1\", \"values\": [1, 2, 3, 4, 5] }]\n}\n```\n"
+---
+refused
+refused-chart-x.md:3: chart: x.values: empty. Give the value of each bar or point
+refused-chart-x.md:13: chart: x.values[1]: empty
+refused-chart-x.md:13: chart: x.values[2]: takes a string or a number, not null
+refused-chart-x.md:13: chart: x.values[3]: "1" comes twice in x
+refused-chart-x.md:13: chart: x.values[4]: holds 30 characters, and 24 at most fit on the chart

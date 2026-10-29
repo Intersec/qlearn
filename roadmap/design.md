@@ -335,6 +335,19 @@ A `chart` fence holds JSON, in a small format of qlearn:
 There are 8 series at most. The server checks these rules, and the page
 draws the chart in SVG with the palette of the page.
 
+```ts
+type Chart = {
+  kind: 'bar' | 'line';
+  title: string;
+  x: { label: string; values: string[] };   // a number of the fence comes as its text
+  y: { label: string; unit: string };       // "" when the values have no unit
+  series: { name: string; values: (number | null)[] }[]; // null: a gap, in a line chart only
+};
+```
+
+The limits of each field are in `stack.md`, entry "Holes found by the
+chart".
+
 Rejected: Vega-Lite. It weighs more than the rest of the interface, and the
 server cannot check a spec in full. A small format keeps every chart of
 every course in one style, and the agent cannot write a chart that the page
@@ -387,7 +400,7 @@ line in the source:
 
 ```
 lesson.md:14: excerpt: vendor/libcore/src/core/el.c has 98 lines at HEAD, the excerpt asks for 120-135
-lesson.md:31: chart: series "5 servers" has 3 values, x has 2
+lesson.md:31: chart: series[0].values: holds 3 values, and x holds 2. Give one value for each x value
 ```
 
 The command exits with 1, and the agent fixes the source.

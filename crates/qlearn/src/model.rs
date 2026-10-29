@@ -533,6 +533,8 @@ pub enum Block {
     /// A Mermaid source, as the agent wrote it. The page draws it: the
     /// server cannot run Mermaid.
     Diagram { id: String, source: String },
+    /// A bar or a line chart, checked by the server. The page draws it.
+    Chart { id: String, chart: Chart },
 }
 
 impl Block {
@@ -541,7 +543,8 @@ impl Block {
             Self::Text { id, .. }
             | Self::Callout { id, .. }
             | Self::Excerpt { id, .. }
-            | Self::Diagram { id, .. } => id,
+            | Self::Diagram { id, .. }
+            | Self::Chart { id, .. } => id,
         }
     }
 
@@ -552,8 +555,56 @@ impl Block {
             Self::Callout { .. } => "callout",
             Self::Excerpt { .. } => "excerpt",
             Self::Diagram { .. } => "diagram",
+            Self::Chart { .. } => "chart",
         }
     }
+}
+
+/// A chart, as the server checked it. See section 4.4 of the design.
+///
+/// Every text is plain text: the page escapes it when it draws it.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct Chart {
+    pub kind: ChartKind,
+    pub title: String,
+    pub x: ChartX,
+    pub y: ChartY,
+    /// 1 to 8, each with one value per x value.
+    pub series: Vec<ChartSeries>,
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum ChartKind {
+    Bar,
+    Line,
+}
+
+/// The categories of the chart, in the order that the page draws them.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ChartX {
+    pub label: String,
+    /// A number that the agent wrote comes as its text.
+    pub values: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ChartY {
+    pub label: String,
+    /// "" when the values have no unit, such as a count.
+    pub unit: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ChartSeries {
+    pub name: String,
+    /// One per x value. None, a gap, only in a line chart. A Number keeps
+    /// `283` an integer on the wire, where an f64 would write `283.0`.
+    pub values: Vec<Option<serde_json::Number>>,
 }
 
 /// The marker of a callout: `[!hook]`, `[!teaser]`, `[!pitfall]` or
@@ -1586,6 +1637,39 @@ mod tests {
             json!({ "id": "0123456789ab", "kind": "diagram", "source": "graph LR\n  A --> B\n" })
         );
         assert_eq!(block.kind(), "diagram");
+    }
+
+    #[test]
+    fn a_chart_block_has_the_shape_of_the_contract() {
+        let block = Block::Chart {
+            id: "0123456789ab".to_owned(),
+            chart: Chart {
+                kind: ChartKind::Line,
+                title: "Terms".to_owned(),
+                x: ChartX {
+                    label: "Time (s)".to_owned(),
+                    values: vec!["0".to_owned(), "1".to_owned()],
+                },
+                y: ChartY {
+                    label: "Term".to_owned(),
+                    unit: String::new(),
+                },
+                series: vec![ChartSeries {
+                    name: "S1".to_owned(),
+                    values: vec![Some(serde_json::Number::from(1)), None],
+                }],
+            },
+        };
+
+        assert_eq!(
+            serde_json::to_value(&block).unwrap(),
+            json!({ "id": "0123456789ab", "kind": "chart", "chart": {
+                "kind": "line", "title": "Terms",
+                "x": { "label": "Time (s)", "values": ["0", "1"] },
+                "y": { "label": "Term", "unit": "" },
+                "series": [{ "name": "S1", "values": [1, null] }] } })
+        );
+        assert_eq!(block.kind(), "chart");
     }
 
     #[test]

@@ -1,0 +1,45 @@
+---
+source: crates/qlearn/src/api/mod.rs
+expression: body
+---
+{
+  "blocks": [
+    {
+      "html": "<h1>Election time</h1>",
+      "id": "911937628524",
+      "kind": "text"
+    },
+    {
+      "chart": {
+        "kind": "bar",
+        "series": [
+          {
+            "name": "5 servers",
+            "values": [
+              283,
+              1520.5
+            ]
+          }
+        ],
+        "title": "Election <b>time</b>",
+        "x": {
+          "label": "Timeout range (ms)",
+          "values": [
+            "150-300",
+            "150"
+          ]
+        },
+        "y": {
+          "label": "Median election time",
+          "unit": "ms"
+        }
+      },
+      "id": "81668f0d4eb8",
+      "kind": "chart"
+    }
+  ],
+  "choices": [],
+  "id": "1",
+  "quizzes": [],
+  "threads": []
+}

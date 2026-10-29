@@ -1,0 +1,8 @@
+---
+source: crates/qlearn/src/lesson/mod.rs
+description: "# Range\n\n```chart\n{\n  \"kind\": \"bar\",\n  \"title\": \"Bytes sent per term\",\n  \"x\": { \"label\": \"Term\", \"values\": [\"1\", \"2\"] },\n  \"y\": { \"label\": \"Sent\", \"unit\": \"B\" },\n  \"series\": [{ \"name\": \"S1\", \"values\": [2e15, 3] }]\n}\n```\n\n```chart\n{\n  \"kind\": \"line\",\n  \"title\": \"Election time per term\",\n  \"x\": { \"label\": \"Term\", \"values\": [\"1\", \"2\", \"3\"] },\n  \"y\": { \"label\": \"Election time\", \"unit\": \"s\" },\n  \"series\": [{ \"name\": \"S1\", \"values\": [0.00000015, 0.00000016, 0.00000015] }]\n}\n```\n\n```chart\n{\n  \"kind\": \"line\",\n  \"title\": \"Log index per term\",\n  \"x\": { \"label\": \"Term\", \"values\": [\"1\", \"2\"] },\n  \"y\": { \"label\": \"Index\" },\n  \"series\": [{ \"name\": \"S1\", \"values\": [500000000000000, 500000000000001] }]\n}\n```\n"
+---
+refused
+refused-chart-range.md:3: chart: series[0].values[0]: 2e15 is beyond 1e15, the largest size that a chart draws. Change the unit of y
+refused-chart-range.md:13: chart: series: the y axis spans 1e-8, and needs 0.0001 at least to tell the values apart. Change the unit of y
+refused-chart-range.md:23: chart: series: the y axis spans 1, and needs 500000 at least to tell the values apart. Change the unit of y, or draw each value minus a base value

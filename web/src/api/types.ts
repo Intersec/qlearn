@@ -119,7 +119,29 @@ export interface DiagramBlock {
   source: string;
 }
 
-export type Block = TextBlock | CalloutBlock | ExcerptBlock | DiagramBlock;
+/** A bar or a line chart, checked by the server. The page draws it in SVG. */
+export interface ChartBlock {
+  id: string;
+  kind: 'chart';
+  chart: Chart;
+}
+
+export type Block = TextBlock | CalloutBlock | ExcerptBlock | DiagramBlock | ChartBlock;
+
+/**
+ * A chart (section 4.4 of the design). Every text is plain text, as the
+ * agent wrote it: the page escapes it.
+ */
+export interface Chart {
+  kind: 'bar' | 'line';
+  title: string;
+  /** The categories, in the order that the page draws them. */
+  x: { label: string; values: string[] };
+  /** `unit` is "" when the values have none, such as a count. */
+  y: { label: string; unit: string };
+  /** 1 to 8, each with one value per x value. null, a gap, only in a line chart. */
+  series: { name: string; values: (number | null)[] }[];
+}
 
 export interface Excerpt {
   /** From the top level directory of the worktree. */

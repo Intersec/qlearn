@@ -1,0 +1,10 @@
+---
+source: crates/qlearn/src/lesson/mod.rs
+description: "Election time:\n\n```chart\n{}\n```\n"
+---
+refused
+refused-chart-missing.md:3: chart: kind: missing. Write "bar" or "line"
+refused-chart-missing.md:3: chart: title: missing
+refused-chart-missing.md:3: chart: x: missing
+refused-chart-missing.md:3: chart: y: missing
+refused-chart-missing.md:3: chart: series: missing

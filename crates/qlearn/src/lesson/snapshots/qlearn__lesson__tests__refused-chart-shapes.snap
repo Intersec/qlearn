@@ -1,0 +1,14 @@
+---
+source: crates/qlearn/src/lesson/mod.rs
+description: "# Shapes\n\n```chart\n[1, 2]\n```\n\n```chart\n{\n  \"kind\": \"pie\",\n  \"title\": 3,\n  \"x\": [\"a\", \"b\"],\n  \"y\": { \"label\": \"Votes\", \"unit\": 1 },\n  \"series\": \"S1\"\n}\n```\n\n```chart\n{\n  \"kind\": \"line\",\n  \"title\": \"Votes\",\n  \"x\": { \"label\": \"Term\", \"values\": \"1-3\" },\n  \"y\": { \"label\": \"Votes\" },\n  \"series\": [\"S1\", { \"name\": \"S2\" }]\n}\n```\n"
+---
+refused
+refused-chart-shapes.md:3: chart: the chart: takes an object, not an array
+refused-chart-shapes.md:7: chart: kind: takes "bar" or "line", not "pie"
+refused-chart-shapes.md:7: chart: title: takes a string, not a number
+refused-chart-shapes.md:7: chart: x: takes an object, not an array
+refused-chart-shapes.md:7: chart: y.unit: takes a string, not a number
+refused-chart-shapes.md:7: chart: series: takes an array, not a string
+refused-chart-shapes.md:17: chart: x.values: takes an array, not a string
+refused-chart-shapes.md:17: chart: series[0]: takes an object, not a string
+refused-chart-shapes.md:17: chart: series[1].values: missing

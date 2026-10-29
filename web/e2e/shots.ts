@@ -13,6 +13,7 @@ import {
   DEBRIEF_1,
   PAGE_1,
   PAGE_2,
+  PAGE_CHARTS,
   PAGE_DIAGRAMS,
   PAGE_DIAGRAMS_FIXED,
   QUIZ_1,
@@ -247,9 +248,24 @@ for (const scheme of ['light', 'dark'] as const) {
     await page.locator('.lesson .choice[data-answered="true"]').waitFor();
     await page.screenshot({ path: join(OUT, `${scheme}-choice-answered.png`) });
 
+    // A bar chart and a line chart, then the values of an x value under
+    // the pointer.
+    await agent.page('4', PAGE_CHARTS);
+    await page.locator('.ready').getByRole('link', { name: 'Read it' }).click();
+    const charts = page.locator('.chart');
+    await charts.first().waitFor();
+    await charts.first().scrollIntoViewIfNeeded();
+    await page.screenshot({ path: join(OUT, `${scheme}-chart-bar.png`) });
+    await charts.nth(1).scrollIntoViewIfNeeded();
+    await charts.nth(1).locator('.chart-hit').nth(4).hover();
+    await page.screenshot({ path: join(OUT, `${scheme}-chart-line.png`) });
+    await page.mouse.move(0, 0);
+
     // A narrow screen: the syllabus hides behind a button, and opens over
     // the page. The button says that a choice of the column waits.
     await page.setViewportSize({ width: 420, height: 860 });
+    await charts.first().scrollIntoViewIfNeeded();
+    await page.screenshot({ path: join(OUT, `${scheme}-narrow-chart.png`) });
     await page.screenshot({ path: join(OUT, `${scheme}-narrow.png`) });
     await page.getByRole('button', { name: 'Syllabus' }).click();
     await page.getByRole('navigation', { name: 'Syllabus' }).waitFor();

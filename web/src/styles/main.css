@@ -53,6 +53,18 @@
   --wrong: #fce8e6;
   --wrong-edge: #d93025;
 
+  /* The series of a chart, in this order. The validated categorical
+     palette of eight: each pair of neighbors stays apart for a reader with
+     a color deficiency, in both themes. */
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --series-3: #1baf7a;
+  --series-4: #eda100;
+  --series-5: #e87ba4;
+  --series-6: #008300;
+  --series-7: #6250d6;
+  --series-8: #e34948;
+
   --code-font:
     'Roboto Mono', ui-monospace, 'SF Mono', 'JetBrains Mono', 'Fira Code', Consolas, monospace;
   --code-size: 13px;
@@ -112,6 +124,15 @@
     --right-edge: #81c995;
     --wrong: #3a1715;
     --wrong-edge: #f28b82;
+
+    --series-1: #3987e5;
+    --series-2: #d95926;
+    --series-3: #199e70;
+    --series-4: #c98500;
+    --series-5: #d55181;
+    --series-6: #008300;
+    --series-7: #9085e9;
+    --series-8: #e66767;
   }
 }
 
@@ -159,6 +180,15 @@
   --right-edge: #81c995;
   --wrong: #3a1715;
   --wrong-edge: #f28b82;
+
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --series-3: #199e70;
+  --series-4: #c98500;
+  --series-5: #d55181;
+  --series-6: #008300;
+  --series-7: #9085e9;
+  --series-8: #e66767;
 }
 
 html,
@@ -878,6 +908,139 @@ a.syllabus-entry:focus-visible {
 .diagram-source {
   background: var(--pane);
   color: var(--ink);
+}
+
+/* ----------------------------------------------------------- the chart */
+
+/* A chart drawn by the page: the marks take the series tokens, and every
+   text takes the ink of the page. */
+.chart {
+  margin: 0 0 0.9em;
+  padding: 12px 12px 8px;
+  border: 1px solid var(--edge-soft);
+  border-radius: 4px;
+  background: var(--page);
+  font-size: 12px;
+}
+.chart-title {
+  margin: 0 0 6px;
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 600;
+}
+.chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin: 0 0 6px;
+  padding: 0;
+  list-style: none;
+  color: var(--ink-quiet);
+}
+.chart-legend li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+/* A square for a bar, a short line for a line. */
+.chart-key {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+.chart-key[data-kind='line'] {
+  width: 14px;
+  height: 3px;
+}
+.chart-y-label,
+.chart-x-label {
+  margin: 0;
+  color: var(--ink-quiet);
+}
+.chart-x-label {
+  text-align: center;
+}
+.chart-plot {
+  position: relative;
+  overflow: hidden;
+}
+.chart-plot svg {
+  display: block;
+  max-width: 100%;
+}
+.chart-plot text {
+  fill: var(--ink-quiet);
+  font-size: 12px;
+}
+.chart-grid line {
+  stroke: var(--edge-soft);
+  stroke-width: 1;
+}
+.chart-zero {
+  stroke: var(--ink-faint);
+  stroke-width: 1;
+}
+.chart-band {
+  fill: var(--edge-soft);
+  opacity: 0.6;
+}
+.chart-cross {
+  stroke: var(--ink-faint);
+  stroke-width: 1;
+}
+.chart-line {
+  fill: none;
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+/* A ring in the page color keeps a point clear of the lines it crosses. */
+.chart-dot {
+  stroke: var(--page);
+  stroke-width: 2;
+}
+.chart-hit {
+  fill: transparent;
+}
+.chart-tip {
+  position: absolute;
+  top: 4px;
+  z-index: 1;
+  min-width: 120px;
+  max-width: 260px;
+  padding: 6px 8px;
+  border: 1px solid var(--edge);
+  border-radius: 4px;
+  background: var(--pane);
+  box-shadow: 0 2px 6px rgb(0 0 0 / 0.15);
+  color: var(--ink);
+  pointer-events: none;
+  transform: translateX(10px);
+}
+.chart-tip-left {
+  transform: translateX(calc(-100% - 10px));
+}
+.chart-tip p {
+  margin: 0;
+}
+.chart-tip-head {
+  margin-bottom: 4px !important;
+  font-weight: 600;
+}
+.chart-tip-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.chart-tip-name {
+  color: var(--ink-quiet);
+}
+.chart-tip-value {
+  margin-left: auto;
+  padding-left: 10px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 /* ------------------------------------------------------------ the quiz */

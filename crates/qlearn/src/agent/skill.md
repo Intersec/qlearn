@@ -16,8 +16,8 @@ never ask the learner whether they want the page. Another skill may load
 this procedure and add sources and rules of its own, such as tickets or
 internal docs. If it does, follow those rules too.
 
-This release has no chart, no steps, no image, no findings and no
-cheatsheet yet. The parts of this procedure that need them say what to do
+This release has no steps, no image, no findings and no cheatsheet
+yet. The parts of this procedure that need them say what to do
 instead.
 
 This procedure comes in four parts:
@@ -572,10 +572,11 @@ A page is Markdown. This release takes:
 - Callouts (see "Callouts").
 - Excerpts of the repository (see "Show the code").
 - Diagrams (see "Diagrams").
+- Charts (see "Charts").
 
 This release refuses these blocks, with an error at their line:
 
-- A fence with the info string `chart` or `steps`.
+- A fence with the info string `steps`.
 - An image, `![alt](path)`, alone in a paragraph.
 
 The server escapes raw HTML, so it shows as text. Write no HTML.
@@ -668,6 +669,56 @@ flowchart LR
 The server cannot run Mermaid, so it cannot check the syntax. If Mermaid
 refuses the source, the page shows the error in place of the diagram, and
 your `wait` returns a request of kind `broken` (see "A broken diagram").
+
+## Charts
+
+A fence with the info string `chart` is a bar chart or a line chart. Use
+a chart for numbers that compare or that change: a time by setting, a
+size by release, a count over time. A table shows a few numbers better
+than a chart, so draw a chart only when the shape of the numbers is the
+point.
+
+````
+```chart
+{
+  "kind": "bar",
+  "title": "Election time, by timeout range",
+  "x": { "label": "Timeout range (ms)", "values": ["150-300", "150-200", "150-151"] },
+  "y": { "label": "Median election time", "unit": "ms" },
+  "series": [
+    { "name": "5 servers", "values": [283, 410, 1520] },
+    { "name": "9 servers", "values": [301, 455, 1985] }
+  ]
+}
+```
+````
+
+| Field | What it holds |
+|---|---|
+| `kind` | `bar` to compare values, `line` to show a change along `x` |
+| `title` | What the chart shows, 100 characters at most |
+| `x` | `label`, and `values`: the bars or the points, in order. Strings or numbers, 1 to 50, each 24 characters at most, no value twice |
+| `y` | `label`, and `unit` if the values have one, such as `ms` or `%` |
+| `series` | 1 to 8 series, each with a `name` and one number in `values` for each value of `x` |
+
+- The page draws `x` values at equal steps, in the order that you give,
+  even when they are numbers.
+- A bar chart draws 60 bars at most: the `x` values times the series. Its
+  axis starts at zero.
+- In a line chart, `null` is a gap: no measure at that `x` value. A bar
+  chart takes no `null`: write 0, or take the `x` value out.
+- Each text holds one line. A label holds 60 characters at most, a series
+  name 40, a unit 12. Two series never share a name.
+- A value lies within ±1e15. The values span 0.0001 at least, and at
+  least a billionth of the largest one. If not, change the unit of `y`,
+  such as `s` to `ms`, or draw each value minus a base value.
+- The chart holds no other field, and no color: the page sets the colors.
+- Take the numbers from the code, a test, or a measure that you ran. Say
+  where they come from in the text of the page. Never make up a number.
+- Put a chart at the top level of the page, not inside a list or a quote.
+
+The server checks every rule, and names the field of each error, such as
+`series[1].values: holds 3 values, and x holds 4`.
 
 ## Quizzes
 

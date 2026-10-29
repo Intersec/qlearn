@@ -1,0 +1,6 @@
+---
+source: crates/qlearn/src/lesson/mod.rs
+description: "# A chart\n\n```chart\n{\n  \"kind\": \"bar\",\n  \"title\": \"Votes\",\n}\n```\n"
+---
+refused
+refused-chart-json.md:7: chart: not valid JSON: trailing comma, at column 1

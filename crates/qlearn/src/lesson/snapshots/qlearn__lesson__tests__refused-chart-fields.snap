@@ -1,0 +1,9 @@
+---
+source: crates/qlearn/src/lesson/mod.rs
+description: "# Unknown fields\n\n```chart\n{\n  \"kind\": \"bar\",\n  \"title\": \"Votes\",\n  \"color\": \"red\",\n  \"x\": { \"label\": \"Term\", \"values\": [\"1\"], \"type\": \"category\" },\n  \"y\": { \"label\": \"Votes\", \"min\": 0 },\n  \"series\": [{ \"name\": \"S1\", \"values\": [3], \"color\": \"blue\" }]\n}\n```\n"
+---
+refused
+refused-chart-fields.md:3: chart: unknown field "color". A chart takes kind, title, x, y and series
+refused-chart-fields.md:3: chart: x: unknown field "type". x takes label and values
+refused-chart-fields.md:3: chart: y: unknown field "min". y takes label and unit
+refused-chart-fields.md:3: chart: series[0]: unknown field "color". A series takes name and values

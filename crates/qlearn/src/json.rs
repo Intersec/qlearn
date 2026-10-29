@@ -26,10 +26,7 @@ pub fn array<'a>(
     path: &str,
     faults: &mut Vec<String>,
 ) -> Option<&'a Vec<Value>> {
-    let at = match path {
-        "" => name.to_owned(),
-        _ => format!("{path}.{name}"),
-    };
+    let at = at(path, name);
     match fields.get(name) {
         Some(Value::Array(items)) => Some(items),
         Some(other) => {
@@ -43,25 +40,33 @@ pub fn array<'a>(
     }
 }
 
+/// A string field. `path` is "" for the top of the body.
 pub fn text(
     fields: &Map<String, Value>,
     name: &str,
     path: &str,
     faults: &mut Vec<String>,
 ) -> Option<String> {
+    let at = at(path, name);
     match fields.get(name) {
         Some(Value::String(text)) => Some(text.clone()),
         Some(other) => {
-            faults.push(format!(
-                "{path}.{name}: takes a string, not {}",
-                shape(other)
-            ));
+            faults.push(format!("{at}: takes a string, not {}", shape(other)));
             None
         }
         None => {
-            faults.push(format!("{path}.{name}: missing"));
+            faults.push(format!("{at}: missing"));
             None
         }
+    }
+}
+
+/// The path of a field, as a fault names it. `path` is "" for the top of
+/// the body.
+pub fn at(path: &str, name: &str) -> String {
+    match path {
+        "" => name.to_owned(),
+        _ => format!("{path}.{name}"),
     }
 }
 

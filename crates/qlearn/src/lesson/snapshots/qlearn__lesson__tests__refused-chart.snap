@@ -1,6 +1,0 @@
----
-source: crates/qlearn/src/lesson/mod.rs
-description: "Election time:\n\n```chart\n{ \"kind\": \"bar\" }\n```\n"
----
-refused
-refused-chart.md:3: chart: this release of qlearn does not support chart blocks yet

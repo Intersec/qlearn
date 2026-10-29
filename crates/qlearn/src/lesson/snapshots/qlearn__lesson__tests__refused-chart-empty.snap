@@ -1,0 +1,6 @@
+---
+source: crates/qlearn/src/lesson/mod.rs
+description: "# A chart\n\n```chart\n```\n"
+---
+refused
+refused-chart-empty.md:3: chart: the fence holds no chart: write its JSON inside it

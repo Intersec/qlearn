@@ -1,0 +1,6 @@
+---
+source: crates/qlearn/src/lesson/mod.rs
+description: "- The election time:\n\n  ```chart\n  { \"kind\": \"bar\" }\n  ```\n"
+---
+refused
+refused-chart-nested.md:3: chart: a chart cannot sit inside a list or a quote: put it at the top level of the page

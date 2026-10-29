@@ -153,6 +153,43 @@ export const PAGE_DIAGRAMS_FIXED = PAGE_DIAGRAMS.replace(
 `,
 );
 
+/** A page with a bar chart of two series and a line chart with a gap. */
+export const PAGE_CHARTS = `# How long an election takes
+
+A wider range of timeouts ends an election sooner.
+
+\`\`\`chart
+{
+  "kind": "bar",
+  "title": "Election time, by timeout range",
+  "x": { "label": "Timeout range (ms)", "values": ["150-300", "150-200", "150-155", "150-151"] },
+  "y": { "label": "Median election time", "unit": "ms" },
+  "series": [
+    { "name": "5 servers", "values": [283, 410, 1100, 1520] },
+    { "name": "9 servers", "values": [301, 455, 1290, 1985] }
+  ]
+}
+\`\`\`
+
+## The terms
+
+S1 was down at second 4, so its line has a gap there.
+
+\`\`\`chart
+{
+  "kind": "line",
+  "title": "The term of each server, second by second",
+  "x": { "label": "Time (s)", "values": [0, 1, 2, 3, 4, 5, 6, 7, 8] },
+  "y": { "label": "Term" },
+  "series": [
+    { "name": "S1", "values": [1, 1, 2, 2, null, 4, 4, 5, 5] },
+    { "name": "S2", "values": [1, 2, 2, 3, 3, 4, 4, 5, 6] },
+    { "name": "S3", "values": [1, 1, 2, 3, 4, 4, 5, 5, 6] }
+  ]
+}
+\`\`\`
+`;
+
 /** A quiz of the first page: an open question, then a choice. */
 export const QUIZ_1 = {
   open: {

@@ -9,6 +9,7 @@ import type { Block } from '@/api/types';
 import { clean } from '@/html';
 import { THREADS, quoteIn } from '@/threads';
 import CalloutView from './CalloutView.vue';
+import ChartView from './ChartView.vue';
 import CommentBox from './CommentBox.vue';
 import DiagramView from './DiagramView.vue';
 import ExcerptView from './ExcerptView.vue';
@@ -78,6 +79,9 @@ async function send(block: string, quote: string | null, body: string): Promise<
     </section>
     <section v-else-if="block.kind === 'excerpt'" class="block" :data-block="block.id">
       <ExcerptView :excerpt="block.excerpt" />
+    </section>
+    <section v-else-if="block.kind === 'chart'" class="block" :data-block="block.id">
+      <ChartView :chart="block.chart" />
     </section>
     <section v-else class="block" :data-block="block.id">
       <DiagramView :block="block" @broken="(id, error) => emit('broken', id, error)" />
