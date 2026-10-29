@@ -13,6 +13,7 @@ import ChartView from './ChartView.vue';
 import CommentBox from './CommentBox.vue';
 import DiagramView from './DiagramView.vue';
 import ExcerptView from './ExcerptView.vue';
+import ImageView from './ImageView.vue';
 import StepsView from './StepsView.vue';
 import ThreadView from './ThreadView.vue';
 
@@ -83,6 +84,9 @@ async function send(block: string, quote: string | null, body: string): Promise<
     </section>
     <section v-else-if="block.kind === 'chart'" class="block" :data-block="block.id">
       <ChartView :chart="block.chart" />
+    </section>
+    <section v-else-if="block.kind === 'image'" class="block" :data-block="block.id">
+      <ImageView :image="block" />
     </section>
     <section v-else-if="block.kind === 'steps'" class="block" :data-block="block.id">
       <StepsView

@@ -1,6 +1,0 @@
----
-source: crates/qlearn/src/lesson/mod.rs
-description: "The flow of a vote:\n\n![The flow of a vote](docs/flow.png)\n"
----
-refused
-refused-image.md:3: image: this release of qlearn does not support image blocks yet

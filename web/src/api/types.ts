@@ -82,8 +82,7 @@ export interface Session {
 
 /**
  * A block of a page. The server writes the HTML from a short list of tags,
- * and the page still passes it through DOMPurify. The other kinds of
- * section 4.1 join this type with the step that teaches the server them.
+ * and the page still passes it through DOMPurify.
  */
 export interface TextBlock {
   id: string;
@@ -133,8 +132,31 @@ export interface StepsBlock {
   steps: Steps;
 }
 
+/**
+ * An image of the repository, read by the server at the push and copied
+ * into `media/` (section 4.6 of the design). The page draws it from an
+ * `<img>`, so an SVG runs no script.
+ */
+export interface ImageBlock {
+  id: string;
+  kind: 'image';
+  /** The text for a screen reader. Never empty. */
+  alt: string;
+  /** `<sha256>.<ext>`: the name that `GET /api/media/:name` takes. */
+  media: string;
+  path: string;
+  /** "" for the main repository, or the path of the submodule. */
+  repo: string;
+  /** The full hash of HEAD at the push, in the repository that holds the file. */
+  commit: string;
+  type: 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp' | 'image/svg+xml';
+  /** In pixels, or null when the file does not say. */
+  width: number | null;
+  height: number | null;
+}
+
 export type Block =
-  TextBlock | CalloutBlock | ExcerptBlock | DiagramBlock | ChartBlock | StepsBlock;
+  TextBlock | CalloutBlock | ExcerptBlock | DiagramBlock | ChartBlock | StepsBlock | ImageBlock;
 
 /**
  * Steps, as the server checked them. The texts are plain text, as the

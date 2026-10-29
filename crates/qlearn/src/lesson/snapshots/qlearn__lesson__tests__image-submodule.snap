@@ -1,0 +1,14 @@
+---
+source: crates/qlearn/src/lesson/mod.rs
+assertion_line: 1386
+description: "# The library\n\n![The *logo* of the `lib`](vendor/lib/docs/logo.svg)\n"
+---
+title: The library
+
+text c3765c52dfd4
+<h1>The library</h1>
+
+image 633722b484e5
+vendor/lib/docs/logo.svg in "vendor/lib" at <lib HEAD>, image/svg+xml, Some(120) x Some(40)
+alt: "The logo of the lib"
+media: 417270c99e2fbb74da534f6986f16b11a9a45914c3c79351a8a5203b82bd2285.svg, 333 bytes

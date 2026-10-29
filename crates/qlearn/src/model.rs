@@ -511,9 +511,6 @@ pub struct Finding {
 }
 
 /// A block of a page. See section 4.1 of the design.
-///
-/// The kinds of the later steps join this enum. Until then, the server
-/// refuses a page that holds one.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum Block {
@@ -538,6 +535,29 @@ pub enum Block {
     /// A state that changes over time, which the learner plays step by
     /// step. Checked by the server, drawn by the page.
     Steps { id: String, steps: Steps },
+    /// An image of the repository, read by the server at the push and
+    /// copied into `media/`. See section 4.6 of the design.
+    Image {
+        id: String,
+        /// The text of the image for a reader who cannot see it.
+        alt: String,
+        /// The name of the file in `media/`: the hash of its bytes and the
+        /// extension of its type.
+        media: String,
+        /// From the top level directory of the worktree.
+        path: String,
+        /// "" for the main repository, or the path of the submodule.
+        repo: String,
+        /// The full hash, in the repository that holds the file.
+        commit: String,
+        #[serde(rename = "type")]
+        format: ImageType,
+        /// In pixels, from the header of the file, so the page keeps the
+        /// room of the image before it loads. None when the file does not
+        /// say, as an SVG with no size.
+        width: Option<u32>,
+        height: Option<u32>,
+    },
 }
 
 impl Block {
@@ -548,7 +568,8 @@ impl Block {
             | Self::Excerpt { id, .. }
             | Self::Diagram { id, .. }
             | Self::Chart { id, .. }
-            | Self::Steps { id, .. } => id,
+            | Self::Steps { id, .. }
+            | Self::Image { id, .. } => id,
         }
     }
 
@@ -561,6 +582,95 @@ impl Block {
             Self::Diagram { .. } => "diagram",
             Self::Chart { .. } => "chart",
             Self::Steps { .. } => "steps",
+            Self::Image { .. } => "image",
+        }
+    }
+}
+
+/// The type of an image, as its bytes say. It goes on the wire as the media
+/// type that the media route sends.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub enum ImageType {
+    #[serde(rename = "image/png")]
+    Png,
+    #[serde(rename = "image/jpeg")]
+    Jpeg,
+    #[serde(rename = "image/gif")]
+    Gif,
+    #[serde(rename = "image/webp")]
+    Webp,
+    #[serde(rename = "image/svg+xml")]
+    Svg,
+}
+
+impl ImageType {
+    pub const ALL: [Self; 5] = [Self::Png, Self::Jpeg, Self::Gif, Self::Webp, Self::Svg];
+
+    pub fn mime(self) -> &'static str {
+        match self {
+            Self::Png => "image/png",
+            Self::Jpeg => "image/jpeg",
+            Self::Gif => "image/gif",
+            Self::Webp => "image/webp",
+            Self::Svg => "image/svg+xml",
+        }
+    }
+
+    /// The extension of its file in `media/`.
+    pub fn ext(self) -> &'static str {
+        match self {
+            Self::Png => "png",
+            Self::Jpeg => "jpg",
+            Self::Gif => "gif",
+            Self::Webp => "webp",
+            Self::Svg => "svg",
+        }
+    }
+
+    /// The name that an error gives it.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Png => "PNG",
+            Self::Jpeg => "JPEG",
+            Self::Gif => "GIF",
+            Self::Webp => "WebP",
+            Self::Svg => "SVG",
+        }
+    }
+
+    /// The name with its article, as a sentence says it.
+    pub fn with_article(self) -> &'static str {
+        match self {
+            Self::Png => "a PNG",
+            Self::Jpeg => "a JPEG",
+            Self::Gif => "a GIF",
+            Self::Webp => "a WebP",
+            Self::Svg => "an SVG",
+        }
+    }
+
+    /// The type of a file of the repository, by its extension. Case does
+    /// not count, and JPEG takes both of its extensions.
+    pub fn of_path(path: &str) -> Option<Self> {
+        let (_, ext) = path.rsplit_once('.')?;
+        match ext.to_ascii_lowercase().as_str() {
+            "jpeg" => Some(Self::Jpeg),
+            ext => Self::ALL.into_iter().find(|kind| kind.ext() == ext),
+        }
+    }
+
+    /// The type of a name of `media/`: 64 lowercase hex digits, a dot and
+    /// an extension of this list. A name names a file of the store, so it
+    /// must never reach outside `media/`.
+    pub fn of_media(name: &str) -> Option<Self> {
+        let (hash, ext) = name.split_once('.')?;
+        let is_hash = hash.len() == 64
+            && hash
+                .bytes()
+                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b));
+        match is_hash {
+            true => Self::ALL.into_iter().find(|kind| kind.ext() == ext),
+            false => None,
         }
     }
 }
@@ -1740,6 +1850,78 @@ mod tests {
                       "rows": null, "diagram": "graph LR\n  S1 --> S2\n" }] } })
         );
         assert_eq!(block.kind(), "steps");
+    }
+
+    #[test]
+    fn an_image_block_has_the_shape_of_the_contract() {
+        let block = Block::Image {
+            id: "0123456789ab".to_owned(),
+            alt: "The states of a server".to_owned(),
+            media: format!("{}.svg", "a".repeat(64)),
+            path: "docs/states.svg".to_owned(),
+            repo: String::new(),
+            commit: "c".repeat(40),
+            format: ImageType::Svg,
+            width: Some(120),
+            height: None,
+        };
+
+        assert_eq!(
+            serde_json::to_value(&block).unwrap(),
+            json!({ "id": "0123456789ab", "kind": "image", "alt": "The states of a server",
+                    "media": format!("{}.svg", "a".repeat(64)), "path": "docs/states.svg",
+                    "repo": "", "commit": "c".repeat(40), "type": "image/svg+xml",
+                    "width": 120, "height": null })
+        );
+        assert_eq!(block.kind(), "image");
+        for kind in ImageType::ALL {
+            assert_eq!(serde_json::to_value(kind).unwrap(), json!(kind.mime()));
+        }
+    }
+
+    #[test]
+    fn a_media_name_is_a_hash_and_an_extension_of_the_list() {
+        let hash = "0123456789abcdef".repeat(4);
+        assert_eq!(
+            ImageType::of_media(&format!("{hash}.png")),
+            Some(ImageType::Png)
+        );
+        assert_eq!(
+            ImageType::of_media(&format!("{hash}.svg")),
+            Some(ImageType::Svg)
+        );
+        for name in [
+            format!("{hash}.jpeg"),
+            format!("{hash}.PNG"),
+            format!("{hash}.png.png"),
+            format!("{}.png", hash.to_uppercase()),
+            format!("{}.png", &hash[1..]),
+            format!("{hash}0.png"),
+            hash.clone(),
+            "../course.json".to_owned(),
+            format!("../{}.png", &hash[3..]),
+            format!("{hash}.png/"),
+            String::new(),
+        ] {
+            assert_eq!(ImageType::of_media(&name), None, "{name}");
+        }
+    }
+
+    #[test]
+    fn the_type_of_a_path_is_its_extension_whatever_its_case() {
+        for (path, kind) in [
+            ("a.png", Some(ImageType::Png)),
+            ("docs/A.JPG", Some(ImageType::Jpeg)),
+            ("a.jpeg", Some(ImageType::Jpeg)),
+            ("a.Gif", Some(ImageType::Gif)),
+            ("a.webp", Some(ImageType::Webp)),
+            ("a.svg", Some(ImageType::Svg)),
+            ("a.bmp", None),
+            ("png", None),
+            ("a.svg.txt", None),
+        ] {
+            assert_eq!(ImageType::of_path(path), kind, "{path}");
+        }
     }
 
     #[test]

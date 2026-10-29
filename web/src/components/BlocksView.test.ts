@@ -252,3 +252,26 @@ describe('the threads of a page', () => {
     expect(reply).toHaveBeenCalledWith('1-2', 'And then?');
   });
 });
+
+describe('an image block', () => {
+  it('draws its image under the block id, with an Ask button', () => {
+    const page = pageWith();
+    page.blocks.push({
+      id: 'c',
+      kind: 'image',
+      alt: 'The flow of a vote',
+      media: `${'a'.repeat(64)}.png`,
+      path: 'docs/flow.png',
+      repo: '',
+      commit: 'c'.repeat(40),
+      type: 'image/png',
+      width: 3,
+      height: 2,
+    });
+    const wrapper = mount(PageView, { props: { page, ask: vi.fn() } });
+    const anchor = wrapper.find('[data-anchor="c"]');
+
+    expect(anchor.find('[data-block="c"] img').attributes('alt')).toBe('The flow of a vote');
+    expect(anchor.find('.ask').exists()).toBe(true);
+  });
+});

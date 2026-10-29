@@ -245,7 +245,7 @@ type Block =
   | { id: string; kind: 'diagram'; source: string }
   | { id: string; kind: 'chart'; chart: Chart }
   | { id: string; kind: 'steps'; steps: Steps }
-  | { id: string; kind: 'image'; alt: string; media: string };
+  | { id: string; kind: 'image' } & Image;
 ```
 
 ### 4.2 The excerpt
@@ -406,9 +406,30 @@ widget of the page, with data in JSON, is the way.
 ### 4.6 The image
 
 `![alt](path)` alone in a paragraph is an image of the repository, at
-`HEAD`. The server reads it at the push and copies it into `media/`, under
-the hash of its content. It takes PNG, JPEG, GIF, WebP, and SVG. An SVG
-goes through DOMPurify like any HTML. A URL with a scheme is refused.
+`HEAD`. The server reads it at the push in the object database,
+submodules included, as it reads an excerpt, and copies it into `media/`,
+under the hash of its content. It takes PNG, JPEG, GIF, WebP, and SVG, and
+reads the type in the bytes of the file. A URL with a scheme is refused.
+
+The page draws every image from an `<img>`, so an SVG runs no script and
+loads nothing. `GET /api/media/:name` sends it with its type and a
+`sandbox` policy, for a learner who opens it in a tab of its own.
+
+```ts
+type Image = {
+  alt: string;              // the text for a screen reader, never empty
+  media: string;            // <sha256>.<ext>, the name of the file in media/
+  path: string;
+  repo: string;             // "" for the main repository, or the submodule path
+  commit: string;           // the full hash of HEAD, in the repository that holds the file
+  type: 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp' | 'image/svg+xml';
+  width: number | null;     // in pixels, when the header of the file says it
+  height: number | null;
+};
+```
+
+The limits and the other rules are in `stack.md`, entry "Holes found by
+the image".
 
 ### 4.7 The checks
 
@@ -611,7 +632,7 @@ writer, and grants no permission.
 | `GET /api/points` | both | The points, in the order of section 5.3 |
 | `GET /api/cheatsheet` | page | The cheatsheet, as blocks, with the sections that the server builds |
 | `GET /api/cheatsheet.md` | both | The cheatsheet as Markdown (section 9) |
-| `GET /api/media/:name` | page | An image. Raw bytes |
+| `GET /api/media/:name` | page | An image of `media/`. Raw bytes, with its type |
 | `GET /api/events?after=<n>&who=<page\|agent>` | both | Wait for the next writes. See section 8.3 |
 | `PATCH /api/course` | agent | Change the title, the goal, the profile, the quiz mode, the status, the follow-up date. Refuses the whole change for an unknown field, a `null` but for the follow-up, a bad value, the status `new`, or a body that names no field. Trims the title. Answers the course |
 | `PUT /api/syllabus` | agent | Write the syllabus (section 3.1) |

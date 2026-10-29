@@ -45,6 +45,13 @@ pub enum ReadError {
     Directory { path: String, commit: String },
     /// The blob of a symbolic link holds its target, not code.
     Symlink { path: String, commit: String },
+    /// The blob is larger than the caller takes. It is never read.
+    TooLarge {
+        path: String,
+        commit: String,
+        size: u64,
+        limit: u64,
+    },
     /// The tree names a commit that was never fetched in the submodule.
     MissingCommit {
         submodule: String,
@@ -75,6 +82,16 @@ impl fmt::Display for ReadError {
             Self::Symlink { path, commit } => {
                 write!(f, "{path} is a symbolic link at commit {}", short(commit))
             }
+            Self::TooLarge {
+                path,
+                commit,
+                size,
+                limit,
+            } => write!(
+                f,
+                "{path} holds {size} bytes at commit {}, more than {limit}",
+                short(commit)
+            ),
             Self::MissingCommit {
                 submodule,
                 commit,
@@ -141,6 +158,17 @@ async fn rev_parse(git: &Git, rev: &str) -> Result<Option<String>, ReadError> {
 
 /// Read the file at `path` in the tree of `commit`, a full hash.
 pub async fn read_file(git: &Git, commit: &str, path: &str) -> Result<File, ReadError> {
+    read_file_within(git, commit, path, None).await
+}
+
+/// Read the file at `path` in the tree of `commit`, and refuse a file of
+/// more than `limit` bytes before its bytes reach memory.
+pub async fn read_file_within(
+    git: &Git,
+    commit: &str,
+    path: &str,
+    limit: Option<u64>,
+) -> Result<File, ReadError> {
     let parts: Vec<&str> = path.split('/').collect();
     let (name, dirs) = parts.split_last().expect("split yields one part at least");
     let not_in_tree = || ReadError::NotInTree {
@@ -190,6 +218,19 @@ pub async fn read_file(git: &Git, commit: &str, path: &str) -> Result<File, Read
         "040000" | "160000" => Err(ReadError::Directory { path, commit }),
         "120000" => Err(ReadError::Symlink { path, commit }),
         _ => {
+            if let Some(limit) = limit {
+                let out = repo.git(git, &["cat-file", "-s", &entry.hash]).await?;
+                let size = String::from_utf8_lossy(&out).trim().parse::<u64>();
+                let size = size.map_err(|e| anyhow::anyhow!("git cat-file -s: {e}"))?;
+                if size > limit {
+                    return Err(ReadError::TooLarge {
+                        path,
+                        commit,
+                        size,
+                        limit,
+                    });
+                }
+            }
             let bytes = repo.git(git, &["cat-file", "blob", &entry.hash]).await?;
             Ok(File {
                 bytes,
@@ -459,6 +500,35 @@ mod tests {
 
         assert_eq!(file.bytes, b"old\n");
         assert_eq!(file.commit, repo.sha("HEAD~1").await);
+    }
+
+    #[tokio::test]
+    async fn a_file_over_the_limit_is_refused_and_one_at_the_limit_is_read() {
+        let repo = build_repo(&[commit("first").file("a.c", "1234\n")]).await;
+        let git = Git::discover(repo.path()).await.unwrap();
+        let head = repo.sha("HEAD").await;
+
+        let read = read_file_within(&git, &head, "a.c", Some(5)).await;
+        let refused = read_file_within(&git, &head, "a.c", Some(4))
+            .await
+            .unwrap_err();
+
+        assert_eq!(read.unwrap().bytes, b"1234\n");
+        assert!(
+            matches!(
+                refused,
+                ReadError::TooLarge {
+                    size: 5,
+                    limit: 4,
+                    ..
+                }
+            ),
+            "{refused:?}"
+        );
+        assert_eq!(
+            refused.to_string(),
+            format!("a.c holds 5 bytes at commit {}, more than 4", &head[..12])
+        );
     }
 
     #[tokio::test]

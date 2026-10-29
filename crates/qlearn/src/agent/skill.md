@@ -16,8 +16,8 @@ never ask the learner whether they want the page. Another skill may load
 this procedure and add sources and rules of its own, such as tickets or
 internal docs. If it does, follow those rules too.
 
-This release has no image, no findings and no cheatsheet yet. The
-parts of this procedure that need them say what to do instead.
+This release has no findings and no cheatsheet yet. The parts of this
+procedure that need them say what to do instead.
 
 This procedure comes in four parts:
 
@@ -575,9 +575,7 @@ A page is Markdown. This release takes:
 - Diagrams (see "Diagrams").
 - Charts (see "Charts").
 - Steps (see "Steps").
-
-This release refuses an image, `![alt](path)`, alone in a paragraph, with
-an error at its line.
+- Images of the repository (see "Images").
 
 The server escapes raw HTML, so it shows as text. Write no HTML.
 
@@ -783,6 +781,38 @@ stops, answers, then plays the rest.
 
 The server checks every rule, and names the field of each error, such as
 `steps[1].rows[0]: holds 3 cells, and columns holds 4`.
+
+## Images
+
+An image alone in a paragraph shows a file of the repository. Use an
+image only for a diagram or a screenshot that the repository already
+holds, such as a figure of the design docs. Draw a new figure with a
+diagram, a chart or steps instead.
+
+```
+![The states of a server, and what moves a server between them](docs/raft/states.svg)
+```
+
+- The path starts at the top level directory of the worktree, with no
+  leading `/`, no `.` and no `..`. A path inside a submodule works.
+- For a name with a space, put the path between `<` and `>`, such as
+  `![A figure](<docs/my figure.png>)`, or write `%20`. A raw space ends
+  the link, and the line stays text.
+- The server reads the file at `HEAD` when you push the page, never on
+  disk. Commit nothing for a course: show only an image that a commit
+  holds.
+- The page takes PNG, JPEG, GIF, WebP and SVG, 5 MB at most. The server
+  reads the type in the file, and refuses a file whose extension names
+  another type. An SVG must be UTF-8 text, and its doctype must declare
+  no entity.
+- The alt text is required. Say what the image shows, for a learner who
+  cannot see it.
+- A URL is refused, such as `https://...` or `data:...`. To point to a
+  page of the web, write a link.
+- Put the image alone in its paragraph, at the top level of the page. An
+  image in a line of text shows as its alt text. An image alone in a
+  list, a quote, a callout or a table is refused.
+- Say in the text what the learner should look at in the image.
 
 ## Quizzes
 

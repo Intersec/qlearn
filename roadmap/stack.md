@@ -888,6 +888,81 @@ report with no new field keeps section 8 as it is.
 - **The changed cells computed by the server.** The page draws the
   tables, and the rule stays in one place.
 
+## 2026-10-29 — Holes found by the image
+
+Section 4.6 says where an image comes from, the five types, and that a
+URL with a scheme is refused. The code needed more answers.
+
+**Decisions.**
+
+- **The page draws an SVG from an `<img>`.** Section 4.6 said that an SVG
+  goes through DOMPurify. A browser runs no script of an `<img>`, loads
+  nothing for it, and keeps its styles out of the page. DOMPurify would
+  put the SVG in the page, where a hole in its list reaches the cookie.
+- **The media route** sends the bytes with the type of the name,
+  `X-Content-Type-Options: nosniff`, and
+  `Cache-Control: private, max-age=31536000, immutable`. Its policy is
+  `default-src 'none'; style-src 'unsafe-inline'; img-src data:; sandbox`:
+  an SVG that the learner opens in a tab of its own draws, and runs no
+  script. The token guards it, as every route. A name that is not 64 hex
+  digits, a dot and an extension of the list answers 404, so no name
+  leaves `media/`.
+- **The block on the wire** carries the name of the copy, the alt text,
+  the path, the repository and the commit, as an excerpt does, the type
+  as a media type, and the width and the height. Section 4.6 holds the
+  type.
+- **The size** comes from the header of a PNG, a GIF, a JPEG or a WebP. An
+  SVG gives its `width` and `height` in pixels, or its `viewBox`. The size
+  is `null` when the file does not say it, such as `width="100%"`. The
+  page uses it to keep the room of the image before the image loads.
+- **The type comes from the bytes**: the magic bytes of each raster type,
+  and UTF-8 text whose first element is `<svg` for an SVG. An extension
+  that names another type than the bytes is refused. A file with another
+  extension is refused before the read.
+- **An SVG that declares entities is refused.** An entity that expands to
+  itself many times over makes a small file a large one to draw. A file
+  named `.svg` gets the reason of its refusal: entities in its doctype,
+  or text that is not UTF-8. A drawing program often declares entities.
+- **An image holds 5 MB at most.** git gives the size first, so a larger
+  file never reaches memory.
+- **The path** follows the rules of an excerpt: from the top level
+  directory of the worktree, with no leading `/`, no `.` and no `..`. A
+  link with a host, such as `//example.com/a.png`, counts as a URL.
+- **The path is percent-decoded** before these checks, since a link is a
+  URL: `docs/my%20figure.png` names `docs/my figure.png`, as on GitHub.
+  `<docs/my figure.png>` names it too. A `%` that starts no escape
+  stays. A path that is not UTF-8 once decoded is refused.
+- **The alt text is required.** A screen reader reads it in place of the
+  image. Its Markdown comes out as plain text.
+- **An image alone in a list item, a quote, a callout or a table cell is
+  refused**, as a fence of a block kind is. An image inside a line of text
+  stays text, as before: the page shows its alt text, and the path as its
+  title. A title in `![alt](path "title")` is left out.
+- **The copy is written with the page.** The parse keeps the bytes, and
+  the store writes them into `media/` before the page file, so a page
+  never names an image that is not there. A name that is there already
+  holds the same bytes and is not written again. A push that fails after
+  this write removes the images that it added.
+- **The same rules hold in a debrief.**
+
+**Why.** An image of the repository is read where the excerpt is read, so
+a page shows only what the repository holds at `HEAD`. A file whose name
+lies is most often a mistake of the agent, and the route sends the type
+of the bytes. 5 MB holds any screenshot or diagram, and the store keeps
+one copy of each. An alt text is the only part of an image that a screen
+reader can give.
+
+**Rejected:**
+
+- **An SVG inlined after DOMPurify.** It would run in the page, and its
+  styles would reach the page.
+- **An image read in the worktree.** The page would show a file that no
+  commit holds.
+- **An image inside a line made a block.** The line would break around
+  it, and the agent wrote a line.
+- **The type from the extension alone.** A PNG named `.svg` would be
+  served as an SVG.
+
 ## Open questions
 
 - **The URL of the repository.** The host is decided: a public repository

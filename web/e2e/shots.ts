@@ -16,6 +16,7 @@ import {
   PAGE_CHARTS,
   PAGE_DIAGRAMS,
   PAGE_DIAGRAMS_FIXED,
+  PAGE_IMAGES,
   PAGE_STEPS,
   QUIZ_1,
   QUIZ_2,
@@ -277,9 +278,27 @@ for (const scheme of ['light', 'dark'] as const) {
     await page.screenshot({ path: join(OUT, `${scheme}-chart-line.png`) });
     await page.mouse.move(0, 0);
 
+    // Two images of the repository: an SVG figure and a small PNG, each
+    // with where it comes from.
+    await agent.page('6', PAGE_IMAGES);
+    await page.locator('.ready').getByRole('link', { name: 'Read it' }).click();
+    const images = page.locator('.image img');
+    await images.first().waitFor();
+    await page.waitForFunction(() =>
+      [...document.querySelectorAll<HTMLImageElement>('.image img')].every(
+        (image) => image.complete && image.naturalWidth > 0,
+      ),
+    );
+    await images.first().scrollIntoViewIfNeeded();
+    await page.screenshot({ path: join(OUT, `${scheme}-image.png`) });
+
     // A narrow screen: the syllabus hides behind a button, and opens over
     // the page. The button says that a choice of the column waits.
     await page.setViewportSize({ width: 420, height: 860 });
+    await images.first().scrollIntoViewIfNeeded();
+    await page.screenshot({ path: join(OUT, `${scheme}-narrow-image.png`) });
+    await page.goBack();
+    await charts.first().waitFor();
     await charts.first().scrollIntoViewIfNeeded();
     await page.screenshot({ path: join(OUT, `${scheme}-narrow-chart.png`) });
     await page.screenshot({ path: join(OUT, `${scheme}-narrow.png`) });

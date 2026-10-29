@@ -17,7 +17,7 @@ use time::OffsetDateTime;
 
 use crate::choice::StoredChoosing;
 use crate::git::exec::Git;
-use crate::model::{self, Block, Course, Line, Page, PageKind, Point};
+use crate::model::{self, Block, Course, ImageType, Line, Page, PageKind, Point};
 use crate::quiz::StoredQuiz;
 use crate::thread::StoredThread;
 
@@ -449,8 +449,18 @@ struct PointsFile {
 impl Store {
     /// The directory of the pages of a course.
     fn pages_dir(&self, slug: &str) -> Result<PathBuf> {
-        let dir = self.course_dir(slug).join("pages");
-        // A link would take every write of the pages out of `.learn/`.
+        self.inner_dir(slug, "pages")
+    }
+
+    /// The directory of the images of a course.
+    fn media_dir(&self, slug: &str) -> Result<PathBuf> {
+        self.inner_dir(slug, "media")
+    }
+
+    /// A directory of a course, which must not be a link.
+    fn inner_dir(&self, slug: &str, name: &str) -> Result<PathBuf> {
+        let dir = self.course_dir(slug).join(name);
+        // A link would take every write in it out of `.learn/`.
         if fs::symlink_metadata(&dir).is_ok_and(|meta| meta.file_type().is_symlink()) {
             bail!(
                 "{} is a symbolic link, and qlearn writes under {DIR}/ only. \
@@ -486,6 +496,48 @@ impl Store {
         match written {
             Ok(()) => Ok(undo),
             Err(error) => Err(undo.after(error)),
+        }
+    }
+
+    /// Write the images of a page into `media/`, each under the hash of its
+    /// bytes and the extension of its type.
+    ///
+    /// A name that is there already holds the same bytes, so it is never
+    /// written twice. The answer removes the files that this write added,
+    /// for a push that fails after it.
+    pub fn save_media(&self, slug: &str, media: &BTreeMap<String, Vec<u8>>) -> Result<Undo> {
+        let mut undo = Undo { files: Vec::new() };
+        if media.is_empty() {
+            return Ok(undo);
+        }
+        let dir = self.media_dir(slug)?;
+        for (name, bytes) in media {
+            if ImageType::of_media(name).is_none() {
+                return Err(undo.after(anyhow!("`{name}` is not a name of {DIR}/{slug}/media")));
+            }
+            let path = dir.join(name);
+            if path.exists() {
+                continue;
+            }
+            if let Err(error) = write_atomic(&path, bytes) {
+                return Err(undo.after(error));
+            }
+            undo.files.push((path, None));
+        }
+        Ok(undo)
+    }
+
+    /// The bytes of an image of `media/`. None when the name is not the
+    /// name of an image, or names no file.
+    pub fn load_media(&self, slug: &str, name: &str) -> Result<Option<Vec<u8>>> {
+        if ImageType::of_media(name).is_none() {
+            return Ok(None);
+        }
+        let path = self.media_dir(slug)?.join(name);
+        match fs::read(&path) {
+            Ok(bytes) => Ok(Some(bytes)),
+            Err(e) if e.kind() == ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(e).with_context(|| format!("cannot read {}", path.display())),
         }
     }
 
@@ -1708,6 +1760,76 @@ mod tests {
             "The code.\n"
         );
         assert_eq!(files(&repo.path().join("src")), ["1.md"]);
+    }
+
+    fn media_name(bytes: &[u8], ext: &str) -> String {
+        use sha2::{Digest, Sha256};
+        format!("{}.{ext}", hex::encode(Sha256::digest(bytes)))
+    }
+
+    /// A name is the hash of its bytes, so a name already there is never
+    /// written again, and the undo of a failed push removes only the
+    /// images that it added.
+    #[tokio::test]
+    async fn an_image_is_written_once_under_the_hash_of_its_bytes() {
+        let repo = repo().await;
+        let store = Store::at(repo.path());
+        store.open(Some("raft"), at_new_year()).unwrap();
+        let (one, two) = (media_name(b"one", "png"), media_name(b"two", "svg"));
+        let first = BTreeMap::from([(one.clone(), b"one".to_vec())]);
+        store.save_media("raft", &first).unwrap();
+        let dir = repo.path().join(".learn/raft/media");
+        let written = fs::metadata(dir.join(&one)).unwrap().modified().unwrap();
+
+        let both = BTreeMap::from([
+            (one.clone(), b"one".to_vec()),
+            (two.clone(), b"two".to_vec()),
+        ]);
+        let undo = store.save_media("raft", &both).unwrap();
+
+        let mut both_names = vec![one.clone(), two.clone()];
+        both_names.sort();
+        assert_eq!(files(&dir), both_names);
+        assert_eq!(
+            fs::metadata(dir.join(&one)).unwrap().modified().unwrap(),
+            written,
+            "no second write"
+        );
+        assert_eq!(store.load_media("raft", &two).unwrap().unwrap(), b"two");
+        undo.undo().unwrap();
+        assert_eq!(files(&dir), [one]);
+        assert_eq!(store.load_media("raft", &two).unwrap(), None);
+    }
+
+    #[tokio::test]
+    async fn a_name_that_is_not_a_hash_reads_and_writes_nothing() {
+        let repo = repo().await;
+        let store = Store::at(repo.path());
+        store.open(Some("raft"), at_new_year()).unwrap();
+
+        for name in ["../course.json", "course.json", "", "a.png"] {
+            assert_eq!(store.load_media("raft", name).unwrap(), None, "{name}");
+            let media = BTreeMap::from([(name.to_owned(), b"x".to_vec())]);
+            assert!(store.save_media("raft", &media).is_err(), "{name}");
+        }
+        assert_eq!(files(&repo.path().join(".learn")), ["raft/course.json"]);
+    }
+
+    #[tokio::test]
+    async fn a_link_in_place_of_the_media_is_refused_and_left_alone() {
+        let repo = repo().await;
+        let store = Store::at(repo.path());
+        store.open(Some("raft"), at_new_year()).unwrap();
+        write(&repo.path().join("src/a.txt"), "The code.\n");
+        std::os::unix::fs::symlink("../../src", repo.path().join(".learn/raft/media")).unwrap();
+        let name = media_name(b"one", "png");
+
+        let media = BTreeMap::from([(name.clone(), b"one".to_vec())]);
+        let error = store.save_media("raft", &media).unwrap_err().to_string();
+
+        assert!(error.contains("symbolic link"), "{error}");
+        assert!(store.load_media("raft", &name).is_err());
+        assert_eq!(files(&repo.path().join("src")), ["a.txt"]);
     }
 
     #[tokio::test]

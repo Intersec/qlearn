@@ -1,0 +1,47 @@
+---
+source: crates/qlearn/src/api/mod.rs
+assertion_line: 2003
+expression: body
+---
+{
+  "blocks": [
+    {
+      "html": "<h1>The states</h1>",
+      "id": "57212608094d",
+      "kind": "text"
+    },
+    {
+      "alt": "The states of a server",
+      "commit": "8571d1d281bb5ea58312280d207e4bbd40d1596b",
+      "height": 40,
+      "id": "b093141c73c1",
+      "kind": "image",
+      "media": "417270c99e2fbb74da534f6986f16b11a9a45914c3c79351a8a5203b82bd2285.svg",
+      "path": "docs/states.svg",
+      "repo": "",
+      "type": "image/svg+xml",
+      "width": 120
+    },
+    {
+      "html": "<p>A follower times out, then:</p>",
+      "id": "d193306257f7",
+      "kind": "text"
+    },
+    {
+      "alt": "The flow of a vote",
+      "commit": "8571d1d281bb5ea58312280d207e4bbd40d1596b",
+      "height": 2,
+      "id": "58ccb3feb2cc",
+      "kind": "image",
+      "media": "1a0e893c94ad808c708b09dacf55bd736d300ad9b3e240d91f507dd409c23dfa.png",
+      "path": "docs/flow.png",
+      "repo": "",
+      "type": "image/png",
+      "width": 3
+    }
+  ],
+  "choices": [],
+  "id": "1",
+  "quizzes": [],
+  "threads": []
+}

@@ -226,17 +226,9 @@ pub async fn read(
         message,
     };
 
-    let commit = match revs.get(&spec.rev) {
-        Some(known) => known.clone(),
-        None => {
-            let resolved = object::resolve(git, &spec.rev)
-                .await
-                .map_err(|e| e.to_string());
-            revs.insert(spec.rev.clone(), resolved.clone());
-            resolved
-        }
-    }
-    .map_err(|message| fault(spec.at.rev, message))?;
+    let commit = resolve(&spec.rev, git, revs)
+        .await
+        .map_err(|message| fault(spec.at.rev, message))?;
 
     let file = object::read_file(git, &commit, &spec.path)
         .await
@@ -312,6 +304,17 @@ pub async fn read(
     Ok((excerpt, hidden))
 }
 
+/// The commit that `rev` names in this push, or the error that says why
+/// it names none. A rev is resolved once per push.
+pub(super) async fn resolve(rev: &str, git: &Git, revs: &mut Revs) -> Result<String, String> {
+    if let Some(known) = revs.get(rev) {
+        return known.clone();
+    }
+    let resolved = object::resolve(git, rev).await.map_err(|e| e.to_string());
+    revs.insert(rev.to_owned(), resolved.clone());
+    resolved
+}
+
 /// `<from>-<to>` or one line, each from 1, in order.
 fn range(text: &str) -> Option<(u32, u32)> {
     let number = |text: &str| {
@@ -341,7 +344,7 @@ fn shown(from: u32, to: u32) -> String {
 
 /// Whether a path names an entry from the top level directory. git would
 /// find no `.` or `..` in a tree, and the error would not say why.
-fn is_tree_path(path: &str) -> bool {
+pub(super) fn is_tree_path(path: &str) -> bool {
     path.split('/')
         .all(|part| !part.is_empty() && part != "." && part != "..")
 }

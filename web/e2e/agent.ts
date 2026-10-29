@@ -214,6 +214,19 @@ does next.
 \`\`\`
 `;
 
+/** A page with an SVG and a PNG of the repository. */
+export const PAGE_IMAGES = `# The states of a server
+
+The design docs draw the three states of a server, and what moves a
+server from one to the next:
+
+![The three states of a server: follower, candidate and leader, with the event that moves a server between them](docs/states.svg)
+
+A follower that hears nothing for a while becomes a candidate.
+
+![Six blue pixels](docs/pixels.png)
+`;
+
 /** A quiz of the first page: an open question, then a choice. */
 export const QUIZ_1 = {
   open: {

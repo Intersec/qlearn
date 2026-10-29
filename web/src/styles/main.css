@@ -65,6 +65,10 @@
   --series-7: #6250d6;
   --series-8: #e34948;
 
+  /* Under an image of the repository. Most figures are drawn for a white
+     page, so the ground stays white in the dark theme too. */
+  --image-ground: #ffffff;
+
   --code-font:
     'Roboto Mono', ui-monospace, 'SF Mono', 'JetBrains Mono', 'Fira Code', Consolas, monospace;
   --code-size: 13px;
@@ -133,6 +137,7 @@
     --series-6: #008300;
     --series-7: #9085e9;
     --series-8: #e66767;
+    --image-ground: #ffffff;
   }
 }
 
@@ -189,6 +194,7 @@
   --series-6: #008300;
   --series-7: #9085e9;
   --series-8: #e66767;
+  --image-ground: #ffffff;
 }
 
 html,
@@ -801,6 +807,60 @@ a.syllabus-entry:focus-visible {
   border: 1px dashed var(--ink-faint);
   border-radius: 3px;
   background: var(--page);
+}
+
+/* ----------------------------------------------------------- the image */
+
+/* An image of the repository: a header that says where it comes from, as
+   for an excerpt, then the image at its own size, never wider than the
+   page. */
+.image {
+  margin: 0 0 0.9em;
+  overflow: hidden;
+  border: 1px solid var(--edge);
+  border-radius: 4px;
+  background: var(--pane);
+}
+.image-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 4px 12px;
+  border-bottom: 1px solid var(--edge);
+  background: var(--edge-soft);
+  color: var(--ink-quiet);
+  font-family: var(--code-font);
+  font-size: 12px;
+}
+.image-path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink);
+  font-weight: 600;
+}
+.image-commit {
+  margin-left: auto;
+}
+.image-body {
+  padding: 12px;
+  background: var(--image-ground);
+  text-align: center;
+}
+.image-body a {
+  display: inline-block;
+  max-width: 100%;
+  cursor: zoom-in;
+}
+.image-body img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+.image-body a:focus-visible {
+  outline: 2px solid var(--action);
+  outline-offset: 2px;
 }
 
 /* ---------------------------------------------------------- the syntax */
@@ -1663,9 +1723,11 @@ a.syllabus-entry:focus-visible {
   color: var(--action);
 }
 /* The first line of a block runs under the button: the text moves clear
-   of it. The commit of an excerpt, whose title holds the full hash, too. */
+   of it. The commit of an excerpt or an image, whose title holds the full
+   hash, too. */
 .thread-anchor > .md-doc.block > :first-child,
-.thread-anchor > .block .excerpt-head {
+.thread-anchor > .block .excerpt-head,
+.thread-anchor > .block .image-head {
   padding-right: 64px;
 }
 .ask:focus-visible {

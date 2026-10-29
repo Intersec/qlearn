@@ -10,6 +10,7 @@
 
 pub mod chart;
 pub mod excerpt;
+pub mod image;
 pub mod steps;
 
 use std::collections::{BTreeMap, HashMap};
@@ -33,6 +34,9 @@ pub struct Parsed {
     /// The hidden line of each excerpt that has one, by the id of its block.
     /// It stays on the server until the page may show it.
     pub hidden: BTreeMap<String, Line>,
+    /// The bytes of each image, by its name in `media/`. The store writes
+    /// them with the page, never before the page passes every check.
+    pub media: BTreeMap<String, Vec<u8>>,
 }
 
 /// Where a source shows: the lesson of a page, or the debrief of its quiz
@@ -122,9 +126,19 @@ async fn parse_with(
     let mut revs = excerpt::Revs::new();
     let mut blocks = Vec::new();
     let mut hidden = BTreeMap::new();
+    let mut media = BTreeMap::new();
     for piece in pieces {
         match piece {
             Piece::Block(block) => blocks.push(block),
+            Piece::Image(id, spec) => match image::read(id, &spec, git, &mut revs).await {
+                Ok((block, bytes)) => {
+                    if let Block::Image { media: name, .. } = &block {
+                        media.insert(name.clone(), bytes);
+                    }
+                    blocks.push(block);
+                }
+                Err(fault) => faults.push(fault),
+            },
             Piece::Excerpt(id, spec) => {
                 if let Some(line) = spec.hides_at().filter(|_| within != Within::Lesson) {
                     faults.push(Fault {
@@ -153,6 +167,7 @@ async fn parse_with(
             blocks,
             title,
             hidden,
+            media,
         }),
         false => {
             // Stable: the errors of one line keep their order.
@@ -162,10 +177,12 @@ async fn parse_with(
     }
 }
 
-/// A block as the split finds it. An excerpt waits for its read.
+/// A block as the split finds it. An excerpt and an image wait for their
+/// read.
 enum Piece {
     Block(Block),
     Excerpt(String, excerpt::Spec),
+    Image(String, image::Spec),
 }
 
 /// The blocks of a source as the agent wrote them, in order: a thread
@@ -232,6 +249,14 @@ fn split(source: &str, highlighter: &Highlighter, within: Within) -> Split {
             {
                 faults.push(nested_callout(line_of(range.start), &opening.word));
             }
+            // An image alone in a list item, a quote or a table cell would
+            // read as a block that the server never read. An image in a
+            // line of text stays text.
+            if let Event::Start(Tag::Paragraph | Tag::Item | Tag::TableCell) = event
+                && holds_one_image(node, offset)
+            {
+                faults.push(nested_image(line_of(range.start)));
+            }
         }
 
         match role(source, node) {
@@ -254,6 +279,14 @@ fn split(source: &str, highlighter: &Highlighter, within: Within) -> Split {
                     None => faults.push(unknown_marker(line, &opening.word)),
                     Some(marker) => {
                         let body = callout_body(node, &opening);
+                        // The marker shares its paragraph with the next
+                        // line, so the scan above cannot see an image
+                        // alone after it.
+                        if body.first().is_some_and(|(_, at)| *at == node[1].1)
+                            && holds_one_image(&body, 0)
+                        {
+                            faults.push(nested_image(line));
+                        }
                         match body.is_empty() {
                             true => faults.push(empty_callout(line)),
                             false => {
@@ -319,6 +352,22 @@ fn split(source: &str, highlighter: &Highlighter, within: Within) -> Split {
                     Ok(steps) => {
                         let id = page.id("steps", fence_source);
                         page.blocks.push(Piece::Block(Block::Steps { id, steps }));
+                    }
+                    Err(found) => faults.extend(found),
+                }
+            }
+            Role::Image => {
+                page.close();
+                let line = line_of(range.start);
+                let Event::Start(Tag::Image { dest_url, .. }) = &node[1].0 else {
+                    unreachable!("the role checked the image");
+                };
+                // The blank lines after a paragraph are not part of it.
+                let paragraph_source = source[range].trim_end();
+                match image::spec(&plain_text(&node[2..node.len() - 2]), dest_url, line) {
+                    Ok(spec) => {
+                        let id = page.id("image", paragraph_source);
+                        page.blocks.push(Piece::Image(id, spec));
                     }
                     Err(found) => faults.extend(found),
                 }
@@ -492,6 +541,17 @@ fn fence_json(
     })
 }
 
+/// An image alone inside a list, a quote or a table.
+fn nested_image(line: usize) -> Fault {
+    Fault {
+        line,
+        kind: "image",
+        message: "an image cannot sit inside a list, a quote or a table: put it alone in a \
+                  paragraph at the top level of the page"
+            .to_owned(),
+    }
+}
+
 /// A quote in the form of a callout inside a list or a quote.
 fn nested_callout(line: usize, word: &str) -> Fault {
     match Marker::of_word(word) {
@@ -559,6 +619,7 @@ enum Role {
     Diagram,
     Chart,
     Steps,
+    Image,
     /// A block of a kind that this release does not draw yet.
     Refused(&'static str),
 }
@@ -574,7 +635,7 @@ fn role(source: &str, node: &[Item]) -> Role {
             Some(kind) => Role::Refused(kind),
             None => Role::Text,
         },
-        Event::Start(Tag::Paragraph) if is_image_alone(node) => Role::Refused("image"),
+        Event::Start(Tag::Paragraph) if holds_one_image(node, 0) => Role::Image,
         Event::Start(Tag::BlockQuote(_)) => match opening(source, node) {
             Some(opening) => Role::Callout(opening),
             None => Role::Text,
@@ -583,11 +644,19 @@ fn role(source: &str, node: &[Item]) -> Role {
     }
 }
 
-/// Whether a paragraph holds one image and nothing else.
-fn is_image_alone(paragraph: &[Item]) -> bool {
-    let inner = &paragraph[1..paragraph.len() - 1];
-    matches!(inner.first(), Some((Event::Start(Tag::Image { .. }), _)))
-        && matching_end(inner, 0) == inner.len() - 1
+/// Whether the element that opens at `at` holds one image and nothing
+/// else. Only the image is scanned, so a check of each item of a deep list
+/// stays linear.
+fn holds_one_image(items: &[Item], at: usize) -> bool {
+    if !matches!(
+        items.get(at + 1),
+        Some((Event::Start(Tag::Image { .. }), _))
+    ) {
+        return false;
+    }
+    // Right after the image, an end closes the element that holds it.
+    let end = matching_end(items, at + 1);
+    matches!(items.get(end + 1), Some((Event::End(_), _)))
 }
 
 /// The `[!word]` that opens a quote.
@@ -1041,7 +1110,7 @@ mod tests {
     use std::path::Path;
 
     use super::*;
-    use crate::testutil::{Repo, build_repo, commit};
+    use crate::testutil::{PNG, Repo, SVG, build_repo, commit};
 
     /// The code that the excerpts of the corpus read. A comment opens above
     /// line 10, so the colors of an excerpt that starts inside it show
@@ -1083,9 +1152,23 @@ bool grant_vote(struct server *s, int term, int candidate)
 }
 ";
 
+    /// An SVG as a drawing program exports it: its doctype declares the
+    /// entities of its namespaces.
+    const EDITOR_SVG: &str = "<?xml version=\"1.0\"?>\n<!DOCTYPE svg PUBLIC \"-//W3C//DTD SVG \
+                              1.1//EN\" \"http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd\" [\n  \
+                              <!ENTITY ns_extend \"http://ns.example.com/Extensibility/1.0/\">\n]>\n\
+                              <svg width=\"10\" height=\"10\"></svg>\n";
+
+    /// Text in UTF-16, little endian, with its byte order mark.
+    fn utf16(text: &str) -> Vec<u8> {
+        let mut bytes = vec![0xff, 0xfe];
+        bytes.extend(text.encode_utf16().flat_map(u16::to_le_bytes));
+        bytes
+    }
+
     /// The repository of the corpus: `src/raft.c`, a file of no known
-    /// language, a file outside ASCII, and `lib` as the submodule
-    /// `vendor/lib`. The branch `stale` names a commit of `lib` that the
+    /// language, a file outside ASCII, images under `docs/`, and `lib` as
+    /// the submodule `vendor/lib`. The branch `stale` names a commit of `lib` that the
     /// submodule never fetched.
     struct Corpus {
         top: Repo,
@@ -1098,11 +1181,16 @@ bool grant_vote(struct server *s, int term, int candidate)
     }
 
     async fn corpus() -> Corpus {
-        let lib = build_repo(&[commit("lib").file(
-            "src/lib.c",
-            "/* A list of the servers. */\nstruct server *servers;\nint count;\n",
-        )])
+        let lib = build_repo(&[commit("lib")
+            .file(
+                "src/lib.c",
+                "/* A list of the servers. */\nstruct server *servers;\nint count;\n",
+            )
+            .file("docs/logo.svg", SVG)])
         .await;
+        // One byte over the limit: the size is read before the bytes.
+        let mut big = PNG.to_vec();
+        big.resize(image::MAX_BYTES as usize + 1, 0);
         let top = build_repo(&[commit("raft")
             .file("src/raft.c", RAFT)
             .file("src/terms.xyz", "term 1: S1 leads\nterm 2: S2 leads\n")
@@ -1110,6 +1198,14 @@ bool grant_vote(struct server *s, int term, int candidate)
                 "src/names.c",
                 "/* Les élections. */\nchar *chef = \"Ægir\"; /* the leader */\n",
             )
+            .bytes("docs/flow.png", PNG)
+            .file("docs/states.svg", SVG)
+            .file("docs/fake.png", SVG)
+            .file("docs/editor.svg", EDITOR_SVG)
+            .bytes("docs/wide.svg", &utf16(SVG))
+            .bytes("docs/my figure.png", PNG)
+            .file("docs/notes.gif", "GIF is the name, not the content.\n")
+            .bytes("docs/big.png", &big)
             .submodule("vendor/lib", &lib)])
         .await;
         let head = top.sha("HEAD").await;
@@ -1203,6 +1299,22 @@ bool grant_vote(struct server *s, int term, int candidate)
                         Block::Steps { id, steps } => out.push_str(&format!(
                             "\nsteps {id}\n{}\n",
                             serde_json::to_string_pretty(steps).unwrap()
+                        )),
+                        Block::Image {
+                            id,
+                            alt,
+                            media,
+                            path,
+                            repo,
+                            commit,
+                            format,
+                            width,
+                            height,
+                        } => out.push_str(&format!(
+                            "\nimage {id}\n{path} in {repo:?} at {commit}, {}, {width:?} x \
+                             {height:?}\nalt: {alt:?}\nmedia: {media}, {} bytes\n",
+                            format.mime(),
+                            parsed.media[media].len()
                         )),
                     }
                 }
@@ -1710,6 +1822,112 @@ bool grant_vote(struct server *s, int term, int candidate)
             after[0].message,
             "src/raft.c has 1 line at HEAD, the excerpt asks for 13"
         );
+    }
+
+    /// An image is read at HEAD in the object database: a change in the
+    /// worktree that is not committed does not reach the page.
+    #[tokio::test]
+    async fn an_image_is_read_at_head_and_not_in_the_worktree() {
+        let corpus = corpus().await;
+        std::fs::write(corpus.top.path().join("docs/flow.png"), "not an image\n").unwrap();
+        std::fs::write(corpus.top.path().join("docs/new.png"), PNG).unwrap();
+
+        let parsed = corpus
+            .parse("![The flow](docs/flow.png)\n\n![A new one](docs/new.png)\n")
+            .await
+            .unwrap_err();
+
+        assert_eq!(
+            corpus.label(&parsed[0].display("1.md")),
+            "1.md:3: image: docs/new.png is not a file at commit <top HEAD>"
+        );
+        let parsed = corpus.parse("![The flow](docs/flow.png)\n").await.unwrap();
+        assert_eq!(
+            parsed.media.into_values().collect::<Vec<_>>(),
+            [PNG.to_vec()]
+        );
+    }
+
+    /// An image in a submodule whose commit was never fetched gets the
+    /// error of an excerpt, with the command that fetches it.
+    #[tokio::test]
+    async fn an_image_in_a_submodule_whose_commit_is_missing_names_the_submodule() {
+        let corpus = corpus().await;
+        corpus.top.git(&["checkout", "--quiet", "stale"]).await;
+
+        let faults = corpus
+            .parse("![The logo](vendor/lib/docs/logo.svg)\n")
+            .await
+            .unwrap_err();
+
+        assert_eq!(faults.len(), 1, "{faults:?}");
+        let message = corpus.label(&faults[0].display("1.md"));
+        assert!(
+            message.starts_with(
+                "1.md:1: image: the submodule vendor/lib does not hold commit <lib unfetched>. \
+                 Run git --git-dir "
+            ),
+            "{message}"
+        );
+    }
+
+    /// A link destination is a URL, so a space in a name comes as `%20`,
+    /// as GitHub writes it. The path between `<` and `>` takes it raw.
+    #[tokio::test]
+    async fn an_image_path_is_percent_decoded() {
+        let corpus = corpus().await;
+
+        let parsed = corpus
+            .parse("![A figure](docs/my%20figure.png)\n\n![A figure](<docs/my figure.png>)\n")
+            .await
+            .unwrap();
+
+        let paths: Vec<_> = parsed
+            .blocks
+            .iter()
+            .map(|block| match block {
+                Block::Image { path, .. } => path.as_str(),
+                block => panic!("{block:?}"),
+            })
+            .collect();
+        assert_eq!(paths, ["docs/my figure.png", "docs/my figure.png"]);
+    }
+
+    /// The same image twice is two blocks and one file of `media/`.
+    #[tokio::test]
+    async fn the_same_image_twice_is_two_blocks_and_one_media() {
+        let corpus = corpus().await;
+        let image = "![The flow](docs/flow.png)";
+
+        let parsed = corpus
+            .parse(&format!("{image}\n\n{image}\n"))
+            .await
+            .unwrap();
+
+        assert_eq!(
+            parsed.blocks.iter().map(Block::id).collect::<Vec<_>>(),
+            [
+                block_id("image", image, 1, Within::Lesson),
+                block_id("image", image, 2, Within::Lesson)
+            ]
+        );
+        assert_eq!(parsed.media.len(), 1);
+        assert_eq!(
+            sources(&format!("{image}\n"), Within::Lesson)[0].kind,
+            "image"
+        );
+    }
+
+    #[test]
+    fn an_image_check_of_a_deep_list_runs_in_linear_time() {
+        let source = format!("{}![a](b.png)\n", "- ".repeat(40_000));
+        let start = std::time::Instant::now();
+
+        let found = split(&source, Highlighter::shared(), Within::Lesson);
+
+        assert_eq!(found.faults.len(), 1);
+        let spent = start.elapsed();
+        assert!(spent < std::time::Duration::from_secs(2), "{spent:?}");
     }
 
     /// A debrief shows once its quiz is answered: a hidden line in it

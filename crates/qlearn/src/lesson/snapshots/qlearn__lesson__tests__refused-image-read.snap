@@ -1,0 +1,13 @@
+---
+source: crates/qlearn/src/lesson/mod.rs
+assertion_line: 1406
+description: "# Images that the server cannot show\n\n![Not there](docs/gone.png)\n\n![An SVG named as a PNG](docs/fake.png)\n\n![Text named as a GIF](docs/notes.gif)\n\n![Too large](docs/big.png)\n\n![In the submodule, but not there](vendor/lib/docs/gone.svg)\n\n![An SVG that declares entities](docs/editor.svg)\n\n![An SVG in UTF-16](docs/wide.svg)\n"
+---
+refused
+refused-image-read.md:3: image: docs/gone.png is not a file at commit <top HEAD>
+refused-image-read.md:5: image: docs/fake.png holds an SVG image, and its name says PNG: show a file whose name says what it holds
+refused-image-read.md:7: image: docs/notes.gif is not a PNG, JPEG, GIF, WebP or SVG image at HEAD
+refused-image-read.md:9: image: docs/big.png holds 5.1 MB at HEAD, and an image holds 5 MB at most: show a smaller file
+refused-image-read.md:11: image: vendor/lib/docs/gone.svg is not a file at commit <top HEAD>
+refused-image-read.md:13: image: docs/editor.svg declares entities in its doctype at HEAD, and an entity can make a small SVG a large one to draw: show an SVG whose doctype declares none
+refused-image-read.md:15: image: docs/wide.svg is not UTF-8 text at HEAD: show an SVG saved in UTF-8

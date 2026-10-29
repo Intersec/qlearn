@@ -13,11 +13,29 @@ use tokio::process::Command;
 const AUTHOR: &str = "Test Author";
 const EMAIL: &str = "author@example.com";
 
+/// A PNG of 3 by 2 pixels, for a commit to hold an image.
+pub const PNG: &[u8] = &[
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+    0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x02, 0x08, 0x02, 0x00, 0x00, 0x00, 0x12, 0x16, 0xf1,
+    0x4d, 0x00, 0x00, 0x00, 0x10, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x63, 0x90, 0x2a, 0x7e, 0x01,
+    0x41, 0x0c, 0x70, 0x16, 0x00, 0x52, 0xac, 0x08, 0xbf, 0x39, 0xd5, 0xbc, 0xd7, 0x00, 0x00, 0x00,
+    0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
+];
+
+/// An SVG of 120 by 40, with a script that a page must never run.
+pub const SVG: &str = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
+<!-- The states of a server. -->\n\
+<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"120\" height=\"40\" viewBox=\"0 0 120 40\">\n\
+  <script>document.title = 'run';</script>\n\
+  <rect x=\"1\" y=\"1\" width=\"118\" height=\"38\" fill=\"#fff\" stroke=\"#000\"/>\n\
+  <text x=\"60\" y=\"25\" text-anchor=\"middle\">Follower</text>\n\
+</svg>\n";
+
 /// A commit to create.
 #[derive(Clone, Debug)]
 pub struct Commit {
     subject: String,
-    files: Vec<(String, String)>,
+    files: Vec<(String, Vec<u8>)>,
     deletes: Vec<String>,
     submodules: Vec<(String, PathBuf)>,
     gitlinks: Vec<(String, String)>,
@@ -35,8 +53,13 @@ pub fn commit(subject: &str) -> Commit {
 
 impl Commit {
     /// Write a file. The content replaces whatever was there.
-    pub fn file(mut self, path: &str, content: &str) -> Self {
-        self.files.push((path.to_owned(), content.to_owned()));
+    pub fn file(self, path: &str, content: &str) -> Self {
+        self.bytes(path, content.as_bytes())
+    }
+
+    /// Write a file that may not be text, such as an image.
+    pub fn bytes(mut self, path: &str, content: &[u8]) -> Self {
+        self.files.push((path.to_owned(), content.to_vec()));
         self
     }
 

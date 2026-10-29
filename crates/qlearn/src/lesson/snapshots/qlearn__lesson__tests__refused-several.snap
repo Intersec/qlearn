@@ -1,10 +1,11 @@
 ---
 source: crates/qlearn/src/lesson/mod.rs
+assertion_line: 1386
 description: "# Several errors\n\nSome text that is fine.\n\n```excerpt\npath: src/raft.h\nlines: 1-10\n```\n\n![A figure](docs/figure.svg)\n\n## A section\n\n- A list item with a fence:\n\n  ```chart\n  {}\n  ```\n\n```mermaid\n```\n\n> [!tip]\n> Two leaders in one term.\n\n```steps\n{}\n```\n"
 ---
 refused
 refused-several.md:6: excerpt: src/raft.h is not a file at commit <top HEAD>
-refused-several.md:10: image: this release of qlearn does not support image blocks yet
+refused-several.md:10: image: docs/figure.svg is not a file at commit <top HEAD>
 refused-several.md:16: chart: a chart cannot sit inside a list or a quote: put it at the top level of the page
 refused-several.md:20: diagram: the fence holds no Mermaid source: write the diagram inside it
 refused-several.md:23: callout: [!tip] is not a callout: write [!hook], [!teaser], [!pitfall] or [!note]

@@ -1,0 +1,11 @@
+---
+source: crates/qlearn/src/lesson/mod.rs
+assertion_line: 1386
+description: "# Images inside other blocks\n\n- ![In a tight list](docs/flow.png)\n- An item of text.\n\n1. ![In a loose list](docs/flow.png)\n\n2. An item of text.\n\n> ![In a quote](docs/flow.png)\n\n> [!note]\n> ![In a callout](docs/flow.png)\n\n| Image | Text |\n|---|---|\n| ![In a table](docs/flow.png) | a cell |\n\n- A list item with an image in its line ![the flow](docs/flow.png) stays text.\n"
+---
+refused
+refused-image-nested.md:3: image: an image cannot sit inside a list, a quote or a table: put it alone in a paragraph at the top level of the page
+refused-image-nested.md:6: image: an image cannot sit inside a list, a quote or a table: put it alone in a paragraph at the top level of the page
+refused-image-nested.md:10: image: an image cannot sit inside a list, a quote or a table: put it alone in a paragraph at the top level of the page
+refused-image-nested.md:12: image: an image cannot sit inside a list, a quote or a table: put it alone in a paragraph at the top level of the page
+refused-image-nested.md:17: image: an image cannot sit inside a list, a quote or a table: put it alone in a paragraph at the top level of the page

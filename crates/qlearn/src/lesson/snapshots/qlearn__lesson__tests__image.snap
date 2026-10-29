@@ -1,0 +1,25 @@
+---
+source: crates/qlearn/src/lesson/mod.rs
+assertion_line: 1386
+description: "# The states of a server\n\n![The states of a server, and what moves a server from one to the next](docs/states.svg)\n\nA follower that hears nothing for a while starts an election:\n\n![The flow of a vote](<docs/flow.png> \"A title stays out of the page\")\n\nAn image inside a line stays text: ![the flow](docs/flow.png).\n"
+---
+title: The states of a server
+
+text 608e94602d6c
+<h1>The states of a server</h1>
+
+image 4a39c7b048ec
+docs/states.svg in "" at <top HEAD>, image/svg+xml, Some(120) x Some(40)
+alt: "The states of a server, and what moves a server from one to the next"
+media: 417270c99e2fbb74da534f6986f16b11a9a45914c3c79351a8a5203b82bd2285.svg, 333 bytes
+
+text 3e31be57e532
+<p>A follower that hears nothing for a while starts an election:</p>
+
+image 8c0291ac804b
+docs/flow.png in "" at <top HEAD>, image/png, Some(3) x Some(2)
+alt: "The flow of a vote"
+media: 1a0e893c94ad808c708b09dacf55bd736d300ad9b3e240d91f507dd409c23dfa.png, 73 bytes
+
+text 9592f576ce5a
+<p>An image inside a line stays text: <span class="md-image" title="docs/flow.png">the flow</span>.</p>

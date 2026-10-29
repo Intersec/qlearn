@@ -1,7 +1,8 @@
 //! The HTTP routes.
 //!
-//! Every answer is JSON, and every error carries the same shape, so the
-//! page and the commands of the agent never have to guess what came back.
+//! Every answer but an image is JSON, and every error carries the same
+//! shape, so the page and the commands of the agent never have to guess
+//! what came back.
 
 pub mod auth;
 
@@ -108,6 +109,7 @@ pub fn app(state: AppState) -> Router {
         .route("/api/threads/{id}", post(reply))
         .route("/api/choices", post(choose))
         .route("/api/choices/{id}", post(answer_choice))
+        .route("/api/media/{name}", get(media))
         .method_not_allowed_fallback(method_not_allowed)
         .fallback(interface)
         .layer(middleware::from_fn_with_state(state.clone(), auth::guard))
@@ -290,7 +292,13 @@ async fn push_page(
         quizzes: kept.quizzes,
         threads: kept.threads,
     };
-    let undo = state.store.save_page(&changed.slug, &id, &source, &file)?;
+    // The images first: a page file never names an image that is not
+    // there.
+    let media = state.store.save_media(&changed.slug, &parsed.media)?;
+    let undo = match state.store.save_page(&changed.slug, &id, &source, &file) {
+        Ok(undo) => media.and(undo),
+        Err(error) => return Err(media.after(error).into()),
+    };
     if let Err(error) = state.store.save(&changed) {
         return Err(undo.after(error).into());
     }
@@ -586,6 +594,7 @@ async fn write_debrief(
         Some(earlier) => earlier.at.clone(),
         None => model::stamp(now),
     };
+    let images = parsed.media;
     let debrief = StoredDebrief {
         source,
         blocks: parsed.blocks,
@@ -612,7 +621,11 @@ async fn write_debrief(
     // The page file goes first: it holds the debrief, and the other files
     // follow from it. A server killed before them writes them at its next
     // start, in `settle`.
-    let mut undo = state.store.save_blocks(&changed.slug, &id, &file)?;
+    let media = state.store.save_media(&changed.slug, &images)?;
+    let mut undo = match state.store.save_blocks(&changed.slug, &id, &file) {
+        Ok(undo) => media.and(undo),
+        Err(error) => return Err(media.after(error).into()),
+    };
     match state.store.save_points(&changed.slug, &points) {
         Ok(later) => undo = undo.and(later),
         Err(error) => return Err(undo.after(error).into()),
@@ -640,6 +653,48 @@ async fn write_debrief(
     drop(course);
 
     Ok(Json(file.page(&id, &choices)))
+}
+
+/// What an image may do once a browser opens it: draw, with its own
+/// styles, and nothing more. An SVG opened in a tab of its own is a page of
+/// this origin, so `sandbox` stops its scripts and gives it no cookie.
+const MEDIA_POLICY: &str = "default-src 'none'; style-src 'unsafe-inline'; img-src data:; sandbox";
+
+/// An image of the course, as its bytes, with the type that its name says.
+///
+/// The only answer that is not JSON. The name is the hash of the bytes, so
+/// a browser may keep the answer for good.
+async fn media(
+    State(state): State<AppState>,
+    path: Result<Path<String>, PathRejection>,
+) -> Result<Response, ApiError> {
+    use axum::http::header;
+
+    let Path(name) = path.map_err(bad_path)?;
+    let none = || ApiError::not_found(format!("{name} names no image of the course"));
+    let Some(kind) = model::ImageType::of_media(&name) else {
+        return Err(none());
+    };
+    let course = state.course.read().await;
+    let bytes = state
+        .store
+        .load_media(&course.slug, &name)?
+        .ok_or_else(none)?;
+    drop(course);
+
+    Ok((
+        [
+            (header::CONTENT_TYPE, kind.mime()),
+            (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
+            (
+                header::CACHE_CONTROL,
+                "private, max-age=31536000, immutable",
+            ),
+            (header::CONTENT_SECURITY_POLICY, MEDIA_POLICY),
+        ],
+        bytes,
+    )
+        .into_response())
 }
 
 /// The points of the course, in the order of section 5.3 of the design:
@@ -1908,6 +1963,208 @@ mod tests {
             steps["steps"][0]["html"],
             "S1 <em>times out</em>. &lt;i&gt;x&lt;/i&gt;"
         );
+    }
+
+    /// The repository of the images: a PNG and an SVG, beside the code.
+    async fn image_repo() -> Repo {
+        build_repo(&[commit("raft")
+            .file("src/raft.c", RAFT)
+            .bytes("docs/flow.png", crate::testutil::PNG)
+            .file("docs/states.svg", crate::testutil::SVG)])
+        .await
+    }
+
+    const IMAGES: &str = "# The states\n\n\
+                          ![The states of a server](docs/states.svg)\n\n\
+                          A follower times out, then:\n\n\
+                          ![The flow of a vote](docs/flow.png)\n";
+
+    /// A raw request with the cookie, so a test can send a path that a
+    /// client would have cleaned.
+    fn get_raw(uri: &str) -> Request<Body> {
+        get_with_cookie(uri, TOKEN)
+    }
+
+    async fn bytes(
+        app: Router,
+        request: Request<Body>,
+    ) -> (StatusCode, header::HeaderMap, Vec<u8>) {
+        let response = app.oneshot(request).await.unwrap();
+        let (parts, body) = response.into_parts();
+        let bytes = axum::body::to_bytes(body, 1 << 24).await.unwrap();
+        (parts.status, parts.headers, bytes.to_vec())
+    }
+
+    /// An image crosses the wire as the name of its copy in `media/`, with
+    /// where it comes from and its size. The bytes stay in the store.
+    #[tokio::test]
+    async fn an_image_crosses_the_wire_as_its_media_name() {
+        let dir = image_repo().await;
+        let state = state_in(dir.path());
+        let untouched = outside(dir.path());
+
+        let (status, pushed) = json(app(state.clone()), put("/api/pages/1", IMAGES)).await;
+        assert_eq!(status, StatusCode::OK, "{pushed}");
+        let (status, body) = json(app(state), get_with_cookie("/api/pages/1", TOKEN)).await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body, pushed);
+        insta::assert_json_snapshot!("page_image", body);
+        let svg = &body["blocks"][1];
+        let png = &body["blocks"][3];
+        let svg_name = svg["media"].as_str().unwrap();
+        let png_name = png["media"].as_str().unwrap();
+        assert_eq!(
+            files(dir.path()),
+            [
+                ".learn/raft/course.json".to_owned(),
+                format!(".learn/raft/media/{png_name}"),
+                format!(".learn/raft/media/{svg_name}"),
+                ".learn/raft/pages/1.json".to_owned(),
+                ".learn/raft/pages/1.md".to_owned(),
+            ]
+        );
+        assert_eq!(
+            std::fs::read(dir.path().join(".learn/raft/media").join(png_name)).unwrap(),
+            crate::testutil::PNG
+        );
+        assert_eq!(outside(dir.path()), untouched, "a write outside .learn/");
+    }
+
+    /// A page with one bad image stores nothing, not even its good image.
+    #[tokio::test]
+    async fn a_refused_page_stores_no_image() {
+        let dir = image_repo().await;
+        let state = state_in(dir.path());
+        let source = format!("{IMAGES}\n![A logo](https://example.com/logo.png)\n");
+
+        let (status, body) = json(app(state), put("/api/pages/1", source)).await;
+
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+        assert_eq!(body["error"]["code"], "invalidPage");
+        assert!(
+            body["error"]["message"]
+                .as_str()
+                .unwrap()
+                .contains("1.md:9: image: \"https://example.com/logo.png\" is a URL"),
+            "{body}"
+        );
+        assert_eq!(files(dir.path()), Vec::<String>::new());
+    }
+
+    /// The media route sends the bytes with the type of the name, and
+    /// tells the browser never to guess another type or run a script.
+    #[tokio::test]
+    async fn the_media_route_sends_the_bytes_with_their_type() {
+        let dir = image_repo().await;
+        let state = state_in(dir.path());
+        let (_, pushed) = json(app(state.clone()), put("/api/pages/1", IMAGES)).await;
+
+        for (block, bytes, mime) in [
+            (
+                &pushed["blocks"][1],
+                crate::testutil::SVG.as_bytes(),
+                "image/svg+xml",
+            ),
+            (&pushed["blocks"][3], crate::testutil::PNG, "image/png"),
+        ] {
+            let uri = format!("/api/media/{}", block["media"].as_str().unwrap());
+            let (status, headers, body) = bytes_of(&state, &uri).await;
+
+            assert_eq!(status, StatusCode::OK, "{uri}");
+            assert_eq!(body, bytes);
+            assert_eq!(headers[header::CONTENT_TYPE], mime);
+            assert_eq!(headers[header::X_CONTENT_TYPE_OPTIONS], "nosniff");
+            assert_eq!(
+                headers[header::CACHE_CONTROL],
+                "private, max-age=31536000, immutable"
+            );
+            assert_eq!(
+                headers[header::CONTENT_SECURITY_POLICY],
+                "default-src 'none'; style-src 'unsafe-inline'; img-src data:; sandbox"
+            );
+        }
+    }
+
+    async fn bytes_of(state: &AppState, uri: &str) -> (StatusCode, header::HeaderMap, Vec<u8>) {
+        bytes(app(state.clone()), get_raw(uri)).await
+    }
+
+    /// A name that is not the hash of an image of the store names nothing,
+    /// and no name reaches a file outside `media/`.
+    #[tokio::test]
+    async fn the_media_route_refuses_a_name_that_is_not_an_image_of_the_store() {
+        let dir = image_repo().await;
+        let state = state_in(dir.path());
+        let (_, pushed) = json(app(state.clone()), put("/api/pages/1", IMAGES)).await;
+        let name = pushed["blocks"][3]["media"].as_str().unwrap();
+        let hash = name.strip_suffix(".png").unwrap();
+        // A file beside `media/` that a traversal would reach.
+        std::fs::write(
+            dir.path().join(format!(".learn/raft/{hash}.png")),
+            "outside",
+        )
+        .unwrap();
+
+        for uri in [
+            format!("/api/media/{}.png", "0".repeat(64)),
+            format!("/api/media/{hash}.svg"),
+            format!("/api/media/{hash}.PNG"),
+            format!("/api/media/{}", hash),
+            "/api/media/course.json".to_owned(),
+            "/api/media/..%2Fcourse.json".to_owned(),
+            "/api/media/%2E%2E%2Fpages%2F1.json".to_owned(),
+            format!("/api/media/..%2F{hash}.png"),
+            format!("/api/media/%2Fetc%2F{hash}.png"),
+            "/api/media/../course.json".to_owned(),
+        ] {
+            let (status, _, body) = bytes_of(&state, &uri).await;
+            let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+
+            assert_eq!(status, StatusCode::NOT_FOUND, "{uri}: {body}");
+            assert_eq!(body["error"]["code"], "notFound", "{uri}");
+        }
+    }
+
+    #[tokio::test]
+    async fn the_media_route_needs_the_token() {
+        let dir = image_repo().await;
+        let state = state_in(dir.path());
+        let (_, pushed) = json(app(state.clone()), put("/api/pages/1", IMAGES)).await;
+        let uri = format!(
+            "/api/media/{}",
+            pushed["blocks"][3]["media"].as_str().unwrap()
+        );
+
+        for request in [get(&uri), get_with_cookie(&uri, "wrong")] {
+            let (status, body) = json(app(state.clone()), request).await;
+
+            assert_eq!(status, StatusCode::UNAUTHORIZED);
+            assert_eq!(body["error"]["code"], "unauthorized");
+        }
+    }
+
+    /// A debrief is a page source: its images go to `media/` too.
+    #[tokio::test]
+    async fn a_debrief_stores_its_images() {
+        let (dir, state) = with_quiz(LESSON, QUIZ_TWO_POINTS).await;
+        answer_quiz(&state, 1).await;
+        dir.commit(&commit("images").bytes("docs/flow.png", crate::testutil::PNG))
+            .await;
+        let body = debrief_body(
+            "# Almost\n\n![The flow of a vote](docs/flow.png)\n",
+            serde_json::json!({ "random-timeout": "ok", "majority": "partial" }),
+        );
+
+        let (status, page) = write_debrief(&state, 1, &body).await;
+
+        assert_eq!(status, StatusCode::OK, "{page}");
+        let block = &page["quizzes"][0]["debrief"]["blocks"][1];
+        assert_eq!(block["kind"], "image");
+        let uri = format!("/api/media/{}", block["media"].as_str().unwrap());
+        let (status, _, bytes) = bytes_of(&state, &uri).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(bytes, crate::testutil::PNG);
     }
 
     /// A step diagram that Mermaid refuses reports its steps block. The
