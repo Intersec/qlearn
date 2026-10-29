@@ -1,0 +1,6 @@
+---
+source: crates/qlearn/src/lesson/mod.rs
+description: "- The election:\n\n  ```steps\n  { \"title\": \"Votes\" }\n  ```\n"
+---
+refused
+refused-steps-nested.md:3: steps: a steps block cannot sit inside a list or a quote: put it at the top level of the page

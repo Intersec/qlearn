@@ -70,6 +70,42 @@ pub fn at(path: &str, name: &str) -> String {
     }
 }
 
+/// A string field that holds one short line, trimmed. `place` names where
+/// the line shows, such as "the chart".
+pub fn line(
+    fields: &Map<String, Value>,
+    name: &str,
+    path: &str,
+    most: usize,
+    place: &str,
+    faults: &mut Vec<String>,
+) -> Option<String> {
+    let at = at(path, name);
+    let value = text(fields, name, path, faults)?;
+    let value = value.trim();
+    if value.is_empty() {
+        faults.push(format!("{at}: empty"));
+        return None;
+    }
+    short(value, &at, most, place, faults).then(|| value.to_owned())
+}
+
+/// Whether a text fits on its line of `place`. A fault says why not.
+pub fn short(value: &str, path: &str, most: usize, place: &str, faults: &mut Vec<String>) -> bool {
+    if value.contains(['\n', '\r']) {
+        faults.push(format!("{path}: holds a line break. Keep it on one line"));
+        return false;
+    }
+    let count = value.chars().count();
+    if count > most {
+        faults.push(format!(
+            "{path}: holds {count} characters, and {most} at most fit on {place}"
+        ));
+        return false;
+    }
+    true
+}
+
 pub fn unknown(
     fields: &Map<String, Value>,
     known: &[&str],

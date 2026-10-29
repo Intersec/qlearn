@@ -1,3 +1,0 @@
-```steps
-{ "title": "Two candidates" }
-```

@@ -1,0 +1,8 @@
+---
+source: crates/qlearn/src/lesson/mod.rs
+description: "# Unknown fields\n\n```steps\n{\n  \"title\": \"Votes\",\n  \"columns\": [\"Server\"],\n  \"autoplay\": true,\n  \"steps\": [\n    { \"label\": \"t = 0\", \"body\": \"S1 asks.\", \"rows\": [[\"S1\"]], \"note\": \"x\", \"delay\": 3 }\n  ]\n}\n```\n"
+---
+refused
+refused-steps-fields.md:3: steps: unknown field "autoplay". Steps take title, columns and steps
+refused-steps-fields.md:3: steps: steps[0]: unknown field "delay". A step takes label, body, and rows or diagram
+refused-steps-fields.md:3: steps: steps[0]: unknown field "note". A step takes label, body, and rows or diagram

@@ -1,0 +1,88 @@
+---
+source: crates/qlearn/src/lesson/mod.rs
+description: "# Two candidates\n\nS1 and S2 time out close together.\n\n```steps\n{\n  \"title\": \"Two candidates in term 6\",\n  \"columns\": [\"Server\", \"Term\", \"State\", \"Voted for\"],\n  \"steps\": [\n    { \"label\": \"t = 0 ms\", \"body\": \"S1 times out first, and votes for *itself*.\",\n      \"rows\": [[\"S1\", 6, \"candidate\", \"S1\"], [\"S2\", 5, \"follower\", \"\"]] },\n    { \"label\": \"t = 2 ms\", \"body\": \"S2 gets the `RequestVote` of S1. <b>No script</b> here.\",\n      \"rows\": [[\"S1\", 6, \"candidate\", \"S1\"], [\"S2\", 6, \"follower\", \"S1\"]] },\n    { \"label\": \"t = 3 ms <S3>\", \"body\": \"S3 joins: a row more.\",\n      \"rows\": [[\"S1\", 6, \"leader\", \"S1\"], [\"S2\", 6, \"follower\", \"S1\"], [\"S3\", 6, \"follower\", \"S1\"]] }\n  ]\n}\n```\n\nStop on the second step, and answer the quiz.\n"
+---
+title: Two candidates
+
+text 075f76a51da1
+<h1>Two candidates</h1>
+<p>S1 and S2 time out close together.</p>
+
+steps f08b9b1fecbb
+{
+  "title": "Two candidates in term 6",
+  "columns": [
+    "Server",
+    "Term",
+    "State",
+    "Voted for"
+  ],
+  "steps": [
+    {
+      "label": "t = 0 ms",
+      "html": "S1 times out first, and votes for <em>itself</em>.",
+      "rows": [
+        [
+          "S1",
+          "6",
+          "candidate",
+          "S1"
+        ],
+        [
+          "S2",
+          "5",
+          "follower",
+          ""
+        ]
+      ],
+      "diagram": null
+    },
+    {
+      "label": "t = 2 ms",
+      "html": "S2 gets the <code>RequestVote</code> of S1. &lt;b&gt;No script&lt;/b&gt; here.",
+      "rows": [
+        [
+          "S1",
+          "6",
+          "candidate",
+          "S1"
+        ],
+        [
+          "S2",
+          "6",
+          "follower",
+          "S1"
+        ]
+      ],
+      "diagram": null
+    },
+    {
+      "label": "t = 3 ms <S3>",
+      "html": "S3 joins: a row more.",
+      "rows": [
+        [
+          "S1",
+          "6",
+          "leader",
+          "S1"
+        ],
+        [
+          "S2",
+          "6",
+          "follower",
+          "S1"
+        ],
+        [
+          "S3",
+          "6",
+          "follower",
+          "S1"
+        ]
+      ],
+      "diagram": null
+    }
+  ]
+}
+
+text fd06115abbee
+<p>Stop on the second step, and answer the quiz.</p>

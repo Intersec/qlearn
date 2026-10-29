@@ -8,4 +8,5 @@ refused-several.md:10: image: this release of qlearn does not support image bloc
 refused-several.md:16: chart: a chart cannot sit inside a list or a quote: put it at the top level of the page
 refused-several.md:20: diagram: the fence holds no Mermaid source: write the diagram inside it
 refused-several.md:23: callout: [!tip] is not a callout: write [!hook], [!teaser], [!pitfall] or [!note]
-refused-several.md:26: steps: this release of qlearn does not support steps blocks yet
+refused-several.md:26: steps: title: missing
+refused-several.md:26: steps: steps: missing

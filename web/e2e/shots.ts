@@ -16,6 +16,7 @@ import {
   PAGE_CHARTS,
   PAGE_DIAGRAMS,
   PAGE_DIAGRAMS_FIXED,
+  PAGE_STEPS,
   QUIZ_1,
   QUIZ_2,
   SYLLABUS,
@@ -248,9 +249,24 @@ for (const scheme of ['light', 'dark'] as const) {
     await page.locator('.lesson .choice[data-answered="true"]').waitFor();
     await page.screenshot({ path: join(OUT, `${scheme}-choice-answered.png`) });
 
+    // Steps: the first step, then a later step with the cells that
+    // changed.
+    await agent.page('4', PAGE_STEPS);
+    await page.locator('.ready').getByRole('link', { name: 'Read it' }).click();
+    const steps = page.locator('figure.steps');
+    await steps.waitFor();
+    await steps.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: join(OUT, `${scheme}-steps-first.png`) });
+    await steps.getByRole('button', { name: 'Next step', exact: true }).click();
+    await steps.locator('td.steps-changed').first().waitFor();
+    await page.screenshot({ path: join(OUT, `${scheme}-steps-changed.png`) });
+    await steps.getByRole('button', { name: 'Next step', exact: true }).click();
+    await steps.locator('.diagram-svg svg').waitFor();
+    await page.screenshot({ path: join(OUT, `${scheme}-steps-diagram.png`) });
+
     // A bar chart and a line chart, then the values of an x value under
     // the pointer.
-    await agent.page('4', PAGE_CHARTS);
+    await agent.page('5', PAGE_CHARTS);
     await page.locator('.ready').getByRole('link', { name: 'Read it' }).click();
     const charts = page.locator('.chart');
     await charts.first().waitFor();

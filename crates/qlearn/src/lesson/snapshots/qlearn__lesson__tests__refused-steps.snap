@@ -1,6 +1,0 @@
----
-source: crates/qlearn/src/lesson/mod.rs
-description: "```steps\n{ \"title\": \"Two candidates\" }\n```\n"
----
-refused
-refused-steps.md:1: steps: this release of qlearn does not support steps blocks yet

@@ -377,6 +377,24 @@ that match `columns`. The page marks each cell that changed since the
 previous step. A step may hold a `diagram`, a Mermaid source, in place of
 `rows`.
 
+```ts
+type Steps = {
+  title: string;
+  columns: string[];          // [] when every step holds a diagram
+  steps: Step[];
+};
+
+type Step = {
+  label: string;
+  html: string;               // the body, as HTML that the server wrote
+  rows: string[][] | null;    // a number of the fence comes as its text
+  diagram: string | null;     // a Mermaid source, in place of rows
+};
+```
+
+The limits of each field are in `stack.md`, entry "Holes found by the
+steps".
+
 A step view also serves the exercise Predict: the learner stops on a step,
 answers the quiz, then plays the rest.
 

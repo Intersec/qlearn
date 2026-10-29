@@ -1,0 +1,7 @@
+---
+source: crates/qlearn/src/lesson/mod.rs
+description: "# Diagrams\n\n```steps\n{\n  \"title\": \"Votes\",\n  \"steps\": [\n    { \"label\": \"Empty\", \"body\": \"Nothing to draw.\", \"diagram\": \"\" },\n    { \"label\": \"Blank\", \"body\": \"Only blanks.\", \"diagram\": \"  \\n  \\n\" }\n  ]\n}\n```\n"
+---
+refused
+refused-steps-diagram.md:3: steps: steps[0].diagram: empty. Write the Mermaid source of the step
+refused-steps-diagram.md:3: steps: steps[1].diagram: empty. Write the Mermaid source of the step

@@ -10,6 +10,7 @@
 
 pub mod chart;
 pub mod excerpt;
+pub mod steps;
 
 use std::collections::{BTreeMap, HashMap};
 use std::ops::Range;
@@ -308,6 +309,20 @@ fn split(source: &str, highlighter: &Highlighter, within: Within) -> Split {
                     Err(found) => faults.extend(found),
                 }
             }
+            Role::Steps => {
+                page.close();
+                let line = line_of(range.start);
+                let body = fence_body(node);
+                // The blank lines after a fence are not part of it.
+                let fence_source = source[range].trim_end();
+                match steps::parse(&body, line) {
+                    Ok(steps) => {
+                        let id = page.id("steps", fence_source);
+                        page.blocks.push(Piece::Block(Block::Steps { id, steps }));
+                    }
+                    Err(found) => faults.extend(found),
+                }
+            }
             Role::Refused(kind) => {
                 page.close();
                 faults.push(refused(line_of(range.start), kind));
@@ -413,6 +428,7 @@ fn nested(line: usize, kind: &'static str) -> Fault {
         "excerpt" => "an excerpt",
         "diagram" => "a diagram",
         "chart" => "a chart",
+        "steps" => "a steps block",
         _ => return refused(line, kind),
     };
     Fault {
@@ -445,6 +461,35 @@ fn check_diagram(body: &str, line: usize) -> Result<(), Fault> {
         )));
     }
     Ok(())
+}
+
+/// The JSON of a fence, such as a chart. `fence` is the line of its
+/// opening, and `empty` the fault of a fence with nothing inside.
+fn fence_json(
+    body: &str,
+    fence: usize,
+    kind: &'static str,
+    empty: &str,
+) -> Result<serde_json::Value, Vec<Fault>> {
+    let fault = |line: usize, message: String| Fault {
+        line,
+        kind,
+        message,
+    };
+    if body.trim().is_empty() {
+        return Err(vec![fault(fence, empty.to_owned())]);
+    }
+    serde_json::from_str(body).map_err(|error| {
+        // The line of the error in the page, not in the fence.
+        let message = error.to_string();
+        let message = message
+            .split_once(" at line ")
+            .map_or(message.as_str(), |(head, _)| head);
+        vec![fault(
+            fence + error.line(),
+            format!("not valid JSON: {message}, at column {}", error.column()),
+        )]
+    })
 }
 
 /// A quote in the form of a callout inside a list or a quote.
@@ -513,6 +558,7 @@ enum Role {
     Excerpt,
     Diagram,
     Chart,
+    Steps,
     /// A block of a kind that this release does not draw yet.
     Refused(&'static str),
 }
@@ -524,6 +570,7 @@ fn role(source: &str, node: &[Item]) -> Role {
             Some("excerpt") => Role::Excerpt,
             Some("diagram") => Role::Diagram,
             Some("chart") => Role::Chart,
+            Some("steps") => Role::Steps,
             Some(kind) => Role::Refused(kind),
             None => Role::Text,
         },
@@ -1153,6 +1200,10 @@ bool grant_vote(struct server *s, int term, int candidate)
                             "\nchart {id}\n{}\n",
                             serde_json::to_string_pretty(chart).unwrap()
                         )),
+                        Block::Steps { id, steps } => out.push_str(&format!(
+                            "\nsteps {id}\n{}\n",
+                            serde_json::to_string_pretty(steps).unwrap()
+                        )),
                     }
                 }
                 out
@@ -1455,6 +1506,39 @@ bool grant_vote(struct server *s, int term, int candidate)
             refused[0].display("debrief.md"),
             "debrief.md:1: chart: series[0].values: holds 1 value, and x holds 2. Give one \
              value for each x value"
+        );
+    }
+
+    /// A debrief is a page source: it takes steps, and refuses wrong ones
+    /// with the same faults.
+    #[tokio::test]
+    async fn a_debrief_takes_steps() {
+        let corpus = plain().await;
+        let fence = "```steps\n{ \"title\": \"A vote\", \"columns\": [\"Server\", \"Vote\"], \
+                     \"steps\": [{ \"label\": \"t = 0\", \"body\": \"S2 votes.\", \
+                     \"rows\": [[\"S2\", \"S1\"]] }] }\n```";
+
+        let parsed = parse_debrief(fence, 1, &corpus.git, Highlighter::shared())
+            .await
+            .unwrap();
+        let refused = parse_debrief(
+            &fence.replace("[\"S2\", \"S1\"]", "[\"S2\"]"),
+            1,
+            &corpus.git,
+            Highlighter::shared(),
+        )
+        .await
+        .unwrap_err();
+
+        assert_eq!(parsed.blocks[0].kind(), "steps");
+        assert_eq!(
+            parsed.blocks[0].id(),
+            block_id("steps", fence, 1, Within::Debrief(1))
+        );
+        assert_eq!(
+            refused[0].display("debrief.md"),
+            "debrief.md:1: steps: steps[0].rows[0]: holds 1 cell, and columns holds 2. Give \
+             one cell for each column"
         );
     }
 

@@ -535,6 +535,9 @@ pub enum Block {
     Diagram { id: String, source: String },
     /// A bar or a line chart, checked by the server. The page draws it.
     Chart { id: String, chart: Chart },
+    /// A state that changes over time, which the learner plays step by
+    /// step. Checked by the server, drawn by the page.
+    Steps { id: String, steps: Steps },
 }
 
 impl Block {
@@ -544,7 +547,8 @@ impl Block {
             | Self::Callout { id, .. }
             | Self::Excerpt { id, .. }
             | Self::Diagram { id, .. }
-            | Self::Chart { id, .. } => id,
+            | Self::Chart { id, .. }
+            | Self::Steps { id, .. } => id,
         }
     }
 
@@ -556,6 +560,7 @@ impl Block {
             Self::Excerpt { .. } => "excerpt",
             Self::Diagram { .. } => "diagram",
             Self::Chart { .. } => "chart",
+            Self::Steps { .. } => "steps",
         }
     }
 }
@@ -605,6 +610,35 @@ pub struct ChartSeries {
     /// One per x value. None, a gap, only in a line chart. A Number keeps
     /// `283` an integer on the wire, where an f64 would write `283.0`.
     pub values: Vec<Option<serde_json::Number>>,
+}
+
+/// Steps, as the server checked them. See section 4.5 of the design.
+///
+/// The title, the columns, the labels and the cells are plain text: the
+/// page escapes them when it draws them.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct Steps {
+    pub title: String,
+    /// The head of the table of each step. Empty when every step holds a
+    /// diagram.
+    pub columns: Vec<String>,
+    /// 1 to 30, in the order that the learner plays them.
+    pub steps: Vec<Step>,
+}
+
+/// One step: its table, or a diagram in place of the table.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct Step {
+    pub label: String,
+    /// The body, inline Markdown as HTML that the server wrote.
+    pub html: String,
+    /// One cell per column. None when the step holds a diagram.
+    pub rows: Option<Vec<Vec<String>>>,
+    /// A Mermaid source, as the agent wrote it. None when the step holds
+    /// rows.
+    pub diagram: Option<String>,
 }
 
 /// The marker of a callout: `[!hook]`, `[!teaser]`, `[!pitfall]` or
@@ -1670,6 +1704,42 @@ mod tests {
                 "series": [{ "name": "S1", "values": [1, null] }] } })
         );
         assert_eq!(block.kind(), "chart");
+    }
+
+    #[test]
+    fn a_steps_block_has_the_shape_of_the_contract() {
+        let block = Block::Steps {
+            id: "0123456789ab".to_owned(),
+            steps: Steps {
+                title: "A vote".to_owned(),
+                columns: vec!["Server".to_owned()],
+                steps: vec![
+                    Step {
+                        label: "t = 0".to_owned(),
+                        html: "S1 <em>times out</em>.".to_owned(),
+                        rows: Some(vec![vec!["S1".to_owned()]]),
+                        diagram: None,
+                    },
+                    Step {
+                        label: "t = 1".to_owned(),
+                        html: "S1 asks.".to_owned(),
+                        rows: None,
+                        diagram: Some("graph LR\n  S1 --> S2\n".to_owned()),
+                    },
+                ],
+            },
+        };
+
+        assert_eq!(
+            serde_json::to_value(&block).unwrap(),
+            json!({ "id": "0123456789ab", "kind": "steps", "steps": {
+                "title": "A vote", "columns": ["Server"], "steps": [
+                    { "label": "t = 0", "html": "S1 <em>times out</em>.",
+                      "rows": [["S1"]], "diagram": null },
+                    { "label": "t = 1", "html": "S1 asks.",
+                      "rows": null, "diagram": "graph LR\n  S1 --> S2\n" }] } })
+        );
+        assert_eq!(block.kind(), "steps");
     }
 
     #[test]

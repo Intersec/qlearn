@@ -94,11 +94,8 @@ export function themeVariables(): Record<string, string | boolean> {
 /** Each drawing gets an id of its own: Mermaid scopes its styles by it. */
 let drawn = 0;
 
-/**
- * The SVG of a source, safe to give to v-html. A source that Mermaid
- * refuses throws `Refused`. Any other error is one of the page.
- */
-export async function draw(source: string): Promise<string> {
+/** Mermaid, set up for the page. */
+async function ready(): Promise<Mermaid> {
   const mermaid = await load();
   const config: MermaidConfig = {
     startOnLoad: false,
@@ -115,6 +112,15 @@ export async function draw(source: string): Promise<string> {
     suppressErrorRendering: true,
   };
   mermaid.initialize(config);
+  return mermaid;
+}
+
+/**
+ * The SVG of a source, safe to give to v-html. A source that Mermaid
+ * refuses throws `Refused`. Any other error is one of the page.
+ */
+export async function draw(source: string): Promise<string> {
+  const mermaid = await ready();
 
   let svg: string;
   try {
@@ -126,6 +132,19 @@ export async function draw(source: string): Promise<string> {
     throw new Refused(error instanceof Error ? error.message : String(error));
   }
   return DOMPurify.sanitize(svg, { USE_PROFILES: { svg: true, svgFilters: true } });
+}
+
+/**
+ * Parse a source without drawing it, for a diagram that the page does not
+ * show yet. A source that Mermaid refuses throws `Refused`.
+ */
+export async function check(source: string): Promise<void> {
+  const mermaid = await ready();
+  try {
+    await mermaid.parse(source);
+  } catch (error) {
+    throw new Refused(error instanceof Error ? error.message : String(error));
+  }
 }
 
 /**

@@ -861,7 +861,8 @@ async fn next(
 /// the page. The request names the quiz of a block of a debrief.
 ///
 /// Only a diagram can fail: the server checks every other block before it
-/// stores the page.
+/// stores the page. A diagram of a steps block reports the steps block,
+/// and the error names the step, such as `steps[2].diagram: ...`.
 async fn broken(
     State(state): State<AppState>,
     path: Result<Path<String>, PathRejection>,
@@ -889,15 +890,26 @@ async fn broken(
     let (block, quiz) = file
         .block(&body.block)
         .ok_or_else(|| ApiError::not_found(format!("page {id} holds no block {:?}", body.block)))?;
-    let quiz = quiz.map(|n| n.to_string());
-    let Block::Diagram { source, .. } = block else {
-        return Err(ApiError::bad_request(format!(
-            "block {} of page {id} is a {} block, which the server checked: only a diagram \
-             can fail to draw",
-            body.block,
-            block.kind()
-        )));
+    let source = match block {
+        Block::Diagram { source, .. } => BlockSource {
+            id: body.block.clone(),
+            kind: block.kind().to_owned(),
+            source: source.clone(),
+        },
+        // The agent fixes the fence, which holds every step.
+        Block::Steps { steps, .. } if steps.steps.iter().any(|step| step.diagram.is_some()) => {
+            block_source(&state.store, &course.slug, &id, &file, &body.block)?
+        }
+        _ => {
+            return Err(ApiError::bad_request(format!(
+                "block {} of page {id} is a {} block with no diagram, which the server \
+                 checked: only a diagram can fail to draw",
+                body.block,
+                block.kind()
+            )));
+        }
     };
+    let quiz = quiz.map(|n| n.to_string());
     // A reload, a visit or a second tab reports the block again. The agent
     // hears of it once for each push of the page.
     let mut heard = state.broken.lock().expect("the broken blocks are poisoned");
@@ -906,11 +918,7 @@ async fn broken(
         Some(event) => event.clone(),
         None => {
             let detail = Detail::Broken {
-                block: BlockSource {
-                    id: body.block.clone(),
-                    kind: block.kind().to_owned(),
-                    source: source.clone(),
-                },
+                block: source,
                 error: body.error,
             };
             let event = state
@@ -1870,6 +1878,89 @@ mod tests {
         assert_eq!(body, pushed);
         insta::assert_json_snapshot!("page_chart", body);
         assert_eq!(body["blocks"][1]["chart"]["title"], "Election <b>time</b>");
+    }
+
+    const STEPS: &str = "# Two candidates\n\n\
+                         ```steps\n{ \"title\": \"Two <b>candidates</b>\",\n  \
+                         \"columns\": [\"Server\", \"Term\"],\n  \"steps\": [\n    \
+                         { \"label\": \"t = 0\", \"body\": \"S1 *times out*. <i>x</i>\", \
+                         \"rows\": [[\"S1\", 6], [\"S2\", 5]] },\n    \
+                         { \"label\": \"t = 2\", \"body\": \"S1 asks S2.\", \
+                         \"diagram\": \"sequenceDiagram\\n  S1->>S2: vote?\\n\" }\n  ] }\n```\n";
+
+    /// The body of a step crosses the wire as the HTML of the server, and
+    /// the rest as the agent wrote it: the page escapes it.
+    #[tokio::test]
+    async fn steps_cross_the_wire_as_json_with_the_body_as_html() {
+        let dir = repo().await;
+        let state = state_in(dir.path());
+
+        let (status, pushed) = json(app(state.clone()), put("/api/pages/1", STEPS)).await;
+        assert_eq!(status, StatusCode::OK, "{pushed}");
+        let (status, body) = json(app(state), get_with_cookie("/api/pages/1", TOKEN)).await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body, pushed);
+        insta::assert_json_snapshot!("page_steps", body);
+        let steps = &body["blocks"][1]["steps"];
+        assert_eq!(steps["title"], "Two <b>candidates</b>");
+        assert_eq!(
+            steps["steps"][0]["html"],
+            "S1 <em>times out</em>. &lt;i&gt;x&lt;/i&gt;"
+        );
+    }
+
+    /// A step diagram that Mermaid refuses reports its steps block. The
+    /// agent gets the fence, and the error names the step.
+    #[tokio::test]
+    async fn a_broken_step_diagram_hands_the_agent_the_fence() {
+        let dir = repo().await;
+        let state = state_in(dir.path());
+        let (status, pushed) = json(app(state.clone()), put("/api/pages/1", STEPS)).await;
+        assert_eq!(status, StatusCode::OK, "{pushed}");
+        let block = pushed["blocks"][1]["id"].as_str().unwrap().to_owned();
+        let after = state.events.after(None, events::HOLD).await.next;
+
+        let body = serde_json::json!({ "block": block, "error": "steps[1].diagram: bad" });
+        let (status, answer) = json(
+            app(state.clone()),
+            send_json("POST", "/api/pages/1/broken", &body.to_string()),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK, "{answer}");
+        let batch = state.events.after(Some(after), events::HOLD).await;
+        let Some(Detail::Broken {
+            block: source,
+            error,
+        }) = &batch.events[0].detail
+        else {
+            panic!("no broken detail: {:?}", batch.events);
+        };
+        assert_eq!(source.id, block);
+        assert_eq!(source.kind, "steps");
+        assert!(
+            source.source.starts_with("```steps\n") && source.source.ends_with("```"),
+            "{}",
+            source.source
+        );
+        assert_eq!(error, "steps[1].diagram: bad");
+
+        // Steps with no diagram cannot fail to draw.
+        let rows_only = STEPS.replace(
+            "\"diagram\": \"sequenceDiagram\\n  S1->>S2: vote?\\n\"",
+            "\"rows\": [[\"S1\", 6]]",
+        );
+        let (status, pushed) = json(app(state.clone()), put("/api/pages/1", rows_only)).await;
+        assert_eq!(status, StatusCode::OK, "{pushed}");
+        let block = pushed["blocks"][1]["id"].as_str().unwrap();
+        let body = serde_json::json!({ "block": block, "error": "bad" });
+        let (status, answer) = json(
+            app(state),
+            send_json("POST", "/api/pages/1/broken", &body.to_string()),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{answer}");
     }
 
     const EXCERPT: &str = "# The timer\n\n\

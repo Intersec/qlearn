@@ -1,0 +1,13 @@
+---
+source: crates/qlearn/src/lesson/mod.rs
+description: "# Rows\n\n```steps\n{\n  \"title\": \"Votes\",\n  \"columns\": [\"Server\", \"Term\"],\n  \"steps\": [\n    { \"label\": \"Neither\", \"body\": \"No rows, no diagram.\" },\n    { \"label\": \"Null\", \"body\": \"Rows at null count as none.\", \"rows\": null },\n    { \"label\": \"Both\", \"body\": \"Rows and a diagram.\", \"rows\": [[\"S1\", 6]], \"diagram\": \"graph LR\\n  A --> B\\n\" },\n    { \"label\": \"Short\", \"body\": \"A row of one cell.\", \"rows\": [[\"S1\", 6], [\"S2\"]] },\n    { \"label\": \"Long\", \"body\": \"A row of three cells.\", \"rows\": [[\"S1\", 6, \"leader\"]] },\n    { \"label\": \"Empty\", \"body\": \"No row at all.\", \"rows\": [] }\n  ]\n}\n```\n\n```steps\n{\n  \"title\": \"No head\",\n  \"steps\": [\n    { \"label\": \"t = 0\", \"body\": \"Rows with no columns.\", \"rows\": [[\"S1\", 6]] }\n  ]\n}\n```\n\n```steps\n{\n  \"title\": \"An empty head\",\n  \"columns\": [],\n  \"steps\": [\n    { \"label\": \"t = 0\", \"body\": \"Rows with no columns.\", \"rows\": [[\"S1\", 6]] }\n  ]\n}\n```\n"
+---
+refused
+refused-steps-rows.md:3: steps: steps[0]: holds neither rows nor a diagram. Give one of them
+refused-steps-rows.md:3: steps: steps[1]: holds neither rows nor a diagram. Give one of them
+refused-steps-rows.md:3: steps: steps[2]: holds both rows and a diagram. Give one of them
+refused-steps-rows.md:3: steps: steps[3].rows[1]: holds 1 cell, and columns holds 2. Give one cell for each column
+refused-steps-rows.md:3: steps: steps[4].rows[0]: holds 3 cells, and columns holds 2. Give one cell for each column
+refused-steps-rows.md:3: steps: steps[5].rows: empty. Give at least one row, or a diagram in place of rows
+refused-steps-rows.md:18: steps: columns: missing. Name the column of each cell of the rows
+refused-steps-rows.md:27: steps: columns: empty. Name the column of each cell of the rows

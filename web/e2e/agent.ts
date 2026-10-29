@@ -190,6 +190,30 @@ S1 was down at second 4, so its line has a gap there.
 \`\`\`
 `;
 
+/** A page with steps: two tables, a diagram step, then a table with a row more. */
+export const PAGE_STEPS = `# Two candidates
+
+S1 and S2 time out close together. Stop on step 2, and guess what S1
+does next.
+
+\`\`\`steps
+{
+  "title": "Two candidates in term 6",
+  "columns": ["Server", "Term", "State", "Voted for"],
+  "steps": [
+    { "label": "t = 0 ms", "body": "S1 times out first, and votes for *itself*.",
+      "rows": [["S1", 6, "candidate", "S1"], ["S2", 5, "follower", ""], ["S3", 5, "follower", ""]] },
+    { "label": "t = 2 ms", "body": "S2 gets the \`RequestVote\` of S1, and takes term 6.",
+      "rows": [["S1", 6, "candidate", "S1"], ["S2", 6, "follower", "S1"], ["S3", 5, "follower", ""]] },
+    { "label": "t = 3 ms", "body": "S1 asks S3 too.",
+      "diagram": "sequenceDiagram\\n  S1->>S3: RequestVote(term 6)\\n  S3-->>S1: vote granted\\n" },
+    { "label": "t = 4 ms", "body": "S1 has a majority, and leads.",
+      "rows": [["S1", 6, "leader", "S1"], ["S2", 6, "follower", "S1"], ["S3", 6, "follower", "S1"]] }
+  ]
+}
+\`\`\`
+`;
+
 /** A quiz of the first page: an open question, then a choice. */
 export const QUIZ_1 = {
   open: {

@@ -16,9 +16,8 @@ never ask the learner whether they want the page. Another skill may load
 this procedure and add sources and rules of its own, such as tickets or
 internal docs. If it does, follow those rules too.
 
-This release has no steps, no image, no findings and no cheatsheet
-yet. The parts of this procedure that need them say what to do
-instead.
+This release has no image, no findings and no cheatsheet yet. The
+parts of this procedure that need them say what to do instead.
 
 This procedure comes in four parts:
 
@@ -283,7 +282,8 @@ make every lesson the same.
 - **The problem or the story**, in two to four sentences, with a concrete
   example.
 - **The concept**, in plain words. Tables and diagrams help a lot: a state
-  machine, a timeline, an array of values.
+  machine, a timeline, an array of values. To show a state that changes
+  over time, use steps (see "Steps").
 - **The code**, from the code tour on. Show short excerpts, of 5 to 15
   lines, with an `excerpt` fence (see "Show the code"). Show the line that
   implements the concept, not the whole function, and mark it.
@@ -363,7 +363,8 @@ From about the middle of the course, once the learner knows enough, use
 the open exercises:
 
 - **Predict.** Describe a situation step by step, and ask what happens
-  next.
+  next. A steps block fits this exercise (see "Steps"): tell the learner
+  on which step to stop, and ask what the next step shows.
 - **Your fix.** After a bug or an incident, ask for the simplest fix
   before you show the real one. In the debrief, grade each idea of the
   learner in the text: right, the right intent but it cannot work as is,
@@ -573,11 +574,10 @@ A page is Markdown. This release takes:
 - Excerpts of the repository (see "Show the code").
 - Diagrams (see "Diagrams").
 - Charts (see "Charts").
+- Steps (see "Steps").
 
-This release refuses these blocks, with an error at their line:
-
-- A fence with the info string `steps`.
-- An image, `![alt](path)`, alone in a paragraph.
+This release refuses an image, `![alt](path)`, alone in a paragraph, with
+an error at its line.
 
 The server escapes raw HTML, so it shows as text. Write no HTML.
 
@@ -719,6 +719,70 @@ point.
 
 The server checks every rule, and names the field of each error, such as
 `series[1].values: holds 3 values, and x holds 4`.
+
+## Steps
+
+A fence with the info string `steps` shows a state that changes over
+time: a timeline, an election, an array that a loop fills. The learner
+plays the steps one by one, with **Previous** and **Next** or the arrow
+keys. The page marks each cell that changed since the previous step.
+
+````
+```steps
+{
+  "title": "Two candidates in term 6",
+  "columns": ["Server", "Term", "State", "Voted for"],
+  "steps": [
+    { "label": "t = 0 ms", "body": "S1 times out first, and votes for itself.",
+      "rows": [["S1", 6, "candidate", "S1"], ["S2", 5, "follower", ""]] },
+    { "label": "t = 2 ms", "body": "S2 gets the `RequestVote` of S1, and takes term 6.",
+      "rows": [["S1", 6, "candidate", "S1"], ["S2", 6, "follower", "S1"]] },
+    { "label": "t = 3 ms", "body": "S1 has a majority, and leads.",
+      "rows": [["S1", 6, "leader", "S1"], ["S2", 6, "follower", "S1"]] }
+  ]
+}
+```
+````
+
+| Field | What it holds |
+|---|---|
+| `title` | What the steps show, 100 characters at most |
+| `columns` | The head of the table, 1 to 12 columns, each 40 characters at most, no name twice |
+| `steps` | 1 to 30 steps, in the order that the learner plays them |
+
+Each step holds:
+
+| Field | What it holds |
+|---|---|
+| `label` | A short name of the step, such as a time, 60 characters at most |
+| `body` | What happens at this step: inline Markdown on one line, 400 characters at most |
+| `rows` | The table of the step: 1 to 40 rows, each with one cell for each column |
+| `diagram` | A Mermaid source, in place of `rows` |
+
+- Give each step `rows` or a `diagram`, never both. A block that holds
+  only diagrams needs no `columns`.
+- A cell is a string or a number, 60 characters at most, on one line. An
+  empty string is an empty cell.
+- The page compares each row with the row at the same place in the
+  previous table. Keep the rows in the same order from step to step, so
+  that only the real changes are marked. A row added at the end is marked
+  as new.
+- A body holds no list, no table and no fence. Put those in the text of
+  the page.
+- A step diagram follows the rules of "Diagrams". If Mermaid refuses it,
+  your `wait` returns a `broken` request on the steps block (see "A broken
+  diagram").
+- Put a steps block at the top level of the page, not inside a list or a
+  quote.
+
+**Predict.** Put the quiz after the steps, as for any page. In the text
+above the steps, tell the learner on which step to stop, such as "Stop on
+step 2, and answer the quiz before you play the rest". The open question
+asks what the next step shows. The page needs nothing more: the learner
+stops, answers, then plays the rest.
+
+The server checks every rule, and names the field of each error, such as
+`steps[1].rows[0]: holds 3 cells, and columns holds 4`.
 
 ## Quizzes
 
@@ -926,12 +990,17 @@ of kind `broken`:
 }
 ```
 
+A diagram of a step comes as the whole steps block: `detail.block.kind`
+is `steps`, and `detail.error` starts with the step, such as
+`steps[2].diagram: Parse error on line 2: ...`. Steps count from 0.
+
 The learner sees the broken diagram until you fix it. Answer the request
 before any other:
 
-1. Find the diagram: `detail.block.source` is its text. If the request has
-   an `id`, the diagram is in the debrief of quiz `id` of page `page`.
-   Otherwise it is in the source of page `page`.
+1. Find the diagram: `detail.block.source` is its text, or the text of
+   the whole steps fence. If the request has an `id`, the diagram is in
+   the debrief of quiz `id` of page `page`. Otherwise it is in the source
+   of page `page`.
 2. Fix the source with the help of `detail.error`.
 3. Push the whole page again with `qlearn page`, or write the whole debrief
    again with `qlearn debrief`, then wait again.

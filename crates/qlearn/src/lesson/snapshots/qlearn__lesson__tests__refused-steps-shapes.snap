@@ -1,0 +1,19 @@
+---
+source: crates/qlearn/src/lesson/mod.rs
+description: "# Shapes\n\n```steps\n[\"t = 0\", \"t = 1\"]\n```\n\n```steps\n{\n  \"title\": 3,\n  \"columns\": \"Server\",\n  \"steps\": { \"label\": \"t = 0\" }\n}\n```\n\n```steps\n{\n  \"title\": \"Votes\",\n  \"columns\": [\"Server\", 2, null],\n  \"steps\": [\n    \"t = 0\",\n    { \"label\": 1, \"body\": [\"S1\"], \"rows\": \"S1\" },\n    { \"label\": \"t = 2\", \"body\": \"S1 asks.\", \"rows\": [\"S1\", [\"S2\", true, null]] },\n    { \"label\": \"t = 3\", \"body\": \"S1 leads.\", \"diagram\": 3 }\n  ]\n}\n```\n"
+---
+refused
+refused-steps-shapes.md:3: steps: the steps: takes an object, not an array
+refused-steps-shapes.md:7: steps: title: takes a string, not a number
+refused-steps-shapes.md:7: steps: columns: takes an array, not a string
+refused-steps-shapes.md:7: steps: steps: takes an array, not an object
+refused-steps-shapes.md:15: steps: columns[1]: takes a string, not a number
+refused-steps-shapes.md:15: steps: columns[2]: takes a string, not null
+refused-steps-shapes.md:15: steps: steps[0]: takes an object, not a string
+refused-steps-shapes.md:15: steps: steps[1].label: takes a string, not a number
+refused-steps-shapes.md:15: steps: steps[1].body: takes a string, not an array
+refused-steps-shapes.md:15: steps: steps[1].rows: takes an array, not a string
+refused-steps-shapes.md:15: steps: steps[2].rows[0]: takes an array of cells, not a string
+refused-steps-shapes.md:15: steps: steps[2].rows[1][1]: takes a string or a number, not a boolean
+refused-steps-shapes.md:15: steps: steps[2].rows[1][2]: takes a string or a number, not null
+refused-steps-shapes.md:15: steps: steps[3].diagram: takes a string, not a number

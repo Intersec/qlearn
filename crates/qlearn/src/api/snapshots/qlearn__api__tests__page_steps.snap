@@ -1,0 +1,51 @@
+---
+source: crates/qlearn/src/api/mod.rs
+expression: body
+---
+{
+  "blocks": [
+    {
+      "html": "<h1>Two candidates</h1>",
+      "id": "28b1645facab",
+      "kind": "text"
+    },
+    {
+      "id": "6ae10435d28e",
+      "kind": "steps",
+      "steps": {
+        "columns": [
+          "Server",
+          "Term"
+        ],
+        "steps": [
+          {
+            "diagram": null,
+            "html": "S1 <em>times out</em>. &lt;i&gt;x&lt;/i&gt;",
+            "label": "t = 0",
+            "rows": [
+              [
+                "S1",
+                "6"
+              ],
+              [
+                "S2",
+                "5"
+              ]
+            ]
+          },
+          {
+            "diagram": "sequenceDiagram\n  S1->>S2: vote?\n",
+            "html": "S1 asks S2.",
+            "label": "t = 2",
+            "rows": null
+          }
+        ],
+        "title": "Two <b>candidates</b>"
+      }
+    }
+  ],
+  "choices": [],
+  "id": "1",
+  "quizzes": [],
+  "threads": []
+}

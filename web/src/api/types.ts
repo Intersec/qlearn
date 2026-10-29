@@ -126,7 +126,38 @@ export interface ChartBlock {
   chart: Chart;
 }
 
-export type Block = TextBlock | CalloutBlock | ExcerptBlock | DiagramBlock | ChartBlock;
+/** A state that changes over time, played step by step (section 4.5 of the design). */
+export interface StepsBlock {
+  id: string;
+  kind: 'steps';
+  steps: Steps;
+}
+
+export type Block =
+  TextBlock | CalloutBlock | ExcerptBlock | DiagramBlock | ChartBlock | StepsBlock;
+
+/**
+ * Steps, as the server checked them. The texts are plain text, as the
+ * agent wrote them: the page escapes them. Only `html` is HTML.
+ */
+export interface Steps {
+  title: string;
+  /** The head of each table. [] when every step holds a diagram. */
+  columns: string[];
+  /** 1 to 30. */
+  steps: Step[];
+}
+
+/** One step: its table, or a diagram in place of the table. */
+export interface Step {
+  label: string;
+  /** The body, written by the server from inline Markdown. */
+  html: string;
+  /** One cell per column. null when the step holds a diagram. */
+  rows: string[][] | null;
+  /** A Mermaid source. null when the step holds rows. */
+  diagram: string | null;
+}
 
 /**
  * A chart (section 4.4 of the design). Every text is plain text, as the

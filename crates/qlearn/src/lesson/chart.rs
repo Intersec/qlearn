@@ -12,11 +12,14 @@ use std::collections::HashSet;
 use serde_json::{Map, Value};
 
 use super::Fault;
-use crate::json::{array, at, object, shape, text};
+use crate::json::{self, array, object, shape, text};
 use crate::model::{Chart, ChartKind, ChartSeries, ChartX, ChartY};
 use crate::quiz::count_of;
 
 const KIND: &str = "chart";
+
+/// Where a text shows, as a fault names it.
+const PLACE: &str = "the chart";
 
 /// The most series of a chart. More colors stop being told apart.
 pub const SERIES: usize = 8;
@@ -56,23 +59,12 @@ pub fn parse(body: &str, fence: usize) -> Result<Chart, Vec<Fault>> {
         kind: KIND,
         message,
     };
-    if body.trim().is_empty() {
-        return Err(vec![fault(
-            fence,
-            "the fence holds no chart: write its JSON inside it".to_owned(),
-        )]);
-    }
-    let value: Value = serde_json::from_str(body).map_err(|error| {
-        // The line of the error in the page, not in the fence.
-        let message = error.to_string();
-        let message = message
-            .split_once(" at line ")
-            .map_or(message.as_str(), |(head, _)| head);
-        vec![fault(
-            fence + error.line(),
-            format!("not valid JSON: {message}, at column {}", error.column()),
-        )]
-    })?;
+    let value = super::fence_json(
+        body,
+        fence,
+        KIND,
+        "the fence holds no chart: write its JSON inside it",
+    )?;
 
     let mut faults = Vec::new();
     let chart = read(&value, &mut faults);
@@ -414,7 +406,7 @@ fn read_one(
     })
 }
 
-/// A string field that holds one short line, trimmed.
+/// A string field that holds one short line of the chart, trimmed.
 fn filled(
     fields: &Map<String, Value>,
     name: &str,
@@ -422,30 +414,12 @@ fn filled(
     most: usize,
     faults: &mut Vec<String>,
 ) -> Option<String> {
-    let at = at(path, name);
-    let value = text(fields, name, path, faults)?;
-    let value = value.trim();
-    if value.is_empty() {
-        faults.push(format!("{at}: empty"));
-        return None;
-    }
-    short(value, &at, most, faults).then(|| value.to_owned())
+    json::line(fields, name, path, most, PLACE, faults)
 }
 
 /// Whether a text fits on its line of the chart. A fault says why not.
 fn short(value: &str, path: &str, most: usize, faults: &mut Vec<String>) -> bool {
-    if value.contains(['\n', '\r']) {
-        faults.push(format!("{path}: holds a line break. Keep it on one line"));
-        return false;
-    }
-    let count = value.chars().count();
-    if count > most {
-        faults.push(format!(
-            "{path}: holds {count} characters, and {most} at most fit on the chart"
-        ));
-        return false;
-    }
-    true
+    json::short(value, path, most, PLACE, faults)
 }
 
 #[cfg(test)]

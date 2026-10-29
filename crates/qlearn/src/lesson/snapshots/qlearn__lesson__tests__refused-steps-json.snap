@@ -1,0 +1,6 @@
+---
+source: crates/qlearn/src/lesson/mod.rs
+description: "# Steps\n\n```steps\n{\n  \"title\": \"Votes\",\n  \"steps\": [\n}\n```\n"
+---
+refused
+refused-steps-json.md:7: steps: not valid JSON: expected value, at column 1

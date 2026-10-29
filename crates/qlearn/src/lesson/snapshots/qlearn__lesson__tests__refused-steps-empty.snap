@@ -1,0 +1,8 @@
+---
+source: crates/qlearn/src/lesson/mod.rs
+description: "# Empty steps\n\n```steps\n```\n\n```steps\n{ \"title\": \"No steps\", \"columns\": [\"Server\"], \"steps\": [] }\n```\n\n```steps\n{ \"title\": \"Steps left out\", \"columns\": [\"Server\"] }\n```\n"
+---
+refused
+refused-steps-empty.md:3: steps: the fence holds no steps: write their JSON inside it
+refused-steps-empty.md:6: steps: steps: empty. Give at least one step
+refused-steps-empty.md:10: steps: steps: missing

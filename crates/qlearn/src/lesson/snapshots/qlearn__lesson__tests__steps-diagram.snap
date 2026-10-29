@@ -1,0 +1,78 @@
+---
+source: crates/qlearn/src/lesson/mod.rs
+description: "# The states of a server\n\n```steps\n{\n  \"title\": \"From follower to leader\",\n  \"columns\": [\"Server\", \"State\"],\n  \"steps\": [\n    { \"label\": \"Before\", \"body\": \"Every server is a follower.\",\n      \"rows\": [[\"S1\", \"follower\"], [\"S2\", \"follower\"]] },\n    { \"label\": \"The vote\", \"body\": \"S1 asks S2 for its vote.\",\n      \"diagram\": \"sequenceDiagram\\n  S1->>S2: RequestVote(term 6)\\n  S2-->>S1: vote granted\\n\" },\n    { \"label\": \"After\", \"body\": \"S1 leads.\",\n      \"rows\": [[\"S1\", \"leader\"], [\"S2\", \"follower\"]] }\n  ]\n}\n```\n\nA block of diagrams only needs no columns.\n\n```steps\n{\n  \"title\": \"A state machine\",\n  \"steps\": [\n    { \"label\": \"One\", \"body\": \"A follower.\", \"diagram\": \"flowchart LR\\n  F[Follower]\\n\" },\n    { \"label\": \"Two\", \"body\": \"It times out.\", \"diagram\": \"flowchart LR\\n  F[Follower] --> C[Candidate]\\n\" }\n  ]\n}\n```\n"
+---
+title: The states of a server
+
+text 608e94602d6c
+<h1>The states of a server</h1>
+
+steps e3fac4d66d88
+{
+  "title": "From follower to leader",
+  "columns": [
+    "Server",
+    "State"
+  ],
+  "steps": [
+    {
+      "label": "Before",
+      "html": "Every server is a follower.",
+      "rows": [
+        [
+          "S1",
+          "follower"
+        ],
+        [
+          "S2",
+          "follower"
+        ]
+      ],
+      "diagram": null
+    },
+    {
+      "label": "The vote",
+      "html": "S1 asks S2 for its vote.",
+      "rows": null,
+      "diagram": "sequenceDiagram\n  S1->>S2: RequestVote(term 6)\n  S2-->>S1: vote granted\n"
+    },
+    {
+      "label": "After",
+      "html": "S1 leads.",
+      "rows": [
+        [
+          "S1",
+          "leader"
+        ],
+        [
+          "S2",
+          "follower"
+        ]
+      ],
+      "diagram": null
+    }
+  ]
+}
+
+text 33a95e4fd4bc
+<p>A block of diagrams only needs no columns.</p>
+
+steps 8c80d1c91cd2
+{
+  "title": "A state machine",
+  "columns": [],
+  "steps": [
+    {
+      "label": "One",
+      "html": "A follower.",
+      "rows": null,
+      "diagram": "flowchart LR\n  F[Follower]\n"
+    },
+    {
+      "label": "Two",
+      "html": "It times out.",
+      "rows": null,
+      "diagram": "flowchart LR\n  F[Follower] --> C[Candidate]\n"
+    }
+  ]
+}

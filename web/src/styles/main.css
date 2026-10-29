@@ -1043,6 +1043,113 @@ a.syllabus-entry:focus-visible {
   white-space: nowrap;
 }
 
+/* ----------------------------------------------------------- the steps */
+
+/* Steps that the learner plays. A cell that changed is bold, with a dot,
+   on the color of a marked line: the change shows without the color. */
+.steps {
+  margin: 0 0 0.9em;
+  padding: 12px 12px 10px;
+  border: 1px solid var(--edge-soft);
+  border-radius: 4px;
+  background: var(--page);
+  font-size: 14px;
+}
+.steps:focus-visible {
+  outline: 2px solid var(--action);
+  outline-offset: 2px;
+}
+.steps-title {
+  margin: 0 0 8px;
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 600;
+}
+.steps-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 12px;
+  margin: 0 0 6px;
+}
+.steps-label {
+  margin: 0;
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 600;
+}
+.steps-player {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.steps-button {
+  padding: 3px 10px;
+  border: 1px solid var(--edge);
+  border-radius: 4px;
+  background: var(--pane);
+  color: var(--ink);
+  font-size: 13px;
+  cursor: pointer;
+}
+.steps-button:hover:not([aria-disabled='true']) {
+  border-color: var(--action);
+  color: var(--action);
+}
+.steps-button[aria-disabled='true'] {
+  color: var(--ink-faint);
+  cursor: default;
+}
+.steps-count {
+  min-width: 4em;
+  color: var(--ink-quiet);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+.steps-body {
+  margin: 0 0 10px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.steps-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+}
+.steps-table {
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.steps-table th,
+.steps-table td {
+  padding: 4px 10px;
+  border: 1px solid var(--edge);
+  text-align: left;
+  white-space: nowrap;
+}
+.steps-table th {
+  background: var(--pane);
+  font-weight: 600;
+}
+.steps-table td.steps-changed {
+  background: var(--marked);
+  font-weight: 700;
+}
+.steps-dot {
+  margin-right: 5px;
+  color: var(--marked-edge);
+  font-size: 0.8em;
+}
+.steps-legend {
+  margin: 6px 0 0;
+  color: var(--ink-quiet);
+  font-size: 12px;
+}
+.steps .diagram {
+  margin: 0;
+}
+
 /* ------------------------------------------------------------ the quiz */
 
 /* A quiz under its lesson: a frame of its own, so the learner sees where

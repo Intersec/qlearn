@@ -816,6 +816,78 @@ each tick or no tick at all.
 - **A chart library.** The page draws two kinds of chart, and a library
   weighs more than the code that draws them.
 
+## 2026-10-29 — Holes found by the steps
+
+Section 4.5 names the fields of a steps block and two rules: the rows
+match the columns, and a step holds a diagram in place of rows. The code
+needed more answers.
+
+**Decisions.**
+
+- **The page gets the steps as JSON.** The block is
+  `{ id, kind: "steps", steps }`. Section 4.5 holds the type. The body of
+  a step crosses the wire as `html`, written by the server as an option of
+  a choice: inline Markdown, the HTML of the source escaped. The title,
+  the columns, the labels and the cells stay plain text, and the page
+  escapes them.
+- **Every field is checked at once.** A fault names the line of the fence
+  and the JSON path of the field, such as
+  `steps[1].rows[0]: holds 3 cells, and columns holds 4`. A JSON syntax
+  error names its own line in the page. A field that the format does not
+  name is refused, at every level.
+- **A step holds `rows` or `diagram`, never both.** A field at `null`
+  counts as left out. `columns` is required when a step holds rows. A
+  block that holds only diagrams takes no `columns`, and the wire then
+  carries `[]`.
+- **A body** holds one line of inline Markdown: no list, no heading, no
+  fence, no second paragraph. It is never empty.
+- **A cell** is a string or a number, which the server turns into its
+  text. An empty string is an empty cell, such as no vote yet. The server
+  trims each text.
+- **A step diagram** follows the checks of a `mermaid` fence: not empty,
+  200 lines at most.
+- **The limits.** 1 to 30 steps, 1 to 12 columns, 1 to 40 rows per step.
+  A title holds 100 characters, a label 60, a column name 40, a cell 60,
+  a body 400. Each text holds one line. Two columns never share a name.
+- **A changed cell.** The page compares each row with the row at the same
+  index in the table of the nearest earlier step that holds rows. A row
+  that the earlier table did not have is new, and each of its cells is
+  marked. The first table marks nothing. A changed cell is bold, on the
+  color of a marked line, with a dot before its text, and a screen reader
+  reads "changed, was ..." after it.
+- **A broken step diagram.** The page reports the steps block through
+  `POST /api/pages/:id/broken`, with no new field. The error starts with
+  the JSON path of the step, such as `steps[2].diagram: Parse error ...`,
+  so the agent finds the step in the fence. The `broken` request hands
+  the agent the whole fence as the source of the block. A steps block
+  with no diagram cannot break, and the route refuses it. The page checks
+  every step diagram when it shows the block, so the agent hears of a
+  broken one before the learner plays up to it.
+- **The player.** The first step shows at load. Previous and Next play
+  one step, and a counter reads `2 / 5`. When the view has focus, the
+  left and right arrows play one step, and Home and End go to the first
+  and the last step.
+- **Predict needs no code.** The procedure puts the quiz after the steps,
+  as on any page, and tells the learner on which step to stop.
+
+**Why.** The page plays every steps block that the server takes. More than
+30 steps is a story that the learner loses track of, more than 12 columns
+does not fit a narrow screen, and more than 40 rows hides a change below
+the fold. A body that holds a block would break the line of the step. Rows
+compared by index need no key column, and the agent controls the order.
+Bold and a dot mark a change for a reader who does not see the color. A
+report with no new field keeps section 8 as it is.
+
+**Rejected:**
+
+- **Rows compared by their first cell.** The format would need a key
+  column, and a key that changes would read as a row removed and a row
+  added.
+- **A field of the step in the broken body.** It changes the route of
+  section 8 for one case, where the text of the error carries the step.
+- **The changed cells computed by the server.** The page draws the
+  tables, and the rule stays in one place.
+
 ## Open questions
 
 - **The URL of the repository.** The host is decided: a public repository

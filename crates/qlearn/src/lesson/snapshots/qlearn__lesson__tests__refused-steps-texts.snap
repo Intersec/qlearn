@@ -1,0 +1,13 @@
+---
+source: crates/qlearn/src/lesson/mod.rs
+description: "# Texts\n\n```steps\n{\n  \"title\": \"  \",\n  \"columns\": [\"Server\", \"\", \"Server\", \"A column whose name runs on and on past forty\"],\n  \"steps\": [\n    { \"label\": \"\", \"body\": \"S1 asks.\", \"rows\": [[\"S1\", \"a\", \"b\", \"c\"]] },\n    { \"label\": \"A label that runs on and on and on, far past the sixty characters of a label\", \"body\": \"S1 asks.\",\n      \"rows\": [[\"S1\", \"two\\nlines\", \"b\", \"A cell that runs on and on and on, far past the sixty characters of a cell\"]] }\n  ]\n}\n```\n"
+---
+refused
+refused-steps-texts.md:3: steps: title: empty
+refused-steps-texts.md:3: steps: columns[1]: empty
+refused-steps-texts.md:3: steps: columns[2]: "Server" comes twice in columns
+refused-steps-texts.md:3: steps: columns[3]: holds 45 characters, and 40 at most fit on the step view
+refused-steps-texts.md:3: steps: steps[0].label: empty
+refused-steps-texts.md:3: steps: steps[1].label: holds 76 characters, and 60 at most fit on the step view
+refused-steps-texts.md:3: steps: steps[1].rows[0][1]: holds a line break. Keep it on one line
+refused-steps-texts.md:3: steps: steps[1].rows[0][3]: holds 74 characters, and 60 at most fit on the step view
