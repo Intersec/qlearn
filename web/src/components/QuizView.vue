@@ -7,19 +7,27 @@
 //    its answer at step 1.
 // 3. The server grades the choices, and the page draws right and wrong.
 //    The agent writes the debrief.
+// 4. The debrief of the agent, under the quiz: the grade of each point of
+//    the open question, then its blocks, drawn as those of a lesson.
 //
 // The page never decides whether an answer is right: the right option
 // comes from the server, once the learner has sent the choices.
 
 import { computed, ref } from 'vue';
-import type { Choice, GradedChoice, Quiz, QuizAnswer } from '@/api/types';
+import type { Choice, Grade, GradedChoice, Quiz, QuizAnswer } from '@/api/types';
 import { clean } from '@/html';
+import BlocksView from './BlocksView.vue';
 
 const props = defineProps<{
   quiz: Quiz;
   n: number;
   /** Send a part of the answer. Answers whether the server took it. */
   send: (answer: QuizAnswer) => Promise<boolean>;
+}>();
+
+const emit = defineEmits<{
+  /** A block of the debrief that the page cannot draw. */
+  broken: [block: string, error: string];
 }>();
 
 /** What the learner typed, kept while the quiz stays on the screen. */
@@ -31,7 +39,7 @@ const others = ref<string[]>(props.quiz.choices.map(() => ''));
 /** A part on its way to the server: a second press sends nothing. */
 const sending = ref(false);
 
-type Step = 'open' | 'choices' | 'graded';
+type Step = 'open' | 'choices' | 'graded' | 'debriefed';
 
 const step = computed<Step>(() => {
   if (props.quiz.open && props.quiz.open.sent === null) {
@@ -40,8 +48,15 @@ const step = computed<Step>(() => {
   if (props.quiz.choices.some((choice) => choice.graded === null)) {
     return 'choices';
   }
-  return 'graded';
+  return props.quiz.debrief ? 'debriefed' : 'graded';
 });
+
+/** The grade of a point of the open answer, as the learner reads it. */
+const GRADES: Record<Grade, string> = {
+  ok: 'Right',
+  partial: 'Half right',
+  missed: 'Missed',
+};
 
 // Cleaned once per quiz, not at every render.
 const choices = computed(() =>
@@ -163,7 +178,7 @@ function verdict(choice: Choice & { graded: GradedChoice }): string {
       </p>
     </form>
 
-    <template v-if="step === 'graded'">
+    <template v-if="step === 'graded' || step === 'debriefed'">
       <section
         v-for="(choice, at) in graded"
         :key="at"
@@ -203,7 +218,27 @@ function verdict(choice: Choice & { graded: GradedChoice }): string {
           <span>{{ choice.graded.other }}</span>
         </p>
       </section>
-      <p class="quiz-debrief" role="status">The agent writes the debrief.</p>
+      <p v-if="!quiz.debrief" class="quiz-debrief" role="status">The agent writes the debrief.</p>
     </template>
+
+    <section v-if="quiz.debrief" class="debrief" aria-label="Debrief">
+      <p class="debrief-head">Debrief</p>
+      <ul v-if="quiz.debrief.points.length" class="debrief-points">
+        <li
+          v-for="point in quiz.debrief.points"
+          :key="point.id"
+          class="debrief-point"
+          :data-point="point.id"
+          :data-result="point.result"
+        >
+          <span class="debrief-grade">{{ GRADES[point.result] }}</span>
+          <span class="debrief-label">{{ point.label }}</span>
+        </li>
+      </ul>
+      <BlocksView
+        :blocks="quiz.debrief.blocks"
+        @broken="(id, error) => emit('broken', id, error)"
+      />
+    </section>
   </section>
 </template>

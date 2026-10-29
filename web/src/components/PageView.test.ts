@@ -128,10 +128,11 @@ describe('PageView', () => {
       id: '1',
       blocks: [{ id: 'a', kind: 'text', html: '<p>The lesson.</p>' }],
       quizzes: [
-        { open: { prompt: 'Why?', sent: null }, choices: [] },
+        { open: { prompt: 'Why?', sent: null }, choices: [], debrief: null },
         {
           open: null,
           choices: [{ header: 'Vote', prompt: 'Who?', options: ['S1', 'S2'], graded: null }],
+          debrief: null,
         },
       ],
     };
@@ -150,8 +151,8 @@ describe('PageView', () => {
       id: '1',
       blocks: [],
       quizzes: [
-        { open: { prompt: 'Why?', sent: null }, choices: [] },
-        { open: { prompt: 'How?', sent: null }, choices: [] },
+        { open: { prompt: 'Why?', sent: null }, choices: [], debrief: null },
+        { open: { prompt: 'How?', sent: null }, choices: [], debrief: null },
       ],
     };
     const send = vi.fn(async () => true);
@@ -168,10 +169,11 @@ describe('PageView', () => {
       id,
       blocks: [{ id: `text${id}`, kind: 'text', html: '<p>The lesson.</p>' }],
       quizzes: [
-        { open: { prompt, sent: null }, choices: [] },
+        { open: { prompt, sent: null }, choices: [], debrief: null },
         {
           open: null,
           choices: [{ header: 'Vote', prompt: 'Who?', options: ['S1', 'S2'], graded: null }],
+          debrief: null,
         },
       ],
     });
@@ -188,6 +190,31 @@ describe('PageView', () => {
       false,
       false,
     ]);
+  });
+
+  it('names its page when a diagram of a debrief cannot be drawn', async () => {
+    const page: Page = {
+      id: '3',
+      blocks: [{ id: 'a', kind: 'text', html: '<p>The lesson.</p>' }],
+      quizzes: [
+        {
+          open: { prompt: 'Why?', sent: 'Because.' },
+          choices: [],
+          debrief: {
+            blocks: [{ id: 'd', kind: 'diagram', source: 'graph LR\n  A -->\n' }],
+            points: [{ id: 'why', label: 'Why', result: 'ok' }],
+          },
+        },
+      ],
+    };
+    const wrapper = mount(PageView, { props: { page } });
+    await flushPromises();
+
+    expect(wrapper.findAll('[data-block]').map((block) => block.attributes('data-block'))).toEqual([
+      'a',
+      'd',
+    ]);
+    expect(wrapper.emitted('broken')).toEqual([['3', 'd', 'Parse error on line 2']]);
   });
 
   it('names its page when a diagram cannot be drawn', async () => {

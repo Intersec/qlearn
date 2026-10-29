@@ -30,9 +30,16 @@ pub struct Spec {
     rev: String,
     marked: Vec<u32>,
     hide: Option<u32>,
-    /// The line of the fence, of `path`, of `lines` and of `rev`. A key
-    /// left out takes the line of the fence.
+    /// The line of the fence, of `path`, of `lines`, of `rev` and of
+    /// `hide`. A key left out takes the line of the fence.
     at: Lines,
+}
+
+impl Spec {
+    /// The line of the `hide` key, when the fence hides a line.
+    pub fn hides_at(&self) -> Option<usize> {
+        self.hide.map(|_| self.at.hide)
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -41,6 +48,7 @@ struct Lines {
     path: usize,
     lines: usize,
     rev: usize,
+    hide: usize,
 }
 
 /// The commits that the revs of one push resolve to. Two excerpts at
@@ -195,6 +203,7 @@ pub fn spec(body: &str, fence: usize) -> Result<Spec, Vec<Fault>> {
                 path: path_at,
                 lines: keys.get("lines").map_or(fence, |(_, line)| *line),
                 rev: rev.map_or(fence, |(_, line)| line),
+                hide: keys.get("hide").map_or(fence, |(_, line)| *line),
             },
         }),
         _ => Err(faults),
@@ -374,6 +383,7 @@ mod tests {
                     path: 5,
                     lines: 6,
                     rev: 7,
+                    hide: 9,
                 },
             }
         );

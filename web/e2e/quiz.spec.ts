@@ -1,9 +1,10 @@
 // The quiz of step 3: the agent adds a quiz under a lesson, the learner
-// answers it in its steps, and the wait of the agent gets the answer. The
-// right option never reaches the page before the learner sends the choices.
+// answers it in its steps, the wait of the agent gets the answer, and the
+// agent writes the debrief. The right option never reaches the page before
+// the learner sends the choices.
 
 import { expect, test } from '@playwright/test';
-import { PAGE_1, PAGE_2, QUIZ_1, QUIZ_2 } from './agent.ts';
+import { DEBRIEF_1, PAGE_1, PAGE_2, QUIZ_1, QUIZ_2 } from './agent.ts';
 import { start, type Running } from './server.ts';
 
 let server: Running;
@@ -143,4 +144,50 @@ test('the learner answers a quiz, and the agent gets the answer', async ({ page 
   await page.reload();
   await expect(quiz).toHaveAttribute('data-step', 'graded');
   await expect(quiz.locator('.quiz-other-sent')).toContainText('Unless the ids tie too');
+});
+
+test('the agent debriefs the quiz, and the page and the column follow', async ({ page }) => {
+  const { agent } = server;
+  await agent.page('1', PAGE_1);
+  await agent.quiz('1', QUIZ_1);
+  const waited = agent.wait(0);
+  await page.goto(server.url);
+  const quiz = page.locator('.quiz[data-quiz="1"]');
+  const entry = page.locator('.syllabus-page[data-page="1"]');
+
+  // The learner half explains the open question, and picks the right option.
+  await quiz.getByRole('textbox').fill('Two followers rarely time out at once.');
+  await quiz.getByRole('button', { name: 'Send' }).click();
+  await quiz.getByRole('radio').nth(1).check();
+  await quiz.getByRole('button', { name: 'Send' }).click();
+  await expect(quiz).toHaveAttribute('data-step', 'graded');
+  await expect(entry.locator('.syllabus-score')).toHaveText('1/1');
+
+  // The agent grades the open answer half right, in the debrief.
+  const { events } = await waited;
+  expect(events.map((event) => [event.kind, event.page, event.id])).toEqual([['answer', '1', '1']]);
+  await agent.debrief('1', 1, DEBRIEF_1, { 'random-timeout': 'partial' });
+
+  // 4. The debrief appears under the quiz, live, drawn as a lesson.
+  await expect(quiz).toHaveAttribute('data-step', 'debriefed');
+  await expect(quiz.locator('.quiz-debrief')).toHaveCount(0);
+  const debrief = quiz.locator('.debrief');
+  await expect(debrief.locator('h1')).toHaveText('The split vote');
+  await expect(debrief.locator('.debrief-point')).toHaveAttribute('data-result', 'partial');
+  await expect(debrief.locator('.debrief-point')).toHaveText(
+    /Half right\s*Why the election timeout is random/,
+  );
+  await expect(debrief.locator('.excerpt [data-line="5"]')).toContainText('log_debug');
+  await expect(debrief.locator('.diagram-svg svg')).toBeVisible();
+  // The grades of the choices stay above it.
+  await expect(quiz.locator('.quiz-verdict')).toHaveText('Right');
+
+  // The column follows: a partial point counts half.
+  await expect(entry).toHaveAttribute('data-state', 'debriefed');
+  await expect(entry.locator('.syllabus-score')).toHaveText('1.5/2');
+
+  // A reload shows the same.
+  await page.reload();
+  await expect(quiz).toHaveAttribute('data-step', 'debriefed');
+  await expect(entry.locator('.syllabus-score')).toHaveText('1.5/2');
 });

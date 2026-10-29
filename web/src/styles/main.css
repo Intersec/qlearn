@@ -1095,3 +1095,68 @@ a.syllabus-entry:focus-visible {
   font-size: 13px;
   font-style: italic;
 }
+
+/* The debrief of the agent, under its quiz: a pane of the agent, with the
+   grade of each point of the open answer, then blocks as in a lesson. */
+.debrief {
+  margin: 14px 0 0;
+  padding: 8px 14px 4px;
+  border: 1px solid var(--agent-edge);
+  border-radius: 4px;
+  background: var(--page);
+}
+.debrief-head {
+  margin: 0 0 6px;
+  color: var(--ink-quiet);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.debrief-points {
+  margin: 0 0 8px;
+  padding: 0;
+  list-style: none;
+}
+.debrief-point {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 3px 8px;
+  border-left: 3px solid var(--edge);
+  border-radius: 4px;
+}
+.debrief-point + .debrief-point {
+  margin-top: 4px;
+}
+.debrief-grade {
+  flex: none;
+  padding: 0 6px;
+  border-radius: 3px;
+  font-size: 12px;
+  font-weight: 700;
+}
+.debrief-point[data-result='ok'] {
+  border-left-color: var(--right-edge);
+}
+.debrief-point[data-result='ok'] .debrief-grade {
+  background: var(--right);
+  color: var(--right-edge);
+}
+.debrief-point[data-result='partial'] {
+  border-left-color: var(--marked-edge);
+}
+.debrief-point[data-result='partial'] .debrief-grade {
+  background: var(--marked);
+  color: var(--ink);
+}
+.debrief-point[data-result='missed'] {
+  border-left-color: var(--wrong-edge);
+}
+.debrief-point[data-result='missed'] .debrief-grade {
+  background: var(--wrong);
+  color: var(--wrong-edge);
+}
+.debrief-label {
+  line-height: 1.5;
+}

@@ -8,8 +8,9 @@ of `.learn/` is not readable, stop and show the error to the learner: the
 file may hold their answers, and only they repair it.
 
 This release knows the syllabus, pages of text, callouts, excerpts of the
-code, diagrams, quizzes, and the **Next** button. The learner answers a
-quiz in the page, and you get the answer. You cannot write the debrief yet.
+code, diagrams, quizzes, the debrief of a quiz, and the **Next** button.
+The learner answers a quiz in the page, you get the answer, and you write
+the debrief.
 
 ## Start
 
@@ -127,8 +128,8 @@ Repeat until the learner says that the course is over:
      as the learner starts one. If the server stops during a `wait`, the
      `wait` looks for it again, and a new server answers `"reset": true`.
 3. Answer each request. For `next`, push the next page. For `broken`,
-   fix the diagram and push its page again. For `answer`, see "The
-   answer".
+   fix the diagram and push its page or its debrief again. For `answer`,
+   write the debrief (see "The debrief").
 4. Go back to step 1.
 
 Writing a page takes minutes. Before a long piece of work, say what you do,
@@ -294,13 +295,16 @@ your `wait` returns a request of kind `broken`:
 The learner sees the broken diagram until you fix it. Answer the request
 before any other:
 
-1. Find the diagram in the source of page `page`: `detail.block.source` is
-   its text.
+1. Find the diagram: `detail.block.source` is its text. If the request has
+   an `id`, the diagram is in the debrief of quiz `id` of page `page`.
+   Otherwise it is in the source of page `page`.
 2. Fix the source with the help of `detail.error`.
-3. Push the whole page again with `qlearn page`, then wait again.
+3. Push the whole page again with `qlearn page`, or write the whole debrief
+   again with `qlearn debrief`, then wait again.
 
 The fixed diagram gets a new block id. You hear of a broken diagram once
-for each push of its page, even when the learner opens the page again.
+for each push of its page or its debrief, even when the learner opens the
+page again.
 
 ## Quizzes
 
@@ -355,7 +359,8 @@ EOF
   point that a question of the quiz names.
 - `lesson` names the page that taught the point. The page of the quiz is
   the default. In the `mixed` quiz mode, a question on an earlier lesson
-  names that lesson.
+  checks a point that the course knows: take its id from `qlearn points`
+  (see "The points"). A known point needs no entry in `points`.
 - The page shows the open question first, alone. The learner sees the
   choices only after the open answer, so their options cannot give it
   away. The page never gets `answer` before the learner sends the choices.
@@ -390,7 +395,73 @@ its `id` name the page and the number of the quiz. Its `detail` holds:
   `picked`, the right `answer`, `ok`, and the `other` text, or `null`.
 
 The server adds the result of each choice to its point. You grade the open
-answer in the debrief, which this release cannot write yet. Wait again.
+answer in the debrief.
+
+## The debrief
+
+Answer each `answer` request with the debrief of its quiz. The page shows
+it under the quiz:
+
+````sh
+qlearn debrief 3 1 --file - --point random-timeout=partial <<'EOF'
+# The split vote
+
+Your answer says why the timeout is random, but not what a split vote
+costs: the term ends with no leader, and every server waits again.
+
+```excerpt
+path: src/raft.c
+lines: 120-127
+mark: 124
+```
+EOF
+````
+
+- `3` is the page and `1` the number of the quiz, as the `page` and the
+  `id` of the request give them.
+- The source is a page source, in the format of "The format of a page".
+  Show the code that explains a wrong answer with an excerpt, and a
+  structure with a diagram. A debrief hides no line: the server refuses
+  `hide` in it.
+- Say first what the learner got right. Then explain each wrong choice and
+  each point that the open answer missed. Keep it short.
+- Give one `--point <point>=<grade>` for each point of the open question,
+  and for no other point. The grade is `ok`, `partial` or `missed`. Use
+  `partial` for an answer that is half right, such as a fix that works but
+  misses a case, or an explanation that gives one reason of two. The
+  choices have their grades already: give them no `--point`. A quiz with no
+  open question takes no `--point`.
+- The server adds each grade to its point. In the score of the page, `ok`
+  counts 1, `partial` 0.5 and `missed` 0. Once every quiz of the page has
+  its debrief, the syllabus shows the page as debriefed.
+- To fix a debrief, write it again with the same command: the new debrief
+  and its grades replace the old ones.
+- If the learner missed a point, a second quiz on the page can check it
+  again, after the debrief.
+
+The command prints the page as JSON. If the server refuses the debrief, it
+stores nothing, exits with 1, and prints every error on standard error, one
+per line: those of the source with their line, then those of the points
+with their `--point`:
+
+```
+debrief.md:9: excerpt: a debrief hides no line: its quiz is answered already. Take hide out
+--point majority: missing. The open question names this point: grade it ok, partial or missed
+```
+
+Fix every error, then run the command again. Then wait again.
+
+## The points
+
+```sh
+qlearn points
+```
+
+It prints the points of the course with their results, in this order: the
+points to learn again first, whose last result is `missed` or `partial`,
+then the others, the oldest result first. In the `mixed` quiz mode, a quiz
+also asks about an earlier lesson: take the point of that question from the
+top of this list, and use its id. A known point needs no entry in `points`.
 
 ## Next
 

@@ -257,7 +257,10 @@ mod tests {
             OffsetDateTime::from_unix_timestamp(1_767_225_600).unwrap(),
         );
         let mut one = page("1", "Two leaders", PageState::Answered);
-        one.score = Some(Score { right: 2, total: 3 });
+        one.score = Some(Score {
+            right: 2.0,
+            total: 3,
+        });
         course.parts = vec![Part {
             title: "Why".to_owned(),
             pages: vec![one, page("2", "The vote", PageState::Planned)],

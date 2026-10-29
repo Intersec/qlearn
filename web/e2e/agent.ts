@@ -196,6 +196,30 @@ export const QUIZ_2 = {
   ],
 };
 
+/**
+ * The debrief of the first quiz: what the learner got, the code that
+ * explains the rest, and a diagram of it.
+ */
+export const DEBRIEF_1 = `# The split vote
+
+You named the random part, but not what it buys: the first follower to
+wake up asks for the votes before the others start.
+
+\`\`\`excerpt
+path: src/election.c
+lines: 1-6
+mark: 3
+\`\`\`
+
+\`\`\`mermaid
+sequenceDiagram
+  participant S1
+  participant S2
+  S1->>S2: RequestVote(term 6)
+  S2-->>S1: vote granted
+\`\`\`
+`;
+
 /** A part of the syllabus, as the agent writes it. */
 export interface PlannedPart {
   title: string;
@@ -269,6 +293,20 @@ export class Agent {
     const path = join(this.fixture.work, `quiz-${id}.json`);
     writeFileSync(path, JSON.stringify(quiz, null, 2));
     await this.run(['quiz', id, '--file', path]);
+  }
+
+  /**
+   * Write the debrief of the quiz `n` of a page from a file, with a grade
+   * for each point of its open question, as the procedure says.
+   */
+  async debrief(id: string, n: number, source: string, points: Record<string, string> = {}) {
+    const path = join(this.fixture.work, `debrief-${id}-${n}.md`);
+    writeFileSync(path, source);
+    const grades = Object.entries(points).flatMap(([point, grade]) => [
+      '--point',
+      `${point}=${grade}`,
+    ]);
+    await this.run(['debrief', id, String(n), '--file', path, ...grades]);
   }
 
   async status(text: string) {

@@ -1,0 +1,10 @@
+---
+source: crates/qlearn/src/api/mod.rs
+expression: answer
+---
+{
+  "error": {
+    "code": "invalidDebrief",
+    "message": "debrief.md:6: excerpt: a debrief hides no line: its quiz is answered already. Take hide out\ndebrief.md:11: excerpt: lines 4-90 holds 87 lines, and an excerpt shows 60 at most\ndebrief.md:14: callout: [!tip] is not a callout: write [!hook], [!teaser], [!pitfall] or [!note]\npoints.leader: the open question does not name this point. It names random-timeout, majority\npoints.random-timeout: takes ok, partial or missed, not \"great\"\npoints.majority: missing. The open question names this point: grade it ok, partial or missed"
+  }
+}

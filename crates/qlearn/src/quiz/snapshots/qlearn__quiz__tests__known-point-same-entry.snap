@@ -22,5 +22,6 @@ the page gets:
     "prompt": "Why random?",
     "sent": null
   },
-  "choices": []
+  "choices": [],
+  "debrief": null
 }

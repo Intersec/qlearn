@@ -76,6 +76,35 @@ pub async fn parse(
     git: &Git,
     highlighter: &Highlighter,
 ) -> Result<Parsed, Vec<Fault>> {
+    parse_with(source, git, highlighter, Hide::Kept).await
+}
+
+/// Parse the source of a debrief, as a page (section 5.4 of the design).
+///
+/// A debrief hides no line. It shows once its quiz is answered, so the
+/// learner would never answer for the line. A hidden line of the lesson in
+/// it waits for the page, in `PageFile::page`.
+pub async fn parse_debrief(
+    source: &str,
+    git: &Git,
+    highlighter: &Highlighter,
+) -> Result<Parsed, Vec<Fault>> {
+    parse_with(source, git, highlighter, Hide::Refused).await
+}
+
+/// Whether a source may hide a line of an excerpt.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Hide {
+    Kept,
+    Refused,
+}
+
+async fn parse_with(
+    source: &str,
+    git: &Git,
+    highlighter: &Highlighter,
+    hide: Hide,
+) -> Result<Parsed, Vec<Fault>> {
     let (pieces, title, mut faults) = split(source, highlighter);
 
     // Every excerpt is read, even on a page already refused, so the agent
@@ -87,6 +116,15 @@ pub async fn parse(
         match piece {
             Piece::Block(block) => blocks.push(block),
             Piece::Excerpt(id, spec) => {
+                if let Some(line) = spec.hides_at().filter(|_| hide == Hide::Refused) {
+                    faults.push(Fault {
+                        line,
+                        kind: "excerpt",
+                        message: "a debrief hides no line: its quiz is answered already. \
+                                  Take hide out"
+                            .to_owned(),
+                    });
+                }
                 match excerpt::read(&spec, git, highlighter, &mut revs).await {
                     Ok((excerpt, line)) => {
                         if let Some(line) = line {
@@ -1400,5 +1438,43 @@ bool grant_vote(struct server *s, int term, int candidate)
             after[0].message,
             "src/raft.c has 1 line at HEAD, the excerpt asks for 13"
         );
+    }
+
+    /// A debrief shows once its quiz is answered: a hidden line in it
+    /// would never wait for an answer. The other faults come with it.
+    #[tokio::test]
+    async fn a_debrief_hides_no_line() {
+        let corpus = corpus().await;
+        let source = "# Almost\n\n```excerpt\npath: src/raft.c\nlines: 12-14\nmark: 13\nhide: 13\n\
+                      ```\n\n```excerpt\npath: src/raft.c\nlines: 900\n```\n";
+
+        let faults = parse_debrief(source, &corpus.git, Highlighter::shared())
+            .await
+            .unwrap_err();
+        let shown = parse_debrief(
+            &source.replace("hide: 13\n", ""),
+            &corpus.git,
+            Highlighter::shared(),
+        )
+        .await;
+
+        let lines: Vec<_> = faults
+            .iter()
+            .map(|fault| fault.display("debrief.md"))
+            .collect();
+        assert_eq!(
+            lines,
+            [
+                "debrief.md:7: excerpt: a debrief hides no line: its quiz is answered already. \
+                 Take hide out",
+                "debrief.md:12: excerpt: src/raft.c has 34 lines at HEAD, the excerpt asks for 900",
+            ]
+        );
+        assert!(
+            corpus.parse(source).await.is_err(),
+            "the read fails in a page too"
+        );
+        let faults = shown.unwrap_err();
+        assert_eq!(faults.len(), 1, "{faults:?}");
     }
 }

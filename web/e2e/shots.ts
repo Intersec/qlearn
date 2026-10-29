@@ -8,6 +8,7 @@ import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import config from '../playwright.config.ts';
 import {
+  DEBRIEF_1,
   PAGE_1,
   PAGE_2,
   PAGE_DIAGRAMS,
@@ -104,6 +105,20 @@ for (const scheme of ['light', 'dark'] as const) {
     await page.screenshot({ path: join(OUT, `${scheme}-quiz-answered.png`) });
     await excerpt.scrollIntoViewIfNeeded();
     await page.screenshot({ path: join(OUT, `${scheme}-excerpt-shown.png`) });
+
+    // The agent debriefs both quizzes: each debrief shows under its quiz,
+    // with the grade of the open answer, and the column shows the score
+    // with its half.
+    await agent.debrief('1', 1, DEBRIEF_1, { 'random-timeout': 'partial' });
+    await agent.debrief(
+      '1',
+      2,
+      '# Both right\n\nThe base sets the floor of the wait, and the random part its spread.\n',
+    );
+    await first.locator('.debrief .diagram-svg svg').waitFor();
+    await page.locator('.syllabus-page[data-state="debriefed"]').waitFor();
+    await first.locator('.debrief').scrollIntoViewIfNeeded();
+    await page.screenshot({ path: join(OUT, `${scheme}-quiz-debriefed.png`) });
 
     // Next, and the agent at work on the page after.
     const waitedNext = agent.wait(both.next);

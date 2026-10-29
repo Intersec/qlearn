@@ -30,5 +30,6 @@ the page gets:
     "prompt": "Predict: what does election_timeout(150) return on its first call?",
     "sent": null
   },
-  "choices": []
+  "choices": [],
+  "debrief": null
 }

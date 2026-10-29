@@ -199,6 +199,75 @@ pub async fn quiz(client: &Client, id: &str, text: &str, shown: &str) -> Result<
         .await
 }
 
+/// Write the debrief of the quiz `n` of a page, with the grade of each
+/// point of its open question. Answers the page.
+///
+/// `points` holds each `--point` as the agent gave it, `<point>=<grade>`.
+/// A refusal names the file that the agent gave, `shown`, and each point
+/// by its `--point`.
+pub async fn debrief(
+    client: &Client,
+    id: &str,
+    n: usize,
+    source: &str,
+    points: &[String],
+    shown: &str,
+) -> Result<Value> {
+    let mut grades = serde_json::Map::new();
+    for given in points {
+        let Some((point, grade)) = given.split_once('=') else {
+            bail!("--point {given}: takes <point>=ok, <point>=partial or <point>=missed");
+        };
+        if grades
+            .insert(point.to_owned(), Value::from(grade))
+            .is_some()
+        {
+            bail!("--point {point} is given twice. Grade each point once");
+        }
+    }
+    let body = json!({ "source": source, "points": grades, "author": "agent" });
+
+    let id = segment(id);
+    let written = client
+        .put(&format!("/api/pages/{id}/quizzes/{n}/debrief"), &body)
+        .await;
+
+    written.map_err(|error| match error.downcast::<Refusal>() {
+        Ok(refusal) if refusal.code == "invalidDebrief" => Refusal {
+            message: debrief_errors(&refusal.message, shown),
+            ..refusal
+        }
+        .into(),
+        Ok(refusal) => refusal.into(),
+        Err(error) => error,
+    })
+}
+
+/// The points of the course, in the order in which the agent picks the
+/// point of a question on an earlier lesson.
+pub async fn points(client: &Client) -> Result<Value> {
+    client.get("/api/points").await
+}
+
+/// The errors of a debrief in the terms of the command. The options come
+/// first: the file of the agent may start with `points.` too.
+fn debrief_errors(errors: &str, file: &str) -> String {
+    in_file(&as_options(errors), crate::api::DEBRIEF_FILE, file)
+}
+
+/// Each line of the errors, with the `--point` of the command in place of
+/// the field of the body.
+fn as_options(errors: &str) -> String {
+    errors
+        .lines()
+        .map(|line| match line.strip_prefix("points.") {
+            Some(rest) => format!("--point {rest}"),
+            None => line.to_owned(),
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 /// Each line of the errors, with `file` in place of the file of the store.
 fn in_file(errors: &str, store: &str, file: &str) -> String {
     let prefix = format!("{store}:");
@@ -398,6 +467,26 @@ mod tests {
         assert_eq!(
             in_file(errors, "7a.md", "-").lines().next(),
             Some("-:3: excerpt: not yet")
+        );
+    }
+
+    #[test]
+    fn a_refusal_of_a_debrief_names_each_point_by_its_option() {
+        let errors = "debrief.md:3: excerpt: not yet\n\
+                      points.leader: the open question does not name this point\n\
+                      points.split-vote: missing";
+
+        assert_eq!(
+            debrief_errors(errors, "notes/debrief.md"),
+            "notes/debrief.md:3: excerpt: not yet\n\
+             --point leader: the open question does not name this point\n\
+             --point split-vote: missing"
+        );
+        assert_eq!(
+            debrief_errors(errors, "points.md"),
+            "points.md:3: excerpt: not yet\n\
+             --point leader: the open question does not name this point\n\
+             --point split-vote: missing"
         );
     }
 

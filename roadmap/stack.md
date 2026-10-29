@@ -308,6 +308,78 @@ right option off the wire, as the page type of a quiz did before.
 - **Grade the choices in the page.** The right option would reach the page
   before the choices, against section 5.2.
 
+## 2026-10-29 — Holes found by the debrief
+
+The debrief and the points, sections 5.3, 5.4 and 8, left seven questions
+that the design did not answer.
+
+**Decisions.**
+
+- **The page gets the debrief in its quiz.** A quiz carries `debrief`:
+  `null` until the agent writes it, then its `blocks` and the grade of each
+  point of the open question, as `points: [{ id, label, result }]`.
+- **A debrief hides no line.** The server refuses `hide` in it, with the
+  line of the key. It keeps the hidden lines of the lesson: until the
+  learner answers every quiz of the page, a line of a debrief excerpt that
+  holds the text of a hidden line goes as `null`.
+- **A debrief waits for its answer.** A debrief of a quiz that the learner
+  has not answered in full gets 409 with the code `conflict`. It grades
+  each point of the open question once, and no other point. A quiz with no
+  open question takes a debrief with no points. An empty source is
+  refused. A refused debrief gets every fault at once, with the code
+  `invalidDebrief`: those of the source in the format of section 4.7, then
+  those of the points.
+- **A debrief written again replaces the first one.** Its source, its
+  blocks and its grades replace those of the first one, so the agent can
+  fix a broken diagram. It keeps the stamp of the first one. Each open
+  result carries that stamp, so the server grades it again in its place.
+  An open result stays in `points.json` even when no page file names its
+  stamp.
+- **A broken block of a debrief names its quiz.** The `broken` request
+  carries the number of the quiz in `id`, so the agent writes that debrief
+  again rather than the page.
+- **The score of a page.** Each choice and each point of an open question
+  counts 1 in `total` once it has a result. The score is `null` while
+  nothing has a result. `right` is a fraction in `course.json`, and a
+  whole number stays an integer, so the format keeps version 1. At its
+  start, the server computes the score of a page that an earlier release
+  answered. An earlier release cannot open a course with a fractional
+  score, and one that writes a page file drops its debriefs: going back
+  to an earlier release is not supported.
+- **The points route.** `GET /api/points` answers an array of points.
+  Inside each group of section 5.3, the oldest last result comes first. A
+  point with no result is the oldest of the others.
+
+**Why.** The page draws the debrief, so it needs the blocks and the grades
+in the quiz that it shows. A hidden line in a debrief waits for an answer
+that is already sent. An open answer that the learner has not sent cannot
+be graded. A grade for a point that the open question does not name would
+add a result that no answer gave. A debrief shows before the other
+quizzes of its page are answered, and a quiz pushed later makes the page
+wait again, so its excerpts must not show a hidden line before the
+lesson does. A debrief written twice must not count one answer twice, nor
+date it again: the order of section 5.3 reads the last result of a point.
+Without the number of the quiz, the agent would look for the broken
+diagram in the page and not find it. An integer in an earlier
+`course.json` must still read. No release of qlearn is published yet, so
+no store of an earlier release needs a way back.
+
+**Rejected:**
+
+- **A field `debrief` in the detail of `broken`.** The `id` of an event
+  already names the quiz, as section 8.3 says.
+- **A second debrief beside the first.** The page would show two debriefs
+  for one answer, and the points would hold two results for it.
+- **Refuse a debrief whose excerpt shows a hidden line.** A quiz pushed
+  after the debrief makes the page wait again, and the debrief would show
+  the line then.
+- **Version 2 for the fractional score.** It needs a migration for stores
+  that no published release wrote.
+- **Store the score as halves in an integer.** The wire would need a
+  conversion on each side, for a number that a float holds exactly.
+- **A `syllabus` event after a debrief.** The page reads the course again
+  on the `debrief` event, which also names the page to read again.
+
 ## Open questions
 
 - **The URL of the repository.** The host is decided: a public repository

@@ -340,6 +340,132 @@ async fn an_answer_reaches_the_wait_with_its_detail() {
     assert!(interrupt(server).await.success());
 }
 
+/// The agent writes the debrief of an answered quiz with a grade for each
+/// point of the open question, and reads the points in the order that it
+/// picks them for a later question.
+#[tokio::test]
+async fn an_agent_debriefs_a_quiz_and_reads_the_points() {
+    let repo = build_repo();
+    let root = repo.path();
+    let mut server = qlearn(root, &["raft", "--no-open"]).spawn().unwrap();
+    read_url(&mut server).await;
+    let quiz = r#"{ "open": { "prompt": "Why random?", "points": ["random-timeout"] },
+        "choices": [{ "header": "Vote", "prompt": "Who wins?",
+        "options": ["The first to time out", "The highest id"], "answer": 0,
+        "point": "split-vote" }],
+        "points": { "random-timeout": { "label": "Why the timeout is random" },
+                    "split-vote": { "label": "How a split vote ends" } } }"#;
+    json_of(&run(root, &["page", "1", "--file", "-"], Some("# Two leaders\n")).await);
+    json_of(&run(root, &["quiz", "1", "--file", "-"], Some(quiz)).await);
+    let debrief = |extra: &[&'static str]| {
+        let mut args = vec!["debrief", "1", "1", "--file", "debrief.md"];
+        args.extend_from_slice(extra);
+        args
+    };
+    std::fs::write(
+        root.join("debrief.md"),
+        "# Almost\n\nOne case is missing.\n",
+    )
+    .unwrap();
+
+    // The learner has not answered yet.
+    let early = run(root, &debrief(&["--point", "random-timeout=ok"]), None).await;
+    assert_eq!(early.status.code(), Some(1), "{early:?}");
+    assert!(
+        stderr(&early).contains("has not answered quiz 1"),
+        "{}",
+        stderr(&early)
+    );
+
+    let client = page_of(root);
+    client
+        .post(
+            "/api/pages/1/quizzes/1/open",
+            &json!({ "text": "So that two followers rarely start at once." }),
+        )
+        .await
+        .unwrap();
+    client
+        .post(
+            "/api/pages/1/quizzes/1/choices",
+            &json!({ "choices": [{ "option": 1 }] }),
+        )
+        .await
+        .unwrap();
+
+    // Every fault at once: the source with its line, each point by its
+    // option.
+    let wrong = "# Almost\n\n> [!tip]\n> One case.\n";
+    let refused = run(
+        root,
+        &[
+            "debrief",
+            "1",
+            "1",
+            "--file",
+            "-",
+            "--point",
+            "leader=ok",
+            "--point",
+            "random-timeout=half",
+        ],
+        Some(wrong),
+    )
+    .await;
+    assert_eq!(refused.status.code(), Some(1), "{refused:?}");
+    assert!(refused.stdout.is_empty(), "{refused:?}");
+    let errors = stderr(&refused);
+    let lines: Vec<_> = errors.lines().collect();
+    assert_eq!(lines.len(), 3, "{errors}");
+    assert!(lines[0].starts_with("-:3: callout: "), "{errors}");
+    assert!(lines[1].starts_with("--point leader: "), "{errors}");
+    assert!(lines[2].starts_with("--point random-timeout: "), "{errors}");
+    let twice = run(
+        root,
+        &debrief(&[
+            "--point",
+            "random-timeout=ok",
+            "--point",
+            "random-timeout=missed",
+        ]),
+        None,
+    )
+    .await;
+    assert_eq!(twice.status.code(), Some(1), "{twice:?}");
+    assert!(stderr(&twice).contains("given twice"), "{}", stderr(&twice));
+
+    let page = json_of(&run(root, &debrief(&["--point", "random-timeout=partial"]), None).await);
+    assert_eq!(
+        page["quizzes"][0]["debrief"]["points"],
+        json!([{ "id": "random-timeout", "label": "Why the timeout is random",
+                 "result": "partial" }])
+    );
+    let session = client.get("/api/session").await.unwrap();
+    let entry = &session["course"]["parts"][0]["pages"][0];
+    assert_eq!(entry["state"], "debriefed", "{session}");
+    assert_eq!(
+        entry["score"],
+        json!({ "right": 0.5, "total": 2 }),
+        "{session}"
+    );
+
+    // The missed choice first, then the partial point: both are to learn
+    // again, and the choice has the older result.
+    let points = json_of(&run(root, &["points"], None).await);
+    let order: Vec<_> = points
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|point| (point["id"].clone(), point["results"][0]["result"].clone()))
+        .collect();
+    assert_eq!(
+        json!(order),
+        json!([["split-vote", "missed"], ["random-timeout", "partial"]])
+    );
+
+    assert!(interrupt(server).await.success());
+}
+
 #[tokio::test]
 async fn a_wait_stays_attached_across_a_restart_of_the_server() {
     let repo = build_repo();
@@ -427,6 +553,7 @@ async fn a_command_with_no_server_says_to_run_qlearn() {
     for args in [
         &["status", "Reading"][..],
         &["course", "--title", "Raft"],
+        &["points"],
         &["wait", "--timeout", "1"],
     ] {
         let out = run(root, args, None).await;

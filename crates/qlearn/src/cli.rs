@@ -93,6 +93,27 @@ pub enum Command {
         file: String,
     },
 
+    /// Write the debrief of a quiz that the learner answered, as the agent,
+    /// with the grade of each point of its open question. A refused
+    /// debrief prints every error and exits 1.
+    Debrief {
+        /// The page of the quiz.
+        id: String,
+        /// The number of the quiz in its page, from 1.
+        n: usize,
+        /// The Markdown source. `-` reads it from standard input.
+        #[arg(long, value_name = "PATH")]
+        file: String,
+        /// The grade of a point of the open question: ok, partial or
+        /// missed. Once for each point.
+        #[arg(long = "point", value_name = "POINT=ok|partial|missed")]
+        points: Vec<String>,
+    },
+
+    /// Print the points of the course and their results, the missed ones
+    /// first, then the others by the date of their last result.
+    Points,
+
     /// Say in the page what the agent does, until its next wait. An empty
     /// text clears it.
     Status {
@@ -260,6 +281,41 @@ mod tests {
         assert_eq!(quiz_mode, Some(QuizMode::Current));
         assert_eq!(follow_up.as_deref(), Some("none"));
         assert_eq!(status, None);
+    }
+
+    #[test]
+    fn a_debrief_takes_a_point_once_for_each_point() {
+        let cli = Cli::try_parse_from([
+            "qlearn",
+            "debrief",
+            "3",
+            "1",
+            "--file",
+            "-",
+            "--point",
+            "split-vote=partial",
+            "--point",
+            "random-timeout=ok",
+        ])
+        .unwrap();
+        let Some(Command::Debrief {
+            id,
+            n,
+            file,
+            points,
+        }) = cli.command
+        else {
+            panic!("{cli:?}");
+        };
+        assert_eq!((id.as_str(), n, file.as_str()), ("3", 1, "-"));
+        assert_eq!(points, ["split-vote=partial", "random-timeout=ok"]);
+
+        let cli = Cli::try_parse_from(["qlearn", "debrief", "3", "2", "--file", "a.md"]).unwrap();
+        assert!(
+            matches!(cli.command, Some(Command::Debrief { ref points, .. }) if points.is_empty())
+        );
+        assert!(Cli::try_parse_from(["qlearn", "debrief", "3", "x", "--file", "-"]).is_err());
+        assert!(Cli::try_parse_from(["qlearn", "debrief", "3", "--file", "-"]).is_err());
     }
 
     #[test]

@@ -35,6 +35,7 @@ expression: body
           "prompt": "Two candidates get 2 votes each out of 5. What happens next?"
         }
       ],
+      "debrief": null,
       "open": {
         "prompt": "In 2 sentences: why is the timeout random?",
         "sent": "So that two followers rarely wake up at once."

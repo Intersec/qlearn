@@ -45,6 +45,7 @@ export interface PageRef {
 }
 
 export interface Score {
+  /** In steps of 0.5: a partial result counts half. */
   right: number;
   total: number;
 }
@@ -153,6 +154,26 @@ export interface Page {
 export interface Quiz {
   open: OpenQuestion | null;
   choices: Choice[];
+  /** null until the agent writes it, once the learner answered the quiz. */
+  debrief: Debrief | null;
+}
+
+/** What the agent says of the answers to a quiz (section 5.4 of the design). */
+export interface Debrief {
+  /** The blocks of its source, as the blocks of a page. No line is hidden. */
+  blocks: Block[];
+  /** The grade of each point of the open question, in its order. */
+  points: GradedPoint[];
+}
+
+/** `partial` is an open answer that is half right. A choice is `ok` or `missed`. */
+export type Grade = 'ok' | 'partial' | 'missed';
+
+/** A point of an open question, with the grade that the agent gave it. */
+export interface GradedPoint {
+  id: string;
+  label: string;
+  result: Grade;
 }
 
 export interface OpenQuestion {

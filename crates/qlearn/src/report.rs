@@ -81,7 +81,10 @@ mod tests {
                     kind: PageKind::Lesson,
                     title: "Two leaders, one term".to_owned(),
                     state: PageState::Answered,
-                    score: Some(Score { right: 2, total: 3 }),
+                    score: Some(Score {
+                        right: 1.5,
+                        total: 3,
+                    }),
                 },
                 PageRef {
                     id: "c1".to_owned(),
@@ -97,7 +100,7 @@ mod tests {
             outline(&course),
             "raft  new  Raft\n\
              \x20 Why\n\
-             \x20   1    lesson     answered  Two leaders, one term  2/3\n\
+             \x20   1    lesson     answered  Two leaders, one term  1.5/3\n\
              \x20   c1   checkpoint planned   Checkpoint\n"
         );
     }

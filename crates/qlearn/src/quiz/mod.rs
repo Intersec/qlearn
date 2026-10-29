@@ -10,15 +10,23 @@
 //! The learner answers a quiz in two parts, the open answer then the
 //! choices (section 5.2 of the design). The server grades the choices: the
 //! page never decides whether an answer is right.
+//!
+//! The agent then writes the debrief of the quiz, and grades each point of
+//! the open question in it (section 5.4). The results go to `points.json`,
+//! whose order says which point a later question should pick.
 
 use std::collections::HashSet;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
+use time::OffsetDateTime;
+use time::format_description::well_known::Rfc3339;
 
 use crate::json::{array, object, shape, text, unknown};
 use crate::lesson;
-use crate::model::{self, Course, Grade, PageKind, Pick, Point};
+use crate::model::{
+    self, Block, Course, Grade, Graded, GradedPoint, PageKind, Pick, Point, PointResult,
+};
 
 /// The most questions with options that a quiz holds.
 pub const CHOICES: usize = 4;
@@ -37,6 +45,66 @@ pub struct StoredQuiz {
     /// such field, and reads as a quiz with no answer.
     #[serde(default, skip_serializing_if = "Sent::is_empty")]
     pub sent: Sent,
+    /// What the agent wrote once the learner answered. A page file of an
+    /// earlier release has no such field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub debrief: Option<StoredDebrief>,
+}
+
+/// A debrief as `pages/<id>.json` holds it.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct StoredDebrief {
+    /// The source as the agent wrote it, so a later release can parse it
+    /// again.
+    pub source: String,
+    pub blocks: Vec<Block>,
+    /// The grade of each point of the open question, with its label, which
+    /// a known point never changes.
+    pub points: Vec<GradedPoint>,
+    /// When the server wrote the first debrief of the quiz, in RFC 3339.
+    /// Its results in points.json carry the same stamp, so a debrief
+    /// written again finds the results that it replaces.
+    pub at: String,
+}
+
+impl StoredDebrief {
+    /// Put the results of this debrief in `points`. A result of the same
+    /// stamp takes the new grade in its place, so a debrief written again
+    /// adds no second result for the same answer, and moves none of them
+    /// after a later one.
+    pub fn record(&self, points: &mut [Point]) -> anyhow::Result<()> {
+        for graded in &self.points {
+            let results = &mut point_of(points, &graded.id)?.results;
+            match results
+                .iter_mut()
+                .find(|result| result.how == Graded::Open && result.at == self.at)
+            {
+                Some(result) => result.result = graded.result,
+                None => results.push(PointResult {
+                    at: self.at.clone(),
+                    result: graded.result,
+                    how: Graded::Open,
+                }),
+            }
+        }
+        Ok(())
+    }
+}
+
+/// The point `id` of points.json.
+pub fn point_of<'a>(points: &'a mut [Point], id: &str) -> anyhow::Result<&'a mut Point> {
+    // A quiz writes its points before itself, so a point that is missing
+    // was taken out of points.json by hand.
+    points
+        .iter_mut()
+        .find(|point| point.id == id)
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "points.json holds no point {id}. Put it back by hand, with its label and its \
+                 lesson"
+            )
+        })
 }
 
 /// The answers of the learner to a quiz, each part once sent.
@@ -138,6 +206,10 @@ impl StoredQuiz {
                         }),
                 })
                 .collect(),
+            debrief: self.debrief.as_ref().map(|debrief| model::Debrief {
+                blocks: debrief.blocks.clone(),
+                points: debrief.points.clone(),
+            }),
         }
     }
 
@@ -283,6 +355,115 @@ impl StoredQuiz {
     }
 }
 
+/// What the body of a debrief gives, once read.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct DebriefBody {
+    /// The source of the debrief. None when the body has none to parse.
+    pub source: Option<String>,
+    /// The grade of each point of the open question, in its order.
+    pub grades: Vec<(String, Grade)>,
+    /// Every fault of the body, each with its place in it.
+    pub faults: Vec<String>,
+}
+
+/// Read the body of a debrief of `quiz`: `{ source, points: { id: ok } }`.
+///
+/// The source is returned even when a point has a fault, so the agent gets
+/// the faults of the source in the same pass. The agent grades every point
+/// of the open question, and no other: a choice has its grade already.
+pub fn read_debrief(body: &Value, quiz: &StoredQuiz) -> DebriefBody {
+    let mut out = DebriefBody::default();
+    let faults = &mut out.faults;
+    let Some(fields) = object(body, "the debrief", faults) else {
+        return out;
+    };
+    for (name, value) in fields {
+        match name.as_str() {
+            "source" | "points" => {}
+            "author" if value == "agent" => {}
+            "author" => faults.push(format!("author: takes \"agent\", not {value}")),
+            _ => faults.push(format!(
+                "unknown field {name:?}. A debrief takes source and points"
+            )),
+        }
+    }
+
+    match fields.get("source") {
+        Some(Value::String(source)) if source.trim().is_empty() => faults.push(
+            "source: empty. Say what the learner got right, and explain what they missed"
+                .to_owned(),
+        ),
+        Some(Value::String(source)) => out.source = Some(source.clone()),
+        Some(other) => faults.push(format!("source: takes a string, not {}", shape(other))),
+        None => faults.push("source: missing. Give the Markdown of the debrief".to_owned()),
+    }
+
+    let open: &[String] = quiz.open.as_ref().map_or(&[], |open| &open.points);
+    let empty = Map::new();
+    let given = match fields.get("points") {
+        None => &empty,
+        Some(value) => object(value, "points", faults).unwrap_or(&empty),
+    };
+    for (id, value) in given {
+        let path = format!("points.{id}");
+        if !open.contains(id) {
+            match open.is_empty() {
+                true => faults.push(format!(
+                    "{path}: the quiz has no open question. Its choices have their grades \
+                     already"
+                )),
+                false => faults.push(format!(
+                    "{path}: the open question does not name this point. It names {}",
+                    open.join(", ")
+                )),
+            }
+        }
+        if grade(value).is_none() {
+            faults.push(format!("{path}: takes ok, partial or missed, not {value}"));
+        }
+    }
+    for id in open {
+        match given.get(id) {
+            Some(value) => out
+                .grades
+                .extend(grade(value).map(|grade| (id.clone(), grade))),
+            None => out.faults.push(format!(
+                "points.{id}: missing. The open question names this point: grade it ok, \
+                 partial or missed"
+            )),
+        }
+    }
+    out
+}
+
+/// The grade that a word of the agent names.
+fn grade(value: &Value) -> Option<Grade> {
+    match value.as_str()? {
+        "ok" => Some(Grade::Ok),
+        "partial" => Some(Grade::Partial),
+        "missed" => Some(Grade::Missed),
+        _ => None,
+    }
+}
+
+/// The points in the order of section 5.3 of the design: the missed ones
+/// first, then the others, each group by the date of its last result, the
+/// oldest first.
+///
+/// A point whose last result is partial counts as missed: the learner has
+/// a part of it to learn again. A point with no result yet is the oldest.
+pub fn in_order(mut points: Vec<Point>) -> Vec<Point> {
+    // The stamps have fractions of a second of varying length, so they
+    // compare as times, not as text.
+    points.sort_by_cached_key(|point| {
+        let last = point.results.last();
+        let missed = last.is_some_and(|last| last.result != Grade::Ok);
+        let at = last.and_then(|last| OffsetDateTime::parse(&last.at, &Rfc3339).ok());
+        (!missed, at)
+    });
+    points
+}
+
 /// A quiz that passed every check, and the points that it adds to the
 /// course.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -344,6 +525,7 @@ pub fn parse(
                 open,
                 choices,
                 sent: Sent::default(),
+                debrief: None,
             },
             points,
         }),
@@ -1016,5 +1198,223 @@ mod tests {
         // A quiz with no choices is answered by its open answer.
         exercise.send_open("Because.").unwrap();
         assert!(exercise.answered());
+    }
+
+    /// A quiz whose open question names two points.
+    fn two_points() -> StoredQuiz {
+        let mut quiz = two_choices();
+        quiz.open = Some(StoredOpen {
+            prompt: "Why?".to_owned(),
+            points: vec!["random-timeout".to_owned(), "split-vote".to_owned()],
+        });
+        quiz
+    }
+
+    #[test]
+    fn a_debrief_grades_each_point_of_the_open_question_in_its_order() {
+        let body = serde_json::json!({
+            "source": "# Almost\n",
+            "points": { "split-vote": "partial", "random-timeout": "ok" },
+            "author": "agent",
+        });
+
+        let read = read_debrief(&body, &two_points());
+
+        assert_eq!(
+            read,
+            DebriefBody {
+                source: Some("# Almost\n".to_owned()),
+                grades: vec![
+                    ("random-timeout".to_owned(), Grade::Ok),
+                    ("split-vote".to_owned(), Grade::Partial),
+                ],
+                faults: Vec::new(),
+            }
+        );
+    }
+
+    /// The agent gets every fault of the body at once, and the source when
+    /// it has one, so the faults of the source come in the same pass.
+    #[test]
+    fn a_debrief_body_gets_every_fault_at_once() {
+        let body = serde_json::json!({
+            "source": "# Almost\n",
+            "points": { "split-vote": "great", "leader": "ok", "term": 1 },
+            "author": "learner",
+            "page": "1",
+        });
+
+        let read = read_debrief(&body, &two_points());
+
+        assert_eq!(read.source.as_deref(), Some("# Almost\n"));
+        assert_eq!(read.grades, []);
+        assert_eq!(
+            read.faults,
+            [
+                "author: takes \"agent\", not \"learner\"",
+                "unknown field \"page\". A debrief takes source and points",
+                "points.leader: the open question does not name this point. It names \
+                 random-timeout, split-vote",
+                "points.split-vote: takes ok, partial or missed, not \"great\"",
+                "points.term: the open question does not name this point. It names \
+                 random-timeout, split-vote",
+                "points.term: takes ok, partial or missed, not 1",
+                "points.random-timeout: missing. The open question names this point: grade it \
+                 ok, partial or missed",
+            ]
+        );
+    }
+
+    #[test]
+    fn a_debrief_with_no_source_or_of_a_quiz_with_no_open_question_is_refused() {
+        let mut choices_only = two_choices();
+        choices_only.open = None;
+        let cases = [
+            (serde_json::json!({ "points": {} }), &choices_only),
+            (serde_json::json!({ "source": "  \n" }), &choices_only),
+            (
+                serde_json::json!({ "source": 3, "points": [] }),
+                &choices_only,
+            ),
+            (
+                serde_json::json!({ "source": "# Right\n", "points": { "split-vote": "ok" } }),
+                &choices_only,
+            ),
+            (serde_json::json!("# Right"), &choices_only),
+        ];
+        let faults: Vec<_> = cases
+            .iter()
+            .map(|(body, quiz)| read_debrief(body, quiz).faults.join(" | "))
+            .collect();
+
+        assert_eq!(
+            faults,
+            [
+                "source: missing. Give the Markdown of the debrief",
+                "source: empty. Say what the learner got right, and explain what they missed",
+                "source: takes a string, not a number | points: takes an object, not an array",
+                "points.split-vote: the quiz has no open question. Its choices have their \
+                 grades already",
+                "the debrief: takes an object, not a string",
+            ]
+        );
+        // A quiz of choices only takes a debrief with no points.
+        let body = serde_json::json!({ "source": "# Right\n" });
+        assert_eq!(
+            read_debrief(&body, &choices_only).faults,
+            Vec::<String>::new()
+        );
+    }
+
+    fn point(id: &str, results: &[(&str, Grade)]) -> Point {
+        Point {
+            id: id.to_owned(),
+            label: format!("The point {id}"),
+            lesson: "1".to_owned(),
+            results: results
+                .iter()
+                .map(|(at, result)| PointResult {
+                    at: (*at).to_owned(),
+                    result: *result,
+                    how: Graded::Choice,
+                })
+                .collect(),
+        }
+    }
+
+    /// The order of section 5.3 of the design: the missed and partial ones
+    /// first, then the others, each by the date of its last result, the
+    /// oldest first. A point with no result is the oldest of the others.
+    #[test]
+    fn the_points_come_missed_first_then_the_oldest_first() {
+        let points = vec![
+            point("recent-ok", &[("2026-01-03T00:00:00Z", Grade::Ok)]),
+            point(
+                "missed-late",
+                &[
+                    ("2026-01-01T00:00:00Z", Grade::Ok),
+                    ("2026-01-05T00:00:00Z", Grade::Missed),
+                ],
+            ),
+            point("never", &[]),
+            // The fraction of a second makes it later, though as text it
+            // sorts before the same second with none.
+            point("old-ok-late", &[("2026-01-02T00:00:00.5Z", Grade::Ok)]),
+            point("old-ok", &[("2026-01-02T00:00:00Z", Grade::Ok)]),
+            point("partial-early", &[("2026-01-04T00:00:00Z", Grade::Partial)]),
+            point(
+                "missed-then-ok",
+                &[
+                    ("2026-01-01T00:00:00Z", Grade::Missed),
+                    ("2026-01-06T00:00:00Z", Grade::Ok),
+                ],
+            ),
+        ];
+
+        let ids: Vec<_> = in_order(points).into_iter().map(|point| point.id).collect();
+
+        assert_eq!(
+            ids,
+            [
+                "partial-early",
+                "missed-late",
+                "never",
+                "old-ok",
+                "old-ok-late",
+                "recent-ok",
+                "missed-then-ok",
+            ]
+        );
+    }
+
+    /// A debrief written again takes the stamp of the first one and grades
+    /// its results in place, so one answer never counts twice.
+    #[test]
+    fn a_debrief_replaces_the_results_of_the_one_before() {
+        let mut points = vec![point(
+            "split-vote",
+            &[("2026-01-01T00:00:00Z", Grade::Missed)],
+        )];
+        let debrief = |at: &str, result| StoredDebrief {
+            source: "# Almost\n".to_owned(),
+            blocks: Vec::new(),
+            points: vec![GradedPoint {
+                id: "split-vote".to_owned(),
+                label: "The point split-vote".to_owned(),
+                result,
+            }],
+            at: at.to_owned(),
+        };
+        debrief("2026-01-02T00:00:00Z", Grade::Missed)
+            .record(&mut points)
+            .unwrap();
+        points[0].results.push(PointResult {
+            at: "2026-01-03T00:00:00Z".to_owned(),
+            result: Grade::Ok,
+            how: Graded::Choice,
+        });
+
+        debrief("2026-01-02T00:00:00Z", Grade::Partial)
+            .record(&mut points)
+            .unwrap();
+
+        let results: Vec<_> = points[0]
+            .results
+            .iter()
+            .map(|result| (result.at.as_str(), result.result, result.how))
+            .collect();
+        assert_eq!(
+            results,
+            [
+                ("2026-01-01T00:00:00Z", Grade::Missed, Graded::Choice),
+                ("2026-01-02T00:00:00Z", Grade::Partial, Graded::Open),
+                ("2026-01-03T00:00:00Z", Grade::Ok, Graded::Choice),
+            ]
+        );
+        let error = debrief("2026-01-04T00:00:00Z", Grade::Ok)
+            .record(&mut [])
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("holds no point split-vote"), "{error}");
     }
 }

@@ -256,10 +256,40 @@ impl PageFile {
     /// The page as the page of the learner may see it. Every route that
     /// sends a page goes through here.
     pub fn page(&self, id: &str) -> Page {
+        let mut quizzes: Vec<_> = self.quizzes.iter().map(StoredQuiz::view).collect();
+        if !self.answered() {
+            for debrief in quizzes.iter_mut().filter_map(|quiz| quiz.debrief.as_mut()) {
+                self.hide_in(&mut debrief.blocks);
+            }
+        }
         Page {
             id: id.to_owned(),
             blocks: self.shown(),
-            quizzes: self.quizzes.iter().map(StoredQuiz::view).collect(),
+            quizzes,
+        }
+    }
+
+    /// Put None in place of each line of `blocks` that holds the text of a
+    /// hidden line of the lesson.
+    ///
+    /// A debrief shows once its own quiz is answered, while another quiz of
+    /// the page may still wait, and a quiz pushed later makes the page wait
+    /// again. Its excerpts may show the hidden line, at its place or at
+    /// another one, so the text decides.
+    fn hide_in(&self, blocks: &mut [Block]) {
+        let hidden: Vec<&str> = self.hidden.values().map(|line| line.text.trim()).collect();
+        for block in blocks {
+            let Block::Excerpt { excerpt, .. } = block else {
+                continue;
+            };
+            for line in &mut excerpt.lines {
+                if line
+                    .as_ref()
+                    .is_some_and(|line| hidden.contains(&line.text.trim()))
+                {
+                    *line = None;
+                }
+            }
         }
     }
 
@@ -275,8 +305,48 @@ impl PageFile {
         }
     }
 
-    fn answered(&self) -> bool {
+    /// Whether the learner answered every quiz of the page.
+    pub fn answered(&self) -> bool {
         !self.quizzes.is_empty() && self.quizzes.iter().all(StoredQuiz::answered)
+    }
+
+    /// Whether the agent wrote the debrief of every quiz of the page.
+    pub fn debriefed(&self) -> bool {
+        !self.quizzes.is_empty() && self.quizzes.iter().all(|quiz| quiz.debrief.is_some())
+    }
+
+    /// The score of the page, or None while nothing of it has a result.
+    ///
+    /// Each choice and each point of an open question counts 1 once it has
+    /// a result. A right one adds 1, a partial one 0.5 (section 5.3 of the
+    /// design).
+    pub fn score(&self) -> Option<model::Score> {
+        let mut right = 0.0;
+        let mut total = 0;
+        for quiz in &self.quizzes {
+            let grades = quiz.grades().into_iter().map(|(_, grade)| grade);
+            let open = quiz.debrief.iter().flat_map(|debrief| &debrief.points);
+            for grade in grades.chain(open.map(|graded| graded.result)) {
+                total += 1;
+                right += match grade {
+                    model::Grade::Ok => 1.0,
+                    model::Grade::Partial => 0.5,
+                    model::Grade::Missed => 0.0,
+                };
+            }
+        }
+        (total > 0).then_some(model::Score { right, total })
+    }
+
+    /// A block of the page, or of the debrief of one of its quizzes, with
+    /// the number of that quiz.
+    pub fn block(&self, id: &str) -> Option<(&Block, Option<usize>)> {
+        let lesson = self.blocks.iter().map(|block| (block, None));
+        let debriefs = self.quizzes.iter().enumerate().flat_map(|(at, quiz)| {
+            let blocks = quiz.debrief.iter().flat_map(|debrief| &debrief.blocks);
+            blocks.map(move |block| (block, Some(at + 1)))
+        });
+        lesson.chain(debriefs).find(|(block, _)| block.id() == id)
     }
 
     /// The blocks with the text of each hidden line.
@@ -1041,6 +1111,7 @@ mod tests {
                 point: "split-vote".to_owned(),
             }],
             sent: crate::quiz::Sent::default(),
+            debrief: None,
         }
     }
 

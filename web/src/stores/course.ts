@@ -382,6 +382,15 @@ export const useCourse = defineStore('course', () => {
         again ||= event.page === page.value?.id;
         continue;
       }
+      // A debrief shows under its quiz, and may change the state and the
+      // score of its page. A new version of it may hold the same broken
+      // diagram, which the agent must hear of again.
+      if (event.kind === 'debrief' && event.page) {
+        session = true;
+        pushes.set(event.page, (pushes.get(event.page) ?? 0) + 1);
+        again ||= event.page === page.value?.id;
+        continue;
+      }
       if (event.kind !== 'page' || !event.page) {
         continue;
       }

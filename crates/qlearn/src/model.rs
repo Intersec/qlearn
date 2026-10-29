@@ -11,7 +11,8 @@ use time::format_description::well_known::Rfc3339;
 /// future qlearn reads the file that this one writes.
 pub const VERSION: u32 = 1;
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+// No `Eq`: a score holds a fraction.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Course {
     pub version: u32,
@@ -159,6 +160,36 @@ impl Course {
             page.state = PageState::Answered;
             self.updated = stamp(now);
         }
+    }
+
+    /// Record that the agent wrote the debrief of every quiz of a page.
+    ///
+    /// Only an answered page moves: a debrief waits for the answer of its
+    /// quiz, so a page with a quiz left to answer is still taught.
+    pub fn debrief_page(&mut self, id: &str, now: OffsetDateTime) {
+        if let Some(page) = self.page_mut(id)
+            && page.state == PageState::Answered
+        {
+            page.state = PageState::Debriefed;
+            self.updated = stamp(now);
+        }
+    }
+
+    /// Set the score of a page, as its quizzes give it.
+    pub fn score_page(&mut self, id: &str, score: Option<Score>, now: OffsetDateTime) {
+        if let Some(page) = self.page_mut(id)
+            && page.score != score
+        {
+            page.score = score;
+            self.updated = stamp(now);
+        }
+    }
+
+    fn page_mut(&mut self, id: &str) -> Option<&mut PageRef> {
+        self.parts
+            .iter_mut()
+            .flat_map(|part| part.pages.iter_mut())
+            .find(|page| page.id == id)
     }
 
     /// Whether the syllabus holds a page, with content or not.
@@ -336,7 +367,7 @@ pub struct AgentStatus {
 }
 
 /// What `GET /api/session` answers. The syllabus is in `course.parts`.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Session {
     pub course: Course,
@@ -374,14 +405,14 @@ impl CourseStatus {
 
 /// A part of the syllabus. A course with no parts is one implicit part
 /// with no title.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Part {
     pub title: String,
     pub pages: Vec<PageRef>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct PageRef {
     /// `1`, `7a`, `c1`, `f1`.
@@ -433,11 +464,25 @@ pub enum PageState {
     Debriefed,
 }
 
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+/// The score of a page. See section 5.3 of the design.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Score {
-    pub right: u32,
+    /// In steps of 0.5: a partial result counts half. `course.json` of an
+    /// earlier release holds an integer, which reads as well.
+    #[serde(serialize_with = "whole_or_half")]
+    pub right: f64,
     pub total: u32,
+}
+
+/// A whole number goes out as an integer, as an earlier release wrote it,
+/// so a score with no half reads `2/3` and not `2.0/3`.
+fn whole_or_half<S: serde::Serializer>(right: &f64, serializer: S) -> Result<S::Ok, S::Error> {
+    // A score counts at most a few hundred questions, far inside u32.
+    if right.fract() == 0.0 && (0.0..=f64::from(u32::MAX)).contains(right) {
+        return serializer.serialize_u32(*right as u32);
+    }
+    serializer.serialize_f64(*right)
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -581,6 +626,30 @@ pub struct Page {
 pub struct Quiz {
     pub open: Option<OpenQuestion>,
     pub choices: Vec<Choice>,
+    /// None until the agent writes it, which it does once the learner
+    /// answered the quiz.
+    pub debrief: Option<Debrief>,
+}
+
+/// What the agent says of the answers to a quiz. See section 5.4 of the
+/// design.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct Debrief {
+    /// The blocks of its source, as the blocks of a page. No line is hidden.
+    pub blocks: Vec<Block>,
+    /// The grade of each point of the open question, in its order. Empty
+    /// for a quiz with no open question.
+    pub points: Vec<GradedPoint>,
+}
+
+/// A point of an open question, with the grade that the agent gave it.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct GradedPoint {
+    pub id: String,
+    pub label: String,
+    pub result: Grade,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -997,6 +1066,7 @@ mod tests {
                 options: vec!["<em>A</em>".to_owned(), "B".to_owned()],
                 graded: None,
             }],
+            debrief: None,
         };
 
         assert_eq!(
@@ -1005,6 +1075,7 @@ mod tests {
                 "open": { "prompt": "Why?", "sent": null },
                 "choices": [{ "header": "Split vote", "prompt": "What next?",
                               "options": ["<em>A</em>", "B"], "graded": null }],
+                "debrief": null,
             })
         );
     }
@@ -1227,6 +1298,136 @@ mod tests {
         assert_eq!(block.kind(), "diagram");
     }
 
+    #[test]
+    fn a_debrief_has_the_shape_of_the_page() {
+        let debrief = Debrief {
+            blocks: vec![Block::Text {
+                id: "0123456789ab".to_owned(),
+                html: "<p>Almost.</p>".to_owned(),
+            }],
+            points: vec![GradedPoint {
+                id: "random-timeout".to_owned(),
+                label: "Why the timeout is random".to_owned(),
+                result: Grade::Partial,
+            }],
+        };
+
+        assert_eq!(
+            serde_json::to_value(&debrief).unwrap(),
+            json!({
+                "blocks": [{ "id": "0123456789ab", "kind": "text", "html": "<p>Almost.</p>" }],
+                "points": [{ "id": "random-timeout", "label": "Why the timeout is random",
+                             "result": "partial" }],
+            })
+        );
+    }
+
+    /// A partial result counts half, and a whole score keeps the integer
+    /// of an earlier release.
+    #[test]
+    fn a_score_goes_in_steps_of_a_half() {
+        let score = |right| Score { right, total: 3 };
+
+        assert_eq!(
+            serde_json::to_value(score(1.5)).unwrap(),
+            json!({ "right": 1.5, "total": 3 })
+        );
+        assert_eq!(
+            serde_json::to_string(&score(2.0)).unwrap(),
+            r#"{"right":2,"total":3}"#
+        );
+        assert_eq!(
+            serde_json::from_str::<Score>(r#"{"right":0.5,"total":1}"#).unwrap(),
+            Score {
+                right: 0.5,
+                total: 1
+            }
+        );
+    }
+
+    /// The score of an earlier release is an integer. The format stays at
+    /// version 1, so its `course.json` must read as it is.
+    #[test]
+    fn a_course_of_an_earlier_release_with_an_integer_score_reads() {
+        let text = r#"{
+            "version": 1, "slug": "raft", "title": "Raft", "goal": "", "profile": "",
+            "quizMode": "mixed", "status": "running", "followUp": null,
+            "parts": [{ "title": "", "pages": [
+                { "id": "1", "kind": "lesson", "title": "Two leaders", "state": "answered",
+                  "score": { "right": 2, "total": 3 } }
+            ] }],
+            "findings": [], "created": "2026-01-01T00:00:00Z", "updated": "2026-01-01T00:00:00Z"
+        }"#;
+
+        let course: Course = serde_json::from_str(text).unwrap();
+
+        assert_eq!(
+            course.parts[0].pages[0].score,
+            Some(Score {
+                right: 2.0,
+                total: 3
+            })
+        );
+        let back = serde_json::to_value(&course).unwrap();
+        assert_eq!(
+            back["parts"][0]["pages"][0]["score"],
+            json!({ "right": 2, "total": 3 })
+        );
+    }
+
+    #[test]
+    fn only_an_answered_page_becomes_debriefed() {
+        let mut course = Course::new("raft", at_new_year());
+        course.parts = vec![Part {
+            title: "Why".to_owned(),
+            pages: vec![
+                page("1", PageState::Answered),
+                page("2", PageState::Taught),
+                page("3", PageState::Planned),
+            ],
+        }];
+        let later = OffsetDateTime::from_unix_timestamp(1_767_225_660).unwrap();
+
+        for id in ["1", "2", "3", "4"] {
+            course.debrief_page(id, later);
+        }
+
+        assert_eq!(
+            course.parts[0].pages,
+            [
+                page("1", PageState::Debriefed),
+                page("2", PageState::Taught),
+                page("3", PageState::Planned),
+            ]
+        );
+        assert_eq!(course.updated, "2026-01-01T00:01:00Z");
+
+        // A quiz pushed after the debrief asks for an answer again.
+        course.push_quiz("1", later);
+        assert_eq!(course.parts[0].pages[0].state, PageState::Taught);
+    }
+
+    #[test]
+    fn a_score_changes_the_course_only_when_it_differs() {
+        let mut course = Course::new("raft", at_new_year());
+        course.parts = vec![Part {
+            title: "Why".to_owned(),
+            pages: vec![page("1", PageState::Answered)],
+        }];
+        let later = OffsetDateTime::from_unix_timestamp(1_767_225_660).unwrap();
+
+        course.score_page("1", None, later);
+        assert_eq!(course.updated, "2026-01-01T00:00:00Z");
+        let half = Some(Score {
+            right: 1.5,
+            total: 3,
+        });
+        course.score_page("1", half, later);
+
+        assert_eq!(course.parts[0].pages[0].score, half);
+        assert_eq!(course.updated, "2026-01-01T00:01:00Z");
+    }
+
     /// The detail carries no tag, so the wait of the agent must still read
     /// each kind back as itself.
     #[test]
@@ -1287,7 +1488,10 @@ mod tests {
                     kind: PageKind::Lesson,
                     title: "Two leaders, one term".to_owned(),
                     state: PageState::Answered,
-                    score: Some(Score { right: 2, total: 3 }),
+                    score: Some(Score {
+                        right: 2.0,
+                        total: 3,
+                    }),
                 },
                 PageRef {
                     id: "f1".to_owned(),

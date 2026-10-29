@@ -173,6 +173,31 @@ async fn agent_command(cli: &cli::Cli, home: &Home) -> Result<Option<i32>> {
                 },
             }
         }
+        Some(cli::Command::Debrief {
+            id,
+            n,
+            file,
+            points,
+        }) => {
+            let source = agent::read_file(file)?;
+            let client = agent::connect(home).await?;
+            match agent::debrief(&client, id, *n, &source, points, file).await {
+                Ok(page) => print(&page),
+                // One line per error: those of the source with their line,
+                // then those of the points with their `--point`.
+                Err(error) => match error.downcast_ref::<Refusal>() {
+                    Some(refusal) if refusal.code == "invalidDebrief" => {
+                        eprintln!("{}", refusal.message);
+                        return Ok(Some(1));
+                    }
+                    _ => return Err(error),
+                },
+            }
+        }
+        Some(cli::Command::Points) => {
+            let client = agent::connect(home).await?;
+            print(&agent::points(&client).await?);
+        }
         Some(cli::Command::Status { text }) => {
             let client = agent::connect(home).await?;
             print(&agent::status(&client, text).await?);

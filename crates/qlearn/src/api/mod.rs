@@ -24,10 +24,10 @@ use crate::highlight::Highlighter;
 use crate::lesson::{self, Fault};
 use crate::model::{
     self, AgentStatus, Author, Batch, Block, BlockSource, Broken, ChoicesSent, Course,
-    CourseChange, Detail, Event, EventKind, Graded, OpenSent, Page, PageKind, PointResult,
-    QuizNumber, Session, StatusText,
+    CourseChange, Detail, Event, EventKind, Graded, GradedPoint, OpenSent, Page, PageKind, Point,
+    PointResult, QuizNumber, Session, StatusText,
 };
-use crate::quiz::Refusal;
+use crate::quiz::{Refusal, StoredDebrief};
 use crate::store::{self, PageFile, Store};
 
 #[derive(Clone)]
@@ -96,6 +96,8 @@ pub fn app(state: AppState) -> Router {
         .route("/api/pages/{id}/quizzes", post(push_quiz))
         .route("/api/pages/{id}/quizzes/{n}/open", post(send_open))
         .route("/api/pages/{id}/quizzes/{n}/choices", post(send_choices))
+        .route("/api/pages/{id}/quizzes/{n}/debrief", put(write_debrief))
+        .route("/api/points", get(points))
         .route("/api/pages/{id}/next", post(next))
         .route("/api/pages/{id}/broken", post(broken))
         .method_not_allowed_fallback(method_not_allowed)
@@ -392,13 +394,7 @@ async fn send(state: &AppState, id: &str, n: &str, part: Part) -> Result<Json<Pa
         .store
         .load_page(&course.slug, id)?
         .ok_or_else(no_content)?;
-    let count = file.quizzes.len();
-    // `+1` and `01` parse too, and name no quiz in the address.
-    let at = n
-        .parse::<usize>()
-        .ok()
-        .filter(|at| (1..=count).contains(at) && at.to_string() == n)
-        .ok_or_else(|| ApiError::not_found(format!("page {id} holds no quiz {n}")))?;
+    let at = quiz_number(&file, id, n)?;
     let quiz = &mut file.quizzes[at - 1];
 
     let now = OffsetDateTime::now_utc();
@@ -419,9 +415,10 @@ async fn send(state: &AppState, id: &str, n: &str, part: Part) -> Result<Json<Pa
     // write that fails puts the others back, so an answer that gets an
     // error leaves the store as it was and the learner sends it again.
     let mut changed = course.clone();
-    if file.quizzes.iter().all(crate::quiz::StoredQuiz::answered) {
+    if file.answered() {
         changed.answer_page(id, now);
     }
+    changed.score_page(id, file.score(), now);
     // The page file goes first: it holds the answer, and the other files
     // follow from it. A server killed before them writes them at its next
     // start, in `settle`, so the learner never sends a part twice.
@@ -449,6 +446,174 @@ async fn send(state: &AppState, id: &str, n: &str, part: Part) -> Result<Json<Pa
     Ok(Json(file.page(id)))
 }
 
+/// The number of the quiz `n` of a page, from 1, as the address gives it.
+fn quiz_number(file: &PageFile, id: &str, n: &str) -> Result<usize, ApiError> {
+    let count = file.quizzes.len();
+    // `+1` and `01` parse too, and name no quiz in the address.
+    n.parse::<usize>()
+        .ok()
+        .filter(|at| (1..=count).contains(at) && at.to_string() == n)
+        .ok_or_else(|| ApiError::not_found(format!("page {id} holds no quiz {n}")))
+}
+
+/// The name that the faults of the source of a debrief give it. The
+/// command of the agent puts the name of its own file in its place.
+pub const DEBRIEF_FILE: &str = "debrief.md";
+
+/// The page file of a page with content, and the number of its quiz `n`,
+/// once the learner answered that quiz.
+fn answered_quiz(
+    store: &Store,
+    course: &Course,
+    id: &str,
+    n: &str,
+) -> Result<(PageFile, usize), ApiError> {
+    let no_content = || ApiError::not_found(format!("page {id} has no content yet"));
+    if PageKind::of_id(id).is_none() || !course.has_content(id) {
+        return Err(no_content());
+    }
+    let file = store.load_page(&course.slug, id)?.ok_or_else(no_content)?;
+    let at = quiz_number(&file, id, n)?;
+    // A debrief comments on the answers and grades the open one, so it waits for them.
+    if !file.quizzes[at - 1].answered() {
+        return Err(ApiError::conflict(format!(
+            "the learner has not answered quiz {at} of page {id} yet. Write its debrief once \
+             the answer reaches your wait"
+        )));
+    }
+    Ok((file, at))
+}
+
+/// Write the debrief of the quiz `n` of a page, with the grade of each
+/// point of its open question. Answers the page.
+///
+/// The source is a page source, checked as a push of a page is, and a
+/// refused debrief gets every fault at once. A debrief written again
+/// replaces the first one and the results that it recorded, so the agent
+/// can fix a diagram that the page cannot draw.
+async fn write_debrief(
+    State(state): State<AppState>,
+    path: Result<Path<(String, String)>, PathRejection>,
+    body: Result<Json<serde_json::Value>, JsonRejection>,
+) -> Result<Json<Page>, ApiError> {
+    let Path((id, n)) = path.map_err(bad_path)?;
+    let Json(body) = body.map_err(bad_json)?;
+
+    // Checked before the parse, which reads the repository, so a debrief
+    // of no quiz gets that answer first.
+    let quiz = {
+        let course = state.course.read().await;
+        let (file, at) = answered_quiz(&state.store, &course, &id, &n)?;
+        file.quizzes[at - 1].clone()
+    };
+    let read = crate::quiz::read_debrief(&body, &quiz);
+    let parsed = match &read.source {
+        Some(source) => {
+            Some(lesson::parse_debrief(source, &state.git, Highlighter::shared()).await)
+        }
+        None => None,
+    };
+    let mut faults: Vec<String> = match &parsed {
+        Some(Err(faults)) => faults
+            .iter()
+            .map(|fault| fault.display(DEBRIEF_FILE))
+            .collect(),
+        _ => Vec::new(),
+    };
+    faults.extend(read.faults);
+    let (Some(source), Some(Ok(parsed)), true) = (read.source, parsed, faults.is_empty()) else {
+        return Err(ApiError::invalid_debrief(&faults));
+    };
+
+    let mut course = state.course.write().await;
+    // The quizzes of a page only grow, and an answer stays: the checks above
+    // still hold, and this reads the file that the write starts from.
+    let (mut file, at) = answered_quiz(&state.store, &course, &id, &n)?;
+    let mut points = state.store.load_points(&course.slug)?;
+    let mut graded = Vec::new();
+    for (point, result) in read.grades {
+        let label = crate::quiz::point_of(&mut points, &point)?.label.clone();
+        graded.push(GradedPoint {
+            id: point,
+            label,
+            result,
+        });
+    }
+    let now = OffsetDateTime::now_utc();
+    let quiz = &mut file.quizzes[at - 1];
+    // A debrief written again grades the same answer: its results keep the
+    // date and the place that the first one gave them.
+    let stamp = match &quiz.debrief {
+        Some(earlier) => earlier.at.clone(),
+        None => model::stamp(now),
+    };
+    let debrief = StoredDebrief {
+        source,
+        blocks: parsed.blocks,
+        points: graded,
+        at: stamp,
+    };
+    debrief.record(&mut points)?;
+    let gone: Vec<String> = quiz
+        .debrief
+        .iter()
+        .flat_map(|earlier| &earlier.blocks)
+        .map(|block| block.id().to_owned())
+        .collect();
+    quiz.debrief = Some(debrief);
+
+    // The copy in memory changes only once every file is written, and a
+    // write that fails puts the others back, so a debrief that gets an
+    // error leaves the store as it was.
+    let mut changed = course.clone();
+    if file.debriefed() {
+        changed.debrief_page(&id, now);
+    }
+    changed.score_page(&id, file.score(), now);
+    // The page file goes first: it holds the debrief, and the other files
+    // follow from it. A server killed before them writes them at its next
+    // start, in `settle`.
+    let mut undo = state.store.save_blocks(&changed.slug, &id, &file)?;
+    match state.store.save_points(&changed.slug, &points) {
+        Ok(later) => undo = undo.and(later),
+        Err(error) => return Err(undo.after(error).into()),
+    }
+    if changed != *course
+        && let Err(error) = state.store.save_undoable(&changed)
+    {
+        return Err(undo.after(error).into());
+    }
+    *course = changed;
+    // A new version of the debrief: a block of it that is still broken is
+    // news.
+    state
+        .broken
+        .lock()
+        .expect("the broken blocks are poisoned")
+        .retain(|(page, block), _| !(*page == id && gone.contains(block)));
+    // Under the lock, so the events come in the order of the writes.
+    state.events.push(
+        EventKind::Debrief,
+        Author::Agent,
+        Some(&id),
+        Some(&at.to_string()),
+    );
+    drop(course);
+
+    Ok(Json(file.page(&id)))
+}
+
+/// The points of the course, in the order of section 5.3 of the design:
+/// the order in which the agent picks the point of a question on an
+/// earlier lesson.
+async fn points(State(state): State<AppState>) -> Result<Json<Vec<Point>>, ApiError> {
+    let course = state.course.read().await;
+    let points = state.store.load_points(&course.slug)?;
+    drop(course);
+
+    Ok(Json(crate::quiz::in_order(points)))
+}
+
 /// Add the result of each graded choice to its point, at the stamp `at`.
 fn add_results(
     points: &mut [model::Point],
@@ -456,22 +621,13 @@ fn add_results(
     at: &str,
 ) -> anyhow::Result<()> {
     for (point, grade) in grades {
-        // The quiz wrote its points before itself, so a point that is
-        // missing was taken out of points.json by hand.
-        let held = points
-            .iter_mut()
-            .find(|known| known.id == point)
-            .ok_or_else(|| {
-                anyhow::anyhow!(
-                    "points.json holds no point {point}. Put it back by hand, with its label \
-                     and its lesson"
-                )
-            })?;
-        held.results.push(PointResult {
-            at: at.to_owned(),
-            result: grade,
-            how: Graded::Choice,
-        });
+        crate::quiz::point_of(points, &point)?
+            .results
+            .push(PointResult {
+                at: at.to_owned(),
+                result: grade,
+                how: Graded::Choice,
+            });
     }
     Ok(())
 }
@@ -479,14 +635,16 @@ fn add_results(
 /// Write what the page files say and points.json or course.json does not.
 /// Called before the server starts.
 ///
-/// An answer writes the page file first, so a server killed in the middle
-/// leaves graded choices with no results, or a page whose every quiz is
-/// answered and that is still taught.
+/// An answer and a debrief write the page file first, so a server killed in
+/// the middle leaves graded choices with no results, the results of a
+/// debrief that a new one replaced, or a page whose state and score are
+/// behind its quizzes.
 pub fn settle(store: &Store, course: &mut Course) -> anyhow::Result<()> {
     let mut points = store.load_points(&course.slug)?;
-    let mut added = false;
+    let before = points.clone();
     let mut changed = course.clone();
     let now = OffsetDateTime::now_utc();
+    let mut debriefs: Vec<StoredDebrief> = Vec::new();
     let ids: Vec<String> = course
         .parts
         .iter()
@@ -499,29 +657,34 @@ pub fn settle(store: &Store, course: &mut Course) -> anyhow::Result<()> {
             continue;
         };
         for quiz in &file.quizzes {
+            debriefs.extend(quiz.debrief.clone());
             let Some(at) = &quiz.sent.graded else {
                 continue;
             };
             // One write of points.json holds every result of a grading, so
             // one of them is enough to know.
-            let held = points.iter().any(|point| {
-                point
-                    .results
-                    .iter()
-                    .any(|result| result.how == Graded::Choice && result.at == *at)
-            });
-            if !held {
+            if !holds(&points, Graded::Choice, at) {
                 add_results(&mut points, quiz.grades(), at)?;
-                added = true;
             }
         }
-        if !file.quizzes.is_empty() && file.quizzes.iter().all(crate::quiz::StoredQuiz::answered) {
+        if file.answered() {
             changed.answer_page(&id, now);
         }
+        if file.debriefed() {
+            changed.debrief_page(&id, now);
+        }
+        changed.score_page(&id, file.score(), now);
+    }
+
+    // A debrief grades its results in place, so this also completes one
+    // that was written again. A result stays even when no debrief names it:
+    // it is an answer of the learner.
+    for debrief in &debriefs {
+        debrief.record(&mut points)?;
     }
 
     // points.json first: a page that is answered has its results.
-    if added {
+    if points != before {
         store.save_points(&course.slug, &points)?;
     }
     if changed != *course {
@@ -529,6 +692,16 @@ pub fn settle(store: &Store, course: &mut Course) -> anyhow::Result<()> {
         *course = changed;
     }
     Ok(())
+}
+
+/// Whether a point holds a result that `how` gave at the stamp `at`.
+fn holds(points: &[Point], how: Graded, at: &str) -> bool {
+    points.iter().any(|point| {
+        point
+            .results
+            .iter()
+            .any(|result| result.how == how && result.at == at)
+    })
 }
 
 /// Change the title, the goal, the profile, the quiz mode, the status or
@@ -620,8 +793,9 @@ async fn next(
     Ok(Json(event))
 }
 
-/// The page cannot draw a block. Answers the request, which hands the agent
-/// the source of the block and the error of the page.
+/// The page cannot draw a block of a page or of a debrief. Answers the
+/// request, which hands the agent the source of the block and the error of
+/// the page. The request names the quiz of a block of a debrief.
 ///
 /// Only a diagram can fail: the server checks every other block before it
 /// stores the page.
@@ -646,12 +820,13 @@ async fn broken(
         .store
         .load_page(&course.slug, &id)?
         .ok_or_else(no_content)?;
-    // A block that a later push took away: the agent has nothing to fix.
-    let block = file
-        .blocks
-        .iter()
-        .find(|block| block.id() == body.block)
+    // A block that a later push took away: the agent has nothing to fix. A
+    // block of a debrief names its quiz, so the agent knows to write that
+    // debrief again rather than the page.
+    let (block, quiz) = file
+        .block(&body.block)
         .ok_or_else(|| ApiError::not_found(format!("page {id} holds no block {:?}", body.block)))?;
+    let quiz = quiz.map(|n| n.to_string());
     let Block::Diagram { source, .. } = block else {
         return Err(ApiError::bad_request(format!(
             "block {} of page {id} is a {} block, which the server checked: only a diagram \
@@ -677,7 +852,7 @@ async fn broken(
             };
             let event = state
                 .events
-                .request(EventKind::Broken, Some(&id), None, detail);
+                .request(EventKind::Broken, Some(&id), quiz.as_deref(), detail);
             heard.insert(key, event.clone());
             event
         }
@@ -819,6 +994,17 @@ impl ApiError {
         Self {
             status: StatusCode::BAD_REQUEST,
             code: "invalidQuiz",
+            message: faults.join("\n"),
+        }
+    }
+
+    /// A debrief that fails a check. The message holds one line per
+    /// fault: those of the source in the format of section 4.7 of the
+    /// design, then those of the points, each with its place in the body.
+    fn invalid_debrief(faults: &[String]) -> Self {
+        Self {
+            status: StatusCode::BAD_REQUEST,
+            code: "invalidDebrief",
             message: faults.join("\n"),
         }
     }
@@ -1724,7 +1910,10 @@ mod tests {
             let mut course = state.course.write().await;
             let page = &mut course.parts[0].pages[0];
             page.state = PageState::Answered;
-            page.score = Some(crate::model::Score { right: 2, total: 3 });
+            page.score = Some(crate::model::Score {
+                right: 2.0,
+                total: 3,
+            });
         }
 
         let (status, body) = json(
@@ -3085,6 +3274,703 @@ mod tests {
         let (_, page) = json(app(state.clone()), get_with_cookie("/api/pages/1", TOKEN)).await;
         assert_eq!(page["quizzes"][0]["open"]["sent"], serde_json::Value::Null);
         assert_eq!(state.events.after(None, events::HOLD).await.next, after);
+    }
+
+    /// A quiz whose open question names two points, and whose choice
+    /// checks a third.
+    const QUIZ_TWO_POINTS: &str = r#"{
+        "open": {
+            "prompt": "Why is the timeout random, and how many votes win?",
+            "points": ["random-timeout", "majority"]
+        },
+        "choices": [
+            {
+                "header": "Split vote",
+                "prompt": "Two candidates get 2 votes each out of 5. What happens next?",
+                "options": ["The higher id wins", "Both time out and start a new term"],
+                "answer": 1,
+                "point": "split-vote"
+            }
+        ],
+        "points": {
+            "random-timeout": { "label": "Why the election timeout is random" },
+            "majority": { "label": "How many votes make a leader" },
+            "split-vote": { "label": "How a split vote ends" }
+        }
+    }"#;
+
+    /// A debrief with an excerpt and a diagram, as section 5.4 of the
+    /// design allows.
+    const DEBRIEF: &str = "# Almost\n\n\
+                           The random part is right. A majority is 3 of 5, not 2.\n\n\
+                           ```excerpt\npath: src/raft.c\nlines: 2-4\nmark: 4\n```\n\n\
+                           ```mermaid\nflowchart LR\n  F[Follower] --> C[Candidate]\n```\n";
+
+    fn debrief_body(source: &str, points: serde_json::Value) -> String {
+        serde_json::json!({ "source": source, "points": points, "author": "agent" }).to_string()
+    }
+
+    /// The learner answers quiz n of page 1: the open answer, then option 0
+    /// of each choice.
+    async fn answer_quiz(state: &AppState, n: usize) {
+        let quiz = state.store.load_page("raft", "1").unwrap().unwrap().quizzes[n - 1].clone();
+        if quiz.open.is_some() {
+            let uri = format!("/api/pages/1/quizzes/{n}/open");
+            let (status, body) = json(app(state.clone()), send_json("POST", &uri, OPEN)).await;
+            assert_eq!(status, StatusCode::OK, "{body}");
+        }
+        if !quiz.choices.is_empty() {
+            let picks: Vec<_> = quiz
+                .choices
+                .iter()
+                .map(|_| serde_json::json!({ "option": 0 }))
+                .collect();
+            let uri = format!("/api/pages/1/quizzes/{n}/choices");
+            let body = serde_json::json!({ "choices": picks }).to_string();
+            let (status, body) = json(app(state.clone()), send_json("POST", &uri, &body)).await;
+            assert_eq!(status, StatusCode::OK, "{body}");
+        }
+    }
+
+    async fn write_debrief(
+        state: &AppState,
+        n: usize,
+        body: &str,
+    ) -> (StatusCode, serde_json::Value) {
+        let uri = format!("/api/pages/1/quizzes/{n}/debrief");
+        json(app(state.clone()), send_json("PUT", &uri, body)).await
+    }
+
+    /// points.json, with each stamp checked and then put as `[at]`.
+    fn points_file(dir: &std::path::Path) -> serde_json::Value {
+        let text = std::fs::read_to_string(dir.join(".learn/raft/points.json")).unwrap();
+        let mut points: serde_json::Value = serde_json::from_str(&text).unwrap();
+        for point in points["points"].as_array_mut().unwrap() {
+            for result in point["results"].as_array_mut().unwrap() {
+                let at = result["at"].as_str().unwrap();
+                assert!(
+                    OffsetDateTime::parse(at, &time::format_description::well_known::Rfc3339)
+                        .is_ok(),
+                    "{at}"
+                );
+                result["at"] = "[at]".into();
+            }
+        }
+        points
+    }
+
+    fn page_ref(state: &serde_json::Value) -> serde_json::Value {
+        state["course"]["parts"][0]["pages"][0].clone()
+    }
+
+    #[tokio::test]
+    async fn the_debrief_route_stores_the_debrief_and_answers_the_page() {
+        let (dir, state) = with_quiz(LESSON, QUIZ_TWO_POINTS).await;
+        answer_quiz(&state, 1).await;
+        let untouched = outside(dir.path());
+        let after = state.events.after(None, events::HOLD).await.next;
+        let body = debrief_body(
+            DEBRIEF,
+            serde_json::json!({ "random-timeout": "ok", "majority": "partial" }),
+        );
+
+        let (status, answer) = write_debrief(&state, 1, &body).await;
+
+        assert_eq!(status, StatusCode::OK, "{answer}");
+        insta::assert_json_snapshot!("debrief", answer);
+        let (_, page) = json(app(state.clone()), get_with_cookie("/api/pages/1", TOKEN)).await;
+        assert_eq!(page, answer);
+        let kinds: Vec<_> = answer["quizzes"][0]["debrief"]["blocks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|block| block["kind"].clone())
+            .collect();
+        assert_eq!(kinds, ["text", "excerpt", "diagram"]);
+
+        // The open results go to points.json, beside the result of the
+        // choice, and the page counts a partial point half.
+        assert_eq!(
+            points_file(dir.path()),
+            serde_json::json!({ "points": [
+                { "id": "majority", "label": "How many votes make a leader", "lesson": "1",
+                  "results": [{ "at": "[at]", "result": "partial", "how": "open" }] },
+                { "id": "random-timeout", "label": "Why the election timeout is random",
+                  "lesson": "1", "results": [{ "at": "[at]", "result": "ok", "how": "open" }] },
+                { "id": "split-vote", "label": "How a split vote ends", "lesson": "1",
+                  "results": [{ "at": "[at]", "result": "missed", "how": "choice" }] },
+            ] })
+        );
+        let (_, session) = json(app(state.clone()), get_with_cookie("/api/session", TOKEN)).await;
+        assert_eq!(
+            page_ref(&session),
+            serde_json::json!({ "id": "1", "kind": "lesson", "title": "Two leaders, one term",
+                                "state": "debriefed", "score": { "right": 1.5, "total": 3 } })
+        );
+        let stored = Store::at(dir.path()).load("raft").unwrap().unwrap();
+        assert_eq!(stored, *state.course.read().await, "course.json holds it");
+        let file = std::fs::read_to_string(dir.path().join(".learn/raft/pages/1.json")).unwrap();
+        assert!(
+            file.contains("A majority is 3 of 5"),
+            "the source is kept: {file}"
+        );
+
+        let batch = state.events.after(Some(after), events::HOLD).await;
+        let events: Vec<_> = batch
+            .events
+            .iter()
+            .map(|event| {
+                (
+                    event.kind,
+                    event.author,
+                    event.page.as_deref(),
+                    event.id.as_deref(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            events,
+            [(EventKind::Debrief, Author::Agent, Some("1"), Some("1"))]
+        );
+        assert_eq!(outside(dir.path()), untouched, "a write outside .learn/");
+    }
+
+    /// The order of section 5.3: the missed and partial points first, then
+    /// the others, each by the date of its last result.
+    #[tokio::test]
+    async fn the_points_route_answers_the_missed_points_first() {
+        let (_dir, state) = with_quiz(LESSON, QUIZ_TWO_POINTS).await;
+        let (status, empty) = json(app(state.clone()), get_with_cookie("/api/points", TOKEN)).await;
+        assert_eq!(status, StatusCode::OK);
+        let ids = |points: &serde_json::Value| -> Vec<String> {
+            points
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|point| point["id"].as_str().unwrap().to_owned())
+                .collect()
+        };
+        assert_eq!(
+            ids(&empty),
+            ["majority", "random-timeout", "split-vote"],
+            "a point with no result keeps its place"
+        );
+        answer_quiz(&state, 1).await;
+        let body = debrief_body(
+            "# Almost\n",
+            serde_json::json!({ "random-timeout": "ok", "majority": "partial" }),
+        );
+        let (status, _) = write_debrief(&state, 1, &body).await;
+        assert_eq!(status, StatusCode::OK);
+
+        let (status, mut points) =
+            json(app(state.clone()), get_with_cookie("/api/points", TOKEN)).await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(ids(&points), ["split-vote", "majority", "random-timeout"]);
+        for point in points.as_array_mut().unwrap() {
+            for result in point["results"].as_array_mut().unwrap() {
+                result["at"] = "[at]".into();
+            }
+        }
+        insta::assert_json_snapshot!("points", points);
+    }
+
+    /// The agent writes a debrief again to fix it. The results that the
+    /// first one recorded go, so the answer counts once.
+    #[tokio::test]
+    async fn a_debrief_written_again_replaces_its_source_and_its_results() {
+        let (dir, state) = with_quiz(LESSON, QUIZ_TWO_POINTS).await;
+        answer_quiz(&state, 1).await;
+        let first = debrief_body(
+            DEBRIEF,
+            serde_json::json!({ "random-timeout": "missed", "majority": "missed" }),
+        );
+        let (status, _) = write_debrief(&state, 1, &first).await;
+        assert_eq!(status, StatusCode::OK);
+        let after = state.events.after(None, events::HOLD).await.next;
+
+        let second = debrief_body(
+            "# Almost right\n\nA majority is 3 of 5.\n",
+            serde_json::json!({ "random-timeout": "ok", "majority": "partial" }),
+        );
+        let (status, answer) = write_debrief(&state, 1, &second).await;
+
+        assert_eq!(status, StatusCode::OK, "{answer}");
+        let debrief = &answer["quizzes"][0]["debrief"];
+        assert_eq!(debrief["blocks"].as_array().unwrap().len(), 1, "{debrief}");
+        assert_eq!(
+            debrief["points"],
+            serde_json::json!([
+                { "id": "random-timeout", "label": "Why the election timeout is random",
+                  "result": "ok" },
+                { "id": "majority", "label": "How many votes make a leader",
+                  "result": "partial" },
+            ])
+        );
+        let results: Vec<_> = points_file(dir.path())["points"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|point| (point["id"].clone(), point["results"].clone()))
+            .collect();
+        assert_eq!(
+            serde_json::json!(results),
+            serde_json::json!([
+                ["majority", [{ "at": "[at]", "result": "partial", "how": "open" }]],
+                ["random-timeout", [{ "at": "[at]", "result": "ok", "how": "open" }]],
+                ["split-vote", [{ "at": "[at]", "result": "missed", "how": "choice" }]],
+            ])
+        );
+        let stored = state.store.load_page("raft", "1").unwrap().unwrap();
+        let at = &stored.quizzes[0].debrief.as_ref().unwrap().at;
+        let points = state.store.load_points("raft").unwrap();
+        assert_eq!(points[1].results[0].at, *at, "the results carry its stamp");
+        assert_eq!(
+            state.course.read().await.parts[0].pages[0].score,
+            Some(model::Score {
+                right: 1.5,
+                total: 3
+            })
+        );
+        let batch = state.events.after(Some(after), events::HOLD).await;
+        assert_eq!(batch.events.len(), 1);
+        assert_eq!(batch.events[0].kind, EventKind::Debrief);
+    }
+
+    /// A debrief written again after a later quiz graded the same point
+    /// keeps the place and the stamp of its results: the last result of the
+    /// point is still the latest answer of the learner.
+    #[tokio::test]
+    async fn a_debrief_written_again_keeps_the_place_of_its_results() {
+        let only_choices = r#"{"choices":[{"header":"Timer","prompt":"Who starts?",
+            "options":["The first to time out","The leader"],"answer":0,
+            "point":"random-timeout"}]}"#;
+        let (_dir, state) = with_quiz(LESSON, QUIZ).await;
+        answer_quiz(&state, 1).await;
+        let body = debrief_body(
+            "# Almost\n",
+            serde_json::json!({ "random-timeout": "partial" }),
+        );
+        let (status, answer) = write_debrief(&state, 1, &body).await;
+        assert_eq!(status, StatusCode::OK, "{answer}");
+        let (status, _) = json(
+            app(state.clone()),
+            send_json("POST", "/api/pages/1/quizzes", only_choices),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        answer_quiz(&state, 2).await;
+        let before = state.store.load_points("raft").unwrap();
+
+        let body = debrief_body(
+            "# Almost, with a diagram that draws\n",
+            serde_json::json!({ "random-timeout": "partial" }),
+        );
+        let (status, answer) = write_debrief(&state, 1, &body).await;
+
+        assert_eq!(status, StatusCode::OK, "{answer}");
+        assert_eq!(state.store.load_points("raft").unwrap(), before);
+        let (_, points) = json(app(state.clone()), get_with_cookie("/api/points", TOKEN)).await;
+        let ids: Vec<_> = points
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|p| p["id"].clone())
+            .collect();
+        assert_eq!(
+            ids,
+            ["split-vote", "random-timeout"],
+            "random-timeout ends on its right choice"
+        );
+    }
+
+    /// A page is debriefed once every quiz of it has its debrief, and a
+    /// quiz pushed after that asks for an answer again.
+    #[tokio::test]
+    async fn a_page_goes_from_answered_to_debriefed_with_its_last_debrief() {
+        let only_choices = r#"{"choices":[{"header":"Timer","prompt":"Who starts?",
+            "options":["The first to time out","The leader"],"answer":0,
+            "point":"random-timeout"}]}"#;
+        let (dir, state) = with_quiz(LESSON, QUIZ).await;
+        let (status, _) = json(
+            app(state.clone()),
+            send_json("POST", "/api/pages/1/quizzes", only_choices),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let page = || async {
+            let (_, session) =
+                json(app(state.clone()), get_with_cookie("/api/session", TOKEN)).await;
+            let page = page_ref(&session);
+            (page["state"].clone(), page["score"].clone())
+        };
+        answer_quiz(&state, 1).await;
+        answer_quiz(&state, 2).await;
+        // The first quiz has its wrong choice, the second its right one.
+        assert_eq!(
+            page().await,
+            (
+                "answered".into(),
+                serde_json::json!({ "right": 1, "total": 2 })
+            )
+        );
+
+        let body = debrief_body(
+            "# Almost\n",
+            serde_json::json!({ "random-timeout": "partial" }),
+        );
+        let (status, answer) = write_debrief(&state, 1, &body).await;
+        assert_eq!(status, StatusCode::OK, "{answer}");
+        assert_eq!(
+            page().await,
+            (
+                "answered".into(),
+                serde_json::json!({ "right": 1.5, "total": 3 })
+            ),
+            "the second quiz has no debrief yet"
+        );
+        let body = debrief_body("# Right\n", serde_json::json!({}));
+        let (status, answer) = write_debrief(&state, 2, &body).await;
+        assert_eq!(status, StatusCode::OK, "{answer}");
+        assert_eq!(
+            page().await,
+            (
+                "debriefed".into(),
+                serde_json::json!({ "right": 1.5, "total": 3 })
+            )
+        );
+        let stored = Store::at(dir.path()).load("raft").unwrap().unwrap();
+        assert_eq!(stored.parts[0].pages[0].state, PageState::Debriefed);
+
+        let (status, _) = json(
+            app(state.clone()),
+            send_json("POST", "/api/pages/1/quizzes", only_choices),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            page().await,
+            (
+                "taught".into(),
+                serde_json::json!({ "right": 1.5, "total": 3 })
+            )
+        );
+    }
+
+    /// A debrief shows once its own quiz is answered, while another quiz of
+    /// the page still waits. Its excerpt keeps the hidden line of the lesson
+    /// as null until the learner answers every quiz of the page.
+    #[tokio::test]
+    async fn a_debrief_shows_no_hidden_line_before_the_page_is_answered() {
+        let only_choices = r#"{"choices":[{"header":"Timer","prompt":"Who starts?",
+            "options":["The first to time out","The leader"],"answer":0,
+            "point":"random-timeout"}]}"#;
+        let (_dir, state) = with_quiz(EXCERPT, QUIZ).await;
+        let (status, _) = json(
+            app(state.clone()),
+            send_json("POST", "/api/pages/1/quizzes", only_choices),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let hidden = state.store.load_page("raft", "1").unwrap().unwrap().hidden;
+        let hidden = hidden.values().next().unwrap().text.clone();
+        let page = || async {
+            let (status, body) =
+                json(app(state.clone()), get_with_cookie("/api/pages/1", TOKEN)).await;
+            assert_eq!(status, StatusCode::OK, "{body}");
+            body
+        };
+
+        answer_quiz(&state, 1).await;
+        let source = "# Almost\n\n```excerpt\npath: src/raft.c\nlines: 1-4\n```\n";
+        let body = debrief_body(source, serde_json::json!({ "random-timeout": "partial" }));
+        let (status, answer) = write_debrief(&state, 1, &body).await;
+        assert_eq!(status, StatusCode::OK, "{answer}");
+        assert!(!answer.to_string().contains(&hidden), "{answer}");
+        let body = page().await;
+        assert!(!body.to_string().contains(&hidden), "{body}");
+        let lines = &body["quizzes"][0]["debrief"]["blocks"][1]["excerpt"]["lines"];
+        assert_eq!(lines[3], serde_json::Value::Null);
+        assert_ne!(lines[2], serde_json::Value::Null);
+
+        answer_quiz(&state, 2).await;
+        let body = page().await;
+        let lines = &body["quizzes"][0]["debrief"]["blocks"][1]["excerpt"]["lines"];
+        assert_eq!(lines[3]["text"], hidden.as_str());
+
+        // A quiz pushed after the debrief hides the line there again.
+        let (status, _) = json(
+            app(state.clone()),
+            send_json("POST", "/api/pages/1/quizzes", only_choices),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(!page().await.to_string().contains(&hidden));
+    }
+
+    #[tokio::test]
+    async fn a_debrief_that_the_route_does_not_take_is_refused_and_stores_nothing() {
+        let (dir, state) = with_quiz(EXCERPT, QUIZ_TWO_POINTS).await;
+        let (status, _) = json(
+            app(state.clone()),
+            send_json("POST", "/api/pages/1/quizzes", QUIZ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        answer_quiz(&state, 1).await;
+        // The second quiz has its open answer, and its choices are left.
+        let (status, _) = json(
+            app(state.clone()),
+            send_json("POST", "/api/pages/1/quizzes/2/open", OPEN),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        state.course.write().await.parts[0].pages.push(PageRef {
+            id: "2".to_owned(),
+            kind: PageKind::Lesson,
+            title: "The vote".to_owned(),
+            state: PageState::Planned,
+            score: None,
+        });
+        let untouched = outside(dir.path());
+        let stored = |root: &std::path::Path| {
+            files(root)
+                .into_iter()
+                .map(|file| {
+                    let bytes = std::fs::read(root.join(&file)).unwrap();
+                    (file, bytes)
+                })
+                .collect::<Vec<_>>()
+        };
+        let check = |uri: &str, body: &str, code: &str| {
+            let state = state.clone();
+            let (uri, body, code) = (uri.to_owned(), body.to_owned(), code.to_owned());
+            async move {
+                let before = stored(state.git.root());
+                let course = state.course.read().await.clone();
+                let after = state.events.after(None, events::HOLD).await.next;
+
+                let (status, answer) =
+                    json(app(state.clone()), send_json("PUT", &uri, &body)).await;
+
+                let expected = match code.as_str() {
+                    "notFound" => StatusCode::NOT_FOUND,
+                    "conflict" => StatusCode::CONFLICT,
+                    _ => StatusCode::BAD_REQUEST,
+                };
+                assert_eq!(status, expected, "{uri} {body}: {answer}");
+                assert_eq!(answer["error"]["code"], code.as_str(), "{uri} {body}");
+                assert!(answer["error"]["message"].is_string(), "{answer}");
+                assert_eq!(stored(state.git.root()), before, "{uri} {body}");
+                assert_eq!(*state.course.read().await, course, "{uri} {body}");
+                assert_eq!(state.events.after(None, events::HOLD).await.next, after);
+                answer
+            }
+        };
+        let good = debrief_body(
+            "# Almost\n",
+            serde_json::json!({ "random-timeout": "ok", "majority": "partial" }),
+        );
+
+        // An unknown page, or an unknown quiz of a known page.
+        for uri in [
+            "/api/pages/2/quizzes/1/debrief",
+            "/api/pages/9/quizzes/1/debrief",
+            "/api/pages/x/quizzes/1/debrief",
+            "/api/pages/..%2Fcourse/quizzes/1/debrief",
+            "/api/pages/1/quizzes/0/debrief",
+            "/api/pages/1/quizzes/3/debrief",
+            "/api/pages/1/quizzes/01/debrief",
+            "/api/pages/1/quizzes/x/debrief",
+        ] {
+            check(uri, &good, "notFound").await;
+        }
+        // A quiz that the learner has not answered in full.
+        let answer = check("/api/pages/1/quizzes/2/debrief", &good, "conflict").await;
+        let message = answer["error"]["message"].as_str().unwrap();
+        assert!(message.contains("has not answered quiz 2"), "{message}");
+
+        // Every fault of the source, with its line, and of the points.
+        let wrong = debrief_body(
+            "# Almost\n\n```excerpt\npath: src/raft.c\nlines: 2-4\nhide: 4\n```\n\n\
+             ```excerpt\npath: src/raft.c\nlines: 4-90\n```\n\n> [!tip]\n> Look again.\n",
+            serde_json::json!({ "random-timeout": "great", "leader": "ok" }),
+        );
+        let answer = check("/api/pages/1/quizzes/1/debrief", &wrong, "invalidDebrief").await;
+        insta::assert_json_snapshot!("debrief_refused", answer);
+        for body in ["", "not json"] {
+            check("/api/pages/1/quizzes/1/debrief", body, "badRequest").await;
+        }
+        for body in [
+            "[]",
+            "{}",
+            r##"{"source":"# Almost\n"}"##,
+            r#"{"source":"","points":{"random-timeout":"ok","majority":"ok"}}"#,
+            r##"{"source":"# A\n","points":{"random-timeout":"ok","majority":"half"}}"##,
+            r##"{"source":"# A\n","points":{"random-timeout":"ok","majority":null}}"##,
+            r##"{"source":"# A\n","points":{"random-timeout":"ok","majority":"ok","x":"ok"}}"##,
+            r##"{"source":"# A\n","points":{"random-timeout":"ok","majority":"ok"},"n":1}"##,
+            r##"{"source":"# A\n","points":{"random-timeout":"ok","majority":"ok"},"author":"learner"}"##,
+        ] {
+            check("/api/pages/1/quizzes/1/debrief", body, "invalidDebrief").await;
+        }
+        assert_eq!(outside(dir.path()), untouched, "a write outside .learn/");
+    }
+
+    /// A diagram of a debrief that Mermaid refuses comes back to the agent
+    /// as one of a page does. The request names the quiz, so the agent
+    /// writes that debrief again.
+    #[tokio::test]
+    async fn a_broken_block_of_a_debrief_names_its_quiz() {
+        let (_dir, state) = with_quiz(LESSON, QUIZ).await;
+        answer_quiz(&state, 1).await;
+        let source = "# Almost\n\n```mermaid\ngraph LR\n  A -->\n```\n";
+        let body = debrief_body(source, serde_json::json!({ "random-timeout": "ok" }));
+        let (status, answer) = write_debrief(&state, 1, &body).await;
+        assert_eq!(status, StatusCode::OK, "{answer}");
+        let block = answer["quizzes"][0]["debrief"]["blocks"][1]["id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let after = state.events.after(None, events::HOLD).await.next;
+        let report = serde_json::json!({ "block": block, "error": "Parse error" }).to_string();
+
+        let (status, event) = json(
+            app(state.clone()),
+            send_json("POST", "/api/pages/1/broken", &report),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK, "{event}");
+        assert_eq!(event["kind"], "broken");
+        assert_eq!(event["id"], "1", "the quiz of the debrief");
+        let batch = state.events.after(Some(after), events::HOLD).await;
+        assert_eq!(
+            batch.events[0].detail,
+            Some(Detail::Broken {
+                block: BlockSource {
+                    id: block.clone(),
+                    kind: "diagram".to_owned(),
+                    source: "graph LR\n  A -->\n".to_owned(),
+                },
+                error: "Parse error".to_owned(),
+            })
+        );
+
+        // The same debrief again is a new version: the agent hears of the
+        // block again. A report of the same version is passed on once.
+        let (_, again) = json(
+            app(state.clone()),
+            send_json("POST", "/api/pages/1/broken", &report),
+        )
+        .await;
+        assert_eq!(again["seq"], event["seq"]);
+        let (status, _) = write_debrief(&state, 1, &body).await;
+        assert_eq!(status, StatusCode::OK);
+        let (_, third) = json(
+            app(state.clone()),
+            send_json("POST", "/api/pages/1/broken", &report),
+        )
+        .await;
+        assert!(third["seq"].as_u64() > event["seq"].as_u64(), "{third}");
+    }
+
+    /// A server killed in the middle of a debrief completes it at its next
+    /// start: each open result lands once, and a debrief written again
+    /// leaves no result of the one before.
+    #[tokio::test]
+    async fn a_server_killed_in_a_debrief_completes_it_at_its_next_start() {
+        let first = debrief_body(
+            "# Wrong\n",
+            serde_json::json!({ "random-timeout": "missed", "majority": "missed" }),
+        );
+        let second = debrief_body(
+            "# Almost\n",
+            serde_json::json!({ "random-timeout": "ok", "majority": "partial" }),
+        );
+        // The kill comes after the page file, or after points.json too.
+        for put_back in [&["points.json", "course.json"][..], &["course.json"][..]] {
+            for again in [false, true] {
+                let (dir, state) = with_quiz(LESSON, QUIZ_TWO_POINTS).await;
+                let course_dir = dir.path().join(".learn/raft");
+                answer_quiz(&state, 1).await;
+                if again {
+                    let (status, _) = write_debrief(&state, 1, &first).await;
+                    assert_eq!(status, StatusCode::OK);
+                }
+                let before: Vec<_> = put_back
+                    .iter()
+                    .map(|name| (name, std::fs::read(course_dir.join(name)).unwrap()))
+                    .collect();
+                let (status, _) = write_debrief(&state, 1, &second).await;
+                assert_eq!(status, StatusCode::OK);
+                let done = (
+                    state.course.read().await.clone(),
+                    state.store.load_points("raft").unwrap(),
+                );
+                for (name, bytes) in before {
+                    std::fs::write(course_dir.join(name), bytes).unwrap();
+                }
+
+                let store = Store::at(dir.path());
+                let mut course = store.load("raft").unwrap().unwrap();
+                settle(&store, &mut course).unwrap();
+                settle(&store, &mut course).unwrap();
+
+                let case = format!("{put_back:?}, again: {again}");
+                assert_eq!(course.parts[0].pages[0], done.0.parts[0].pages[0], "{case}");
+                assert_eq!(store.load("raft").unwrap().unwrap(), course, "{case}");
+                assert_eq!(store.load_points("raft").unwrap(), done.1, "{case}");
+            }
+        }
+    }
+
+    /// An earlier release writes the page file with no debrief. The open
+    /// results stay in points.json: they are answers of the learner.
+    #[tokio::test]
+    async fn an_open_result_stays_when_the_page_file_loses_its_debrief() {
+        let (dir, state) = with_quiz(LESSON, QUIZ).await;
+        answer_quiz(&state, 1).await;
+        let body = debrief_body(
+            "# Almost\n",
+            serde_json::json!({ "random-timeout": "partial" }),
+        );
+        let (status, answer) = write_debrief(&state, 1, &body).await;
+        assert_eq!(status, StatusCode::OK, "{answer}");
+        let points = state.store.load_points("raft").unwrap();
+        let store = Store::at(dir.path());
+        let mut file = store.load_page("raft", "1").unwrap().unwrap();
+        file.quizzes[0].debrief = None;
+        store.save_blocks("raft", "1", &file).unwrap();
+
+        let mut course = store.load("raft").unwrap().unwrap();
+        settle(&store, &mut course).unwrap();
+
+        assert_eq!(store.load_points("raft").unwrap(), points);
+    }
+
+    /// The score of a page that an earlier release answered fills in at
+    /// the next start: that release kept none.
+    #[tokio::test]
+    async fn the_score_of_an_answered_page_fills_in_at_the_next_start() {
+        let (dir, state) = with_quiz(LESSON, QUIZ).await;
+        answer_quiz(&state, 1).await;
+        let store = Store::at(dir.path());
+        let mut course = store.load("raft").unwrap().unwrap();
+        course.parts[0].pages[0].score = None;
+        store.save(&course).unwrap();
+
+        settle(&store, &mut course).unwrap();
+
+        assert_eq!(
+            course.parts[0].pages[0].score,
+            Some(model::Score {
+                right: 0.0,
+                total: 1
+            })
+        );
+        assert_eq!(store.load("raft").unwrap().unwrap(), course);
     }
 
     /// A trace goes into a log or a bug report. The token must not.

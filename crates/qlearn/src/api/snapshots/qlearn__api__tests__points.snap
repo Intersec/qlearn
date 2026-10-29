@@ -1,0 +1,42 @@
+---
+source: crates/qlearn/src/api/mod.rs
+expression: points
+---
+[
+  {
+    "id": "split-vote",
+    "label": "How a split vote ends",
+    "lesson": "1",
+    "results": [
+      {
+        "at": "[at]",
+        "how": "choice",
+        "result": "missed"
+      }
+    ]
+  },
+  {
+    "id": "majority",
+    "label": "How many votes make a leader",
+    "lesson": "1",
+    "results": [
+      {
+        "at": "[at]",
+        "how": "open",
+        "result": "partial"
+      }
+    ]
+  },
+  {
+    "id": "random-timeout",
+    "label": "Why the election timeout is random",
+    "lesson": "1",
+    "results": [
+      {
+        "at": "[at]",
+        "how": "open",
+        "result": "ok"
+      }
+    ]
+  }
+]

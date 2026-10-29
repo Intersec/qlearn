@@ -404,7 +404,9 @@ describe('a quiz that the agent adds', () => {
     server.push('1', 1);
     const store = await started();
     const sessions = server.reads.session;
-    server.pages.get('1')!.quizzes = [{ open: { prompt: 'Why?', sent: null }, choices: [] }];
+    server.pages.get('1')!.quizzes = [
+      { open: { prompt: 'Why?', sent: null }, choices: [], debrief: null },
+    ];
 
     const event: Event = { seq: 11, kind: 'quiz', author: 'agent', page: '1', id: '1' };
     server.send(batch({ next: 11, events: [event] }));
@@ -429,6 +431,48 @@ describe('a quiz that the agent adds', () => {
     expect(store.page?.id).toBe('1');
     expect(store.ready).toBeNull();
     expect(server.reads.page.length).toBe(reads);
+  });
+});
+
+describe('a debrief that the agent writes', () => {
+  it('reads the page on the screen and the course again, with the score', async () => {
+    server.push('1', 1);
+    server.course = courseOf([pageRef('1', 'answered')]);
+    const store = await started();
+    server.pages.get('1')!.quizzes = [
+      {
+        open: { prompt: 'Why?', sent: 'Because.' },
+        choices: [],
+        debrief: {
+          blocks: [{ id: 'd1', kind: 'text', html: '<p>Almost.</p>' }],
+          points: [{ id: 'random-timeout', label: 'Why random', result: 'partial' }],
+        },
+      },
+    ];
+    server.course = courseOf([{ ...pageRef('1', 'debriefed'), score: { right: 0.5, total: 1 } }]);
+
+    const event: Event = { seq: 11, kind: 'debrief', author: 'agent', page: '1', id: '1' };
+    server.send(batch({ next: 11, events: [event] }));
+
+    await vi.waitFor(() => expect(store.page?.quizzes[0].debrief).not.toBeNull());
+    await vi.waitFor(() =>
+      expect(store.course?.parts[0].pages[0].score).toEqual({ right: 0.5, total: 1 }),
+    );
+    expect(store.course?.parts[0].pages[0].state).toBe('debriefed');
+    expect(store.ready).toBeNull();
+  });
+
+  it('lets a broken block of it be reported again', async () => {
+    server.push('1', 1);
+    const store = await started();
+    await store.broken('1', 'd1', 'Parse error');
+
+    const event: Event = { seq: 11, kind: 'debrief', author: 'agent', page: '1', id: '1' };
+    server.send(batch({ next: 11, events: [event] }));
+    await vi.waitFor(() => expect(server.reads.page).toEqual(['1', '1']));
+    await store.broken('1', 'd1', 'Parse error');
+
+    expect(server.broken).toHaveLength(2);
   });
 });
 
@@ -636,6 +680,7 @@ describe('an answer of the learner', () => {
       {
         open: null,
         choices: [{ header: 'Vote', prompt: 'Who?', options: ['S1', 'S2'], graded: null }],
+        debrief: null,
       },
     ];
     const store = await started();
@@ -676,6 +721,7 @@ describe('an answer of the learner', () => {
       {
         open: { prompt: 'Why?', sent: null },
         choices: [{ header: 'Vote', prompt: 'Who?', options: ['S1', 'S2'], graded: null }],
+        debrief: null,
       },
     ];
     const store = await started();
@@ -711,6 +757,7 @@ describe('an answer of the learner', () => {
       {
         open: { prompt: 'Why?', sent: null },
         choices: [{ header: 'Vote', prompt: 'Who?', options: ['S1', 'S2'], graded: null }],
+        debrief: null,
       },
     ];
     const store = await started();

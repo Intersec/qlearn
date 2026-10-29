@@ -4,6 +4,20 @@ import { flushPromises, mount } from '@vue/test-utils';
 import QuizView from './QuizView.vue';
 import type { Choice, GradedChoice, Quiz, QuizAnswer } from '@/api/types';
 
+// The real Mermaid runs in the browser tests.
+vi.mock('mermaid', () => ({
+  default: {
+    initialize: () => {},
+    parse: async (source: string) => {
+      if (source.includes('-->\n')) {
+        throw new Error('Parse error on line 2');
+      }
+      return { diagramType: 'flowchart-v2' };
+    },
+    render: async () => ({ svg: '<svg xmlns="http://www.w3.org/2000/svg"><text>A</text></svg>' }),
+  },
+}));
+
 const CHOICES: Choice[] = [
   {
     header: 'Split vote',
@@ -26,8 +40,12 @@ function graded(...grades: GradedChoice[]): Choice[] {
   return CHOICES.map((choice, at) => ({ ...choice, graded: grades[at] }));
 }
 
+/** A quiz, with no debrief unless it names one. */
+type Given = Omit<Quiz, 'debrief'> & Partial<Pick<Quiz, 'debrief'>>;
+
 /** A quiz, with a send that takes every part unless told otherwise. */
-function view(quiz: Quiz, n = 1, took = true) {
+function view(given: Given, n = 1, took = true) {
+  const quiz: Quiz = { debrief: null, ...given };
   const send = vi.fn<(answer: QuizAnswer) => Promise<boolean>>(async () => took);
   const wrapper = mount(QuizView, { props: { quiz, n, send } });
   return { wrapper, send };
@@ -67,7 +85,9 @@ describe('QuizView', () => {
   it('sends a part once, however often the learner presses Send', async () => {
     let finish: (took: boolean) => void = () => {};
     const send = vi.fn(() => new Promise<boolean>((resolve) => (finish = resolve)));
-    const wrapper = mount(QuizView, { props: { quiz: { open: OPEN, choices: [] }, n: 1, send } });
+    const wrapper = mount(QuizView, {
+      props: { quiz: { open: OPEN, choices: [], debrief: null }, n: 1, send },
+    });
     await wrapper.find('textarea').setValue('Because.');
 
     await wrapper.find('form').trigger('submit');
@@ -191,6 +211,67 @@ describe('QuizView', () => {
     expect(sent.wrapper.find('.quiz').attributes('data-step')).toBe('graded');
     expect(sent.wrapper.find('.quiz-sent-text').text()).toBe('Make the base random too.');
     expect(sent.wrapper.find('.quiz-debrief').exists()).toBe(true);
+  });
+
+  it('shows the debrief under the quiz, with the grade of each open point', async () => {
+    const { wrapper } = view({
+      open: { ...OPEN, sent: 'Two rarely wake at once.' },
+      choices: graded(
+        { picked: 1, answer: 1, ok: true, other: null },
+        { picked: 2, answer: 0, ok: false, other: null },
+      ),
+      debrief: {
+        blocks: [
+          { id: 't1', kind: 'text', html: '<p>Almost.</p><script>window.ran = true</script>' },
+          { id: 'c1', kind: 'callout', marker: 'hook', html: '<p>Three of five.</p>' },
+          { id: 'd1', kind: 'diagram', source: 'graph LR\n  A -->\n' },
+        ],
+        points: [
+          { id: 'random-timeout', label: 'Why the timeout is random', result: 'ok' },
+          { id: 'majority', label: 'How many votes win', result: 'partial' },
+          { id: 'term', label: 'What a term is', result: 'missed' },
+        ],
+      },
+    });
+    await flushPromises();
+
+    // The grades of the choices stay: the debrief explains them.
+    expect(wrapper.find('.quiz').attributes('data-step')).toBe('debriefed');
+    expect(wrapper.findAll('.quiz-graded')).toHaveLength(2);
+    expect(wrapper.find('.quiz-debrief').exists()).toBe(false);
+    const points = wrapper.findAll('.debrief-point');
+    expect(points.map((point) => point.attributes('data-result'))).toEqual([
+      'ok',
+      'partial',
+      'missed',
+    ]);
+    expect(points.map((point) => point.find('.debrief-grade').text())).toEqual([
+      'Right',
+      'Half right',
+      'Missed',
+    ]);
+    expect(points[1].find('.debrief-label').text()).toBe('How many votes win');
+    // The blocks are drawn as those of a lesson, and cleaned the same way.
+    const blocks = wrapper.findAll('.debrief [data-block]');
+    expect(blocks.map((block) => block.attributes('data-block'))).toEqual(['t1', 'c1', 'd1']);
+    expect(blocks[0].html()).not.toContain('<script');
+    expect(blocks[1].find('.callout').attributes('data-marker')).toBe('hook');
+    expect(wrapper.emitted('broken')).toEqual([['d1', 'Parse error on line 2']]);
+  });
+
+  it('shows the debrief of a quiz of choices only, with no grade of its own', () => {
+    const { wrapper } = view({
+      open: null,
+      choices: graded(
+        { picked: 1, answer: 1, ok: true, other: null },
+        { picked: 0, answer: 0, ok: true, other: null },
+      ),
+      debrief: { blocks: [{ id: 't1', kind: 'text', html: '<p>All right.</p>' }], points: [] },
+    });
+
+    expect(wrapper.find('.quiz').attributes('data-step')).toBe('debriefed');
+    expect(wrapper.find('.debrief-points').exists()).toBe(false);
+    expect(wrapper.find('.debrief').text()).toContain('All right.');
   });
 
   it('passes the HTML of an option through DOMPurify', () => {
