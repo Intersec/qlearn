@@ -1,0 +1,43 @@
+---
+source: crates/qlearn/src/api/mod.rs
+expression: at_redacted(agent.clone())
+---
+{
+  "agent": true,
+  "events": [
+    {
+      "author": "learner",
+      "detail": {
+        "block": {
+          "id": "b5b8ce796950",
+          "kind": "text",
+          "source": "## The vote\n\nEach server votes once per term."
+        },
+        "earlier": false,
+        "thread": {
+          "block": "b5b8ce796950",
+          "comments": [
+            {
+              "at": "[at]",
+              "author": "learner",
+              "body": "Once per term, or once ever?\n\n<script>alert(1)</script>"
+            }
+          ],
+          "id": "1-1",
+          "page": "1",
+          "quote": "votes once"
+        }
+      },
+      "id": "1-1",
+      "kind": "ask",
+      "page": "1",
+      "seq": 3
+    }
+  ],
+  "left": false,
+  "next": 3,
+  "preparing": false,
+  "reset": false,
+  "status": null,
+  "working": false
+}

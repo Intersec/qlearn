@@ -134,6 +134,40 @@ pub fn read_file(path: &str) -> Result<String> {
     Ok(out)
 }
 
+/// The text of a `--body`, or standard input when it is `-`.
+pub fn read_body(text: &str) -> Result<String> {
+    match text {
+        "-" => read_file("-"),
+        _ => Ok(text.to_owned()),
+    }
+}
+
+/// Open a thread on a block of a page, or about the whole page. `target`
+/// is the page, then `#` and the block. Answers the thread.
+pub async fn comment(client: &Client, target: &str, body: &str) -> Result<Value> {
+    let (page, block) = match target.split_once('#') {
+        Some((page, block)) => (page, Some(block)),
+        None => (target, None),
+    };
+    if block == Some("") {
+        bail!("{target}: name the block after `#`, or give the page alone");
+    }
+    let body = json!({ "block": block, "body": body, "author": "agent" });
+
+    let page = segment(page);
+    client
+        .post(&format!("/api/pages/{page}/threads"), &body)
+        .await
+}
+
+/// Write in a thread. Answers the thread.
+pub async fn reply(client: &Client, thread: &str, body: &str) -> Result<Value> {
+    let body = json!({ "body": body, "author": "agent" });
+
+    let thread = segment(thread);
+    client.post(&format!("/api/threads/{thread}"), &body).await
+}
+
 /// Change the course. Answers the course.
 pub async fn course(client: &Client, change: CourseChange) -> Result<Value> {
     let change = CourseChange {

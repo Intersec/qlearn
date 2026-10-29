@@ -607,7 +607,7 @@ pub struct Line {
     pub spans: Vec<Span>,
 }
 
-/// What `GET /api/pages/:id` answers. Threads join it later.
+/// What `GET /api/pages/:id` answers.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct Page {
@@ -615,6 +615,64 @@ pub struct Page {
     pub blocks: Vec<Block>,
     /// In the order that the agent added them. Quiz `n` is at `n - 1`.
     pub quizzes: Vec<Quiz>,
+    /// In the order that they opened. A thread whose block a later push
+    /// took away comes last.
+    pub threads: Vec<Thread>,
+}
+
+/// A question of the learner, or a word of the agent, and the comments
+/// that answer it. See section 6 of the design.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct Thread {
+    /// `<page>-<n>`, such as `3-2`: the page, and the rank of the thread in
+    /// it, from 1.
+    pub id: String,
+    pub page: String,
+    /// None: about the whole page.
+    pub block: Option<String>,
+    /// The text of the block that the learner selected.
+    pub quote: Option<String>,
+    pub comments: Vec<Comment>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct Comment {
+    pub author: Author,
+    /// The page gets the HTML that the server writes from the Markdown, as
+    /// for an option of a choice. The agent gets the Markdown.
+    pub body: String,
+    /// RFC 3339.
+    pub at: String,
+}
+
+/// The body of `POST /api/pages/:id/threads`.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ThreadOpened {
+    /// None: about the whole page.
+    #[serde(default)]
+    pub block: Option<String>,
+    /// Empty or left out: none.
+    #[serde(default)]
+    pub quote: Option<String>,
+    /// Markdown.
+    pub body: String,
+    /// Left out: the learner.
+    #[serde(default)]
+    pub author: Option<Author>,
+}
+
+/// The body of `POST /api/threads/:id`.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ReplySent {
+    /// Markdown.
+    pub body: String,
+    /// Left out: the learner.
+    #[serde(default)]
+    pub author: Option<Author>,
 }
 
 /// A quiz as the page sees it. See section 5 of the design.
@@ -854,6 +912,17 @@ pub enum Detail {
         quiz: usize,
         open: Option<OpenAnswer>,
         choices: Vec<ChoiceAnswer>,
+    },
+    /// `ask`: a thread that the learner opened or answered. The comments
+    /// are in Markdown, as written. The event names the page and the
+    /// thread.
+    Ask {
+        thread: Thread,
+        /// The block as the agent wrote it when the thread opened, or None
+        /// for a thread about the whole page.
+        block: Option<BlockSource>,
+        /// The block is gone: a later push of the page took it away.
+        earlier: bool,
     },
 }
 
@@ -1469,6 +1538,36 @@ mod tests {
                 quiz: 1,
                 open: None,
                 choices: Vec::new(),
+            },
+            Detail::Ask {
+                thread: Thread {
+                    id: "1-2".to_owned(),
+                    page: "1".to_owned(),
+                    block: Some("0123456789ab".to_owned()),
+                    quote: Some("rand()".to_owned()),
+                    comments: vec![Comment {
+                        author: Author::Learner,
+                        body: "Why *random*?".to_owned(),
+                        at: "2026-01-01T00:00:00Z".to_owned(),
+                    }],
+                },
+                block: Some(BlockSource {
+                    id: "0123456789ab".to_owned(),
+                    kind: "text".to_owned(),
+                    source: "One term.".to_owned(),
+                }),
+                earlier: true,
+            },
+            Detail::Ask {
+                thread: Thread {
+                    id: "1-1".to_owned(),
+                    page: "1".to_owned(),
+                    block: None,
+                    quote: None,
+                    comments: Vec::new(),
+                },
+                block: None,
+                earlier: false,
             },
         ];
 

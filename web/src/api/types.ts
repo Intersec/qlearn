@@ -145,6 +145,28 @@ export interface Page {
   blocks: Block[];
   /** In the order that the agent added them. Quiz `n` is at `n - 1`. */
   quizzes: Quiz[];
+  /** In the order that they opened. A thread whose block is gone comes last. */
+  threads: Thread[];
+}
+
+/** A question of the learner, or a word of the agent (section 6 of the design). */
+export interface Thread {
+  /** `<page>-<n>`, such as `3-2`. */
+  id: string;
+  page: string;
+  /** null: about the whole page. */
+  block: string | null;
+  /** The text of the block that the learner selected. */
+  quote: string | null;
+  comments: Comment[];
+}
+
+export interface Comment {
+  author: 'learner' | 'agent';
+  /** The HTML that the server writes from the Markdown. */
+  body: string;
+  /** RFC 3339. */
+  at: string;
 }
 
 /**

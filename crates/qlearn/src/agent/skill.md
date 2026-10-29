@@ -8,9 +8,10 @@ of `.learn/` is not readable, stop and show the error to the learner: the
 file may hold their answers, and only they repair it.
 
 This release knows the syllabus, pages of text, callouts, excerpts of the
-code, diagrams, quizzes, the debrief of a quiz, and the **Next** button.
-The learner answers a quiz in the page, you get the answer, and you write
-the debrief.
+code, diagrams, quizzes, the debrief of a quiz, threads, and the **Next**
+button. The learner answers a quiz in the page, you get the answer, and you
+write the debrief. The learner asks about a block of a page, and you answer
+in its thread.
 
 ## Start
 
@@ -116,7 +117,8 @@ Repeat until the learner says that the course is over:
      that they left, with its id and its title. A request of kind `broken`
      says that the page cannot draw a diagram (see "Diagrams"). A request
      of kind `answer` says that the learner answered a quiz (see "The
-     answer").
+     answer"). A request of kind `ask` says that the learner asked a
+     question (see "Threads").
    - `next`: pass it to the next `wait`, so that no request is lost
      between two waits.
    - `"reset": true`: the server restarted. Wait again with the new
@@ -129,7 +131,8 @@ Repeat until the learner says that the course is over:
      `wait` looks for it again, and a new server answers `"reset": true`.
 3. Answer each request. For `next`, push the next page. For `broken`,
    fix the diagram and push its page or its debrief again. For `answer`,
-   write the debrief (see "The debrief").
+   write the debrief (see "The debrief"). For `ask`, answer in the thread
+   with `qlearn reply`.
 4. Go back to step 1.
 
 Writing a page takes minutes. Before a long piece of work, say what you do,
@@ -462,6 +465,70 @@ points to learn again first, whose last result is `missed` or `partial`,
 then the others, the oldest result first. In the `mixed` quiz mode, a quiz
 also asks about an earlier lesson: take the point of that question from the
 top of this list, and use its id. A known point needs no entry in `points`.
+
+## Threads
+
+The learner can ask a question about any block of a page or of a debrief:
+the page shows an **Ask** button on each block. The question opens a
+thread under the block. If the learner selected text inside the block,
+that text is the quote of the thread.
+
+A question of the learner, and each reply of the learner in a thread, make
+your `wait` return a request of kind `ask`. Its `page` names the page, and
+its `id` names the thread, such as `3-1`. Its `detail` holds:
+
+- `thread`: the thread, with its `quote`, or `null`, and its `comments`.
+  Each comment has its `author`, `learner` or `agent`, and its `body` in
+  Markdown. The last comment is the question to answer.
+- `block`: the block as you wrote it, with its `id`, its `kind` and its
+  `source`, or `null` for a thread about the whole page.
+- `earlier`: `true` when a later push of the page took the block away. The
+  page then shows the thread at its end, under "On an earlier version of
+  this page". `block.source` is the block as it was when the learner asked.
+
+Answer in the thread:
+
+```sh
+qlearn reply 3-1 --body - <<'EOF'
+Once per term. A server that restarts must remember its vote, so
+`grant_vote` writes it to disk before it answers.
+EOF
+```
+
+- The body is Markdown, as in a page: `inline code`, **bold**, lists, and
+  fences of code. The server escapes HTML. An `excerpt` fence shows as
+  plain code in a comment: to show the code of the repository, push the
+  page again with an excerpt.
+- Answer the question that the learner asked, in a few sentences. Check
+  your answer against the code before you write it.
+- If the answer needs a new block, such as an excerpt or a diagram, push
+  the page again with that block, then say in the thread where it is. An
+  unchanged block keeps its id, so its threads stay on it.
+- If the question shows that the learner missed a point, a second quiz on
+  the page can check it again.
+
+You can also open a thread yourself, when you must say something outside a
+lesson:
+
+- the summary of where the course stopped, before a break;
+- a recap of the points that the learner is not sure of;
+- the answer to a question that the learner typed in your terminal.
+
+```sh
+qlearn comment 3 --body "We stopped at the vote. Next time: the log."
+qlearn comment 3#6495234d4654 --body - <<'EOF'
+You asked in the terminal why this loop takes no lock. ...
+EOF
+```
+
+`qlearn comment <page>` opens a thread about the whole page, which the page
+shows at its end. `qlearn comment <page>#<block>` opens a thread under a
+block. The id of each block is in the JSON that `qlearn page` prints.
+
+Both commands print the thread as JSON, with its id. In that JSON, each
+body is the HTML that the page shows. A reply of the learner in your thread
+comes back as an `ask` request. Your own writes in a thread never make your
+`wait` return.
 
 ## Next
 

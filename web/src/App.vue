@@ -9,8 +9,20 @@ import { format } from './place';
 import { useCourse } from './stores/course';
 
 const store = useCourse();
-const { course, current, page, ready, presence, status, stopped, left, error, ending, following } =
-  storeToRefs(store);
+const {
+  course,
+  current,
+  page,
+  focus,
+  ready,
+  presence,
+  status,
+  stopped,
+  left,
+  error,
+  ending,
+  following,
+} = storeToRefs(store);
 
 /** On a narrow screen, the syllabus covers the page until the learner picks one. */
 const syllabusOpen = ref(false);
@@ -18,12 +30,20 @@ const syllabusOpen = ref(false);
 /** The column of the page, which scrolls alone. */
 const pane = ref<HTMLElement | null>(null);
 
-// Another page opens at its top. A refresh keeps the id, and the place.
+// Another page opens at its top, or at the thread that the address names.
+// A refresh keeps the id, and the place.
 watch(
   () => page.value?.id,
   () => {
-    if (pane.value) {
-      pane.value.scrollTop = 0;
+    if (!pane.value) {
+      return;
+    }
+    pane.value.scrollTop = 0;
+    const block = focus.value;
+    if (block) {
+      pane.value
+        .querySelector(`[data-anchor="${CSS.escape(block)}"]`)
+        ?.scrollIntoView({ block: 'start' });
     }
   },
   { flush: 'post' },
@@ -50,6 +70,12 @@ watch(
   },
   { immediate: true },
 );
+
+/** Send a question about a block of the page on the screen. */
+function sendQuestion(block: string, quote: string | null, body: string): Promise<boolean> {
+  const shown = page.value;
+  return shown ? store.ask(shown.id, block, quote, body) : Promise.resolve(false);
+}
 
 /** Send a part of the answer to a quiz of the page on the screen. */
 function sendAnswer(n: number, answer: QuizAnswer): Promise<boolean> {
@@ -123,7 +149,15 @@ onBeforeUnmount(() => {
       />
       <main ref="pane" class="course">
         <template v-if="page">
-          <PageView :page="page" :send="sendAnswer" @broken="store.broken" />
+          <PageView
+            :page="page"
+            :send="sendAnswer"
+            :focus="focus"
+            :ask="sendQuestion"
+            :reply="store.reply"
+            @broken="store.broken"
+            @focus="store.openThread"
+          />
           <footer class="page-end">
             <p v-if="ending === 'preparing'" role="status" class="preparing">
               The agent prepares the next page<template v-if="status">: {{ status }}</template>

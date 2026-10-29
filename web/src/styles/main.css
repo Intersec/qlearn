@@ -1160,3 +1160,168 @@ a.syllabus-entry:focus-visible {
 .debrief-label {
   line-height: 1.5;
 }
+
+/* ---------------------------------------------------------- the threads */
+
+/* A block and what hangs under it. The Ask button sits at the top right
+   of the block, and shows on hover or when the keyboard reaches it. */
+.thread-anchor {
+  position: relative;
+}
+.ask {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 1;
+  padding: 1px 10px;
+  border: 1px solid var(--agent-edge);
+  border-radius: 4px;
+  background: var(--agent);
+  color: var(--action);
+  font-size: 12px;
+  font-weight: 600;
+  opacity: 0;
+  transition: opacity 0.1s;
+}
+.thread-anchor:hover > .ask,
+.thread-anchor:focus-within > .ask {
+  opacity: 1;
+}
+/* The button sits in the corner of the commit of an excerpt, whose title
+   holds the full hash: the commit moves clear of it. */
+.thread-anchor > .block .excerpt-head {
+  padding-right: 64px;
+}
+.ask:focus-visible {
+  outline: 2px solid var(--action);
+  outline-offset: 1px;
+}
+/* A touch screen has no hover: the button stays in sight. */
+@media (hover: none) {
+  .ask {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ask {
+    transition: none;
+  }
+}
+
+/* The threads of a block, under it, on a rail of the agent. */
+.threads {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 1em;
+  padding-left: 12px;
+  border-left: 2px solid var(--agent-edge);
+}
+.threads-page,
+.threads-earlier {
+  margin-top: 1.5em;
+}
+.threads-head {
+  margin: 0;
+  color: var(--ink-quiet);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.thread,
+.asking {
+  padding: 8px 12px;
+  border: 1px solid var(--edge);
+  border-radius: 4px;
+  background: var(--pane);
+}
+.thread-quote {
+  margin: 0 0 8px;
+  padding: 2px 8px;
+  border-left: 3px solid var(--marked-edge);
+  background: var(--marked);
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.thread-comment + .thread-comment {
+  margin-top: 8px;
+}
+.thread-who {
+  margin: 0;
+  color: var(--ink-quiet);
+  font-size: 12px;
+  font-weight: 700;
+}
+.thread-comment[data-author='agent'] .thread-who {
+  color: var(--action);
+}
+.thread-body {
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+.thread-body > :last-child {
+  margin-bottom: 0;
+}
+.thread-waiting {
+  margin: 6px 0 0;
+  color: var(--ink-quiet);
+  font-size: 13px;
+  font-style: italic;
+}
+
+/* The box to write a question or a reply in. */
+.comment-box {
+  margin: 8px 0 0;
+}
+.asking .comment-box {
+  margin: 0;
+}
+.comment-text {
+  display: block;
+  width: 100%;
+  padding: 5px 10px;
+  border: 1px solid var(--edge);
+  border-radius: 4px;
+  background: var(--page);
+  color: var(--ink);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.5;
+  resize: vertical;
+}
+.comment-text:focus-visible {
+  outline: 2px solid var(--action);
+  outline-offset: 1px;
+}
+.comment-end {
+  display: flex;
+  gap: 8px;
+  margin: 6px 0 0;
+}
+.comment-send,
+.comment-cancel {
+  padding: 3px 14px;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.comment-send {
+  background: var(--action);
+  color: var(--action-ink);
+}
+.comment-send:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+.comment-cancel {
+  border: 1px solid var(--edge);
+  color: var(--ink-quiet);
+}
+.comment-send:focus-visible,
+.comment-cancel:focus-visible {
+  outline: 2px solid var(--action);
+  outline-offset: 1px;
+}

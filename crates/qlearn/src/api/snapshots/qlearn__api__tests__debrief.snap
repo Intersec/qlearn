@@ -38,7 +38,7 @@ expression: answer
         "blocks": [
           {
             "html": "<h1>Almost</h1>\n<p>The random part is right. A majority is 3 of 5, not 2.</p>",
-            "id": "f3fc520234d4",
+            "id": "0b5cb756833b",
             "kind": "text"
           },
           {
@@ -135,11 +135,11 @@ expression: answer
               "repo": "",
               "to": 4
             },
-            "id": "26fa203e575d",
+            "id": "c4a3ea4001a4",
             "kind": "excerpt"
           },
           {
-            "id": "c01cba42625d",
+            "id": "0a8959903154",
             "kind": "diagram",
             "source": "flowchart LR\n  F[Follower] --> C[Candidate]\n"
           }
@@ -162,5 +162,6 @@ expression: answer
         "sent": "So that two followers rarely wake up at once."
       }
     }
-  ]
+  ],
+  "threads": []
 }

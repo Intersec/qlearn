@@ -93,6 +93,7 @@ qlearn page 3 --file lesson.md        # a lesson, checked before it is stored
 qlearn quiz 3 --file quiz.json        # a quiz under the lesson
 qlearn debrief 3 1 --file debrief.md --point split-vote=ok
 qlearn reply <thread> --body "..."    # answer your question in a thread
+qlearn comment 3 --body "..."         # say something outside a lesson
 qlearn choose --file choice.json      # ask you to choose the next step
 qlearn cheatsheet --file cheatsheet.md
 qlearn wait                           # block until you act, print it as JSON

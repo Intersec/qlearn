@@ -194,6 +194,16 @@ async fn agent_command(cli: &cli::Cli, home: &Home) -> Result<Option<i32>> {
                 },
             }
         }
+        Some(cli::Command::Comment { target, body }) => {
+            let body = agent::read_body(body)?;
+            let client = agent::connect(home).await?;
+            print(&agent::comment(&client, target, &body).await?);
+        }
+        Some(cli::Command::Reply { thread, body }) => {
+            let body = agent::read_body(body)?;
+            let client = agent::connect(home).await?;
+            print(&agent::reply(&client, thread, &body).await?);
+        }
         Some(cli::Command::Points) => {
             let client = agent::connect(home).await?;
             print(&agent::points(&client).await?);

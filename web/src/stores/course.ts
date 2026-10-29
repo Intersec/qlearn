@@ -8,7 +8,7 @@
 import { defineStore } from 'pinia';
 import { computed, ref, toRaw } from 'vue';
 import { ApiError, api, serverGone } from '@/api/client';
-import type { Course, Event, EventBatch, Page, PageRef, QuizAnswer } from '@/api/types';
+import type { Course, Event, EventBatch, Page, PageRef, QuizAnswer, Thread } from '@/api/types';
 import { format, parse } from '@/place';
 
 /** The agent, as the top bar names it. The states of the terminal line. */
@@ -36,6 +36,8 @@ export const useCourse = defineStore('course', () => {
   const current = ref<string | null>(null);
   /** The page on the screen. */
   const page = ref<Page | null>(null);
+  /** The block whose thread the learner opened, as the address names it. */
+  const focus = ref<string | null>(null);
   /** A page that the agent pushed while the learner read another one. */
   const ready = ref<string | null>(null);
   /**
@@ -171,8 +173,72 @@ export const useCourse = defineStore('course', () => {
     return true;
   }
 
-  /** Show a page. `none` leaves the address alone: the browser holds it. */
-  async function show(id: string, move: Move | 'none'): Promise<Shown> {
+  /**
+   * Send a question about a block of a page. Answers whether the server
+   * took it, so the box keeps what the learner typed when not.
+   */
+  async function ask(id: string, block: string, quote: string | null, body: string) {
+    try {
+      merge(await api.ask(id, block, quote, body));
+    } catch (e) {
+      fail(e);
+      return false;
+    }
+    error.value = null;
+    return true;
+  }
+
+  /** Write in a thread. Answers whether the server took it. */
+  async function reply(thread: string, body: string) {
+    try {
+      merge(await api.reply(thread, body));
+    } catch (e) {
+      fail(e);
+      return false;
+    }
+    error.value = null;
+    return true;
+  }
+
+  /**
+   * Put a thread that the server answered in the page on the screen. The
+   * event of the write reads the page again, in the order of the server.
+   */
+  function merge(thread: Thread) {
+    const shown = page.value;
+    if (shown?.id !== thread.page) {
+      return;
+    }
+    const at = shown.threads.findIndex((held) => held.id === thread.id);
+    const threads = [...shown.threads];
+    if (at >= 0) {
+      threads[at] = thread;
+    } else {
+      threads.push(thread);
+    }
+    page.value = { ...shown, threads };
+  }
+
+  /**
+   * The learner opened the thread of a block of the page on the screen. The
+   * address says so, in place: it is no move to another page.
+   */
+  function openThread(block: string | null) {
+    focus.value = block;
+    if (page.value) {
+      write(page.value.id, 'replace');
+    }
+  }
+
+  /**
+   * Show a page. `none` leaves the address alone: the browser holds it.
+   * `block` names the thread that the learner opened there.
+   */
+  async function show(
+    id: string,
+    move: Move | 'none',
+    block: string | null = null,
+  ): Promise<Shown> {
     const mine = (moves += 1);
     let read: Page;
     try {
@@ -189,6 +255,7 @@ export const useCourse = defineStore('course', () => {
     }
 
     page.value = read;
+    focus.value = block;
     error.value = null;
     if (ready.value === id) {
       ready.value = null;
@@ -220,7 +287,7 @@ export const useCourse = defineStore('course', () => {
   }
 
   function write(id: string, move: Move) {
-    const fragment = format({ page: id });
+    const fragment = format({ page: id, block: focus.value ?? undefined });
     if (location.hash === fragment) {
       return;
     }
@@ -248,9 +315,10 @@ export const useCourse = defineStore('course', () => {
    * place, with the reason.
    */
   async function openAddress(move: Move | 'none') {
-    const named = parse(location.hash)?.page;
+    const place = parse(location.hash);
+    const named = place?.page;
     const id = named ?? current.value;
-    if (!id || (await show(id, move)) !== 'failed') {
+    if (!id || (await show(id, move, place?.block ?? null)) !== 'failed') {
       return;
     }
 
@@ -366,6 +434,15 @@ export const useCourse = defineStore('course', () => {
       // grades there.
       if (event.kind === 'answer' && event.page) {
         session = true;
+        again ||= event.page === page.value?.id;
+        continue;
+      }
+      // A thread shows under its block, and a question from another tab
+      // shows here too.
+      if (
+        (event.kind === 'ask' || event.kind === 'thread' || event.kind === 'reply') &&
+        event.page
+      ) {
         again ||= event.page === page.value?.id;
         continue;
       }
@@ -488,6 +565,7 @@ export const useCourse = defineStore('course', () => {
     version,
     current,
     page,
+    focus,
     ready,
     asked,
     agent,
@@ -504,6 +582,9 @@ export const useCourse = defineStore('course', () => {
     follow,
     next,
     answer,
+    ask,
+    reply,
+    openThread,
     broken,
     listen,
   };

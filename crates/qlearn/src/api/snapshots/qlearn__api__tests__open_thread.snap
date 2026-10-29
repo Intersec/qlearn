@@ -1,0 +1,17 @@
+---
+source: crates/qlearn/src/api/mod.rs
+expression: at_redacted(opened.clone())
+---
+{
+  "block": "b5b8ce796950",
+  "comments": [
+    {
+      "at": "[at]",
+      "author": "learner",
+      "body": "<p>Once per term, or once ever?</p><pre class=\"md-html\">&lt;script&gt;alert(1)&lt;/script&gt;</pre>"
+    }
+  ],
+  "id": "1-1",
+  "page": "1",
+  "quote": "votes once"
+}

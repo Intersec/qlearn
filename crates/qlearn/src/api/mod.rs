@@ -25,10 +25,11 @@ use crate::lesson::{self, Fault};
 use crate::model::{
     self, AgentStatus, Author, Batch, Block, BlockSource, Broken, ChoicesSent, Course,
     CourseChange, Detail, Event, EventKind, Graded, GradedPoint, OpenSent, Page, PageKind, Point,
-    PointResult, QuizNumber, Session, StatusText,
+    PointResult, QuizNumber, ReplySent, Session, StatusText, Thread, ThreadOpened,
 };
 use crate::quiz::{Refusal, StoredDebrief};
 use crate::store::{self, PageFile, Store};
+use crate::thread::{self, StoredComment, StoredThread};
 
 #[derive(Clone)]
 pub struct AppState {
@@ -100,6 +101,8 @@ pub fn app(state: AppState) -> Router {
         .route("/api/points", get(points))
         .route("/api/pages/{id}/next", post(next))
         .route("/api/pages/{id}/broken", post(broken))
+        .route("/api/pages/{id}/threads", post(open_thread))
+        .route("/api/threads/{id}", post(reply))
         .method_not_allowed_fallback(method_not_allowed)
         .fallback(interface)
         .layer(middleware::from_fn_with_state(state.clone(), auth::guard))
@@ -244,20 +247,20 @@ async fn push_page(
         parsed.title.as_deref(),
         OffsetDateTime::now_utc(),
     );
-    // The quizzes stay with the page: they may hold answers of the learner.
-    // A file that the course does not back is the trace of a failed push.
-    let quizzes = match course.has_content(&id) {
-        true => state
-            .store
-            .load_page(&changed.slug, &id)?
-            .map(|file| file.quizzes)
-            .unwrap_or_default(),
-        false => Vec::new(),
-    };
+    // The quizzes and the threads stay with the page: they hold answers of
+    // the learner. A thread whose block is gone moves to the end of the
+    // page. A file that the course does not back is the trace of a failed
+    // push.
+    let kept = match course.has_content(&id) {
+        true => state.store.load_page(&changed.slug, &id)?,
+        false => None,
+    }
+    .unwrap_or_default();
     let file = PageFile {
         blocks: parsed.blocks,
         hidden: parsed.hidden,
-        quizzes,
+        quizzes: kept.quizzes,
+        threads: kept.threads,
     };
     let undo = state.store.save_page(&changed.slug, &id, &source, &file)?;
     if let Err(error) = state.store.save(&changed) {
@@ -501,15 +504,15 @@ async fn write_debrief(
 
     // Checked before the parse, which reads the repository, so a debrief
     // of no quiz gets that answer first.
-    let quiz = {
+    let (quiz, at) = {
         let course = state.course.read().await;
         let (file, at) = answered_quiz(&state.store, &course, &id, &n)?;
-        file.quizzes[at - 1].clone()
+        (file.quizzes[at - 1].clone(), at)
     };
     let read = crate::quiz::read_debrief(&body, &quiz);
     let parsed = match &read.source {
         Some(source) => {
-            Some(lesson::parse_debrief(source, &state.git, Highlighter::shared()).await)
+            Some(lesson::parse_debrief(source, at, &state.git, Highlighter::shared()).await)
         }
         None => None,
     };
@@ -862,6 +865,174 @@ async fn broken(
 
     event.detail = None;
     Ok(Json(event))
+}
+
+/// Open a thread on a block of a page, or about the whole page. Answers
+/// the thread as the page sees it.
+///
+/// Both parties write here. A thread of the learner is a question, so the
+/// agent gets an `ask` request. A thread of the agent is a `thread` event.
+async fn open_thread(
+    State(state): State<AppState>,
+    path: Result<Path<String>, PathRejection>,
+    body: Result<Json<ThreadOpened>, JsonRejection>,
+) -> Result<Json<Thread>, ApiError> {
+    let Path(id) = path.map_err(bad_path)?;
+    let Json(body) = body.map_err(bad_json)?;
+    let text = thread::body(&body.body).map_err(ApiError::bad_request)?;
+    let quote = thread::quote(body.quote.as_deref());
+    if quote.is_some() && body.block.is_none() {
+        return Err(ApiError::bad_request(
+            "a quote is text of a block: name its block, or send no quote".to_owned(),
+        ));
+    }
+    let author = body.author.unwrap_or(Author::Learner);
+
+    // Held for the whole change, so two threads never take one id, and a
+    // push cannot take the block away under the check.
+    let course = state.course.write().await;
+    let no_content = || ApiError::not_found(format!("page {id} has no content yet"));
+    if PageKind::of_id(&id).is_none() || !course.has_content(&id) {
+        return Err(no_content());
+    }
+    let mut file = state
+        .store
+        .load_page(&course.slug, &id)?
+        .ok_or_else(no_content)?;
+    let block = match &body.block {
+        Some(block) => Some(block_source(&state.store, &course.slug, &id, &file, block)?),
+        None => None,
+    };
+    let stored = StoredThread {
+        id: thread::next_id(&id, &file.threads),
+        block,
+        quote,
+        comments: vec![StoredComment {
+            author,
+            body: text,
+            at: model::stamp(OffsetDateTime::now_utc()),
+        }],
+    };
+    file.threads.push(stored.clone());
+    state.store.save_blocks(&course.slug, &id, &file)?;
+    // Under the lock, so the events come in the order of the writes.
+    tell(&state, &file, &id, &stored, author, EventKind::Thread);
+    drop(course);
+
+    Ok(Json(stored.view(&id, lesson::markdown)))
+}
+
+/// Write in a thread. Answers the thread as the page sees it.
+///
+/// A reply of the learner asks the agent again, with an `ask` request. A
+/// reply of the agent is a `reply` event. A thread whose block is gone
+/// still takes a reply: it holds answers of the learner.
+async fn reply(
+    State(state): State<AppState>,
+    path: Result<Path<String>, PathRejection>,
+    body: Result<Json<ReplySent>, JsonRejection>,
+) -> Result<Json<Thread>, ApiError> {
+    let Path(id) = path.map_err(bad_path)?;
+    let Json(body) = body.map_err(bad_json)?;
+    let text = thread::body(&body.body).map_err(ApiError::bad_request)?;
+    let author = body.author.unwrap_or(Author::Learner);
+
+    let unknown = || ApiError::not_found(format!("the course holds no thread {id:?}"));
+    let (page, _) = thread::split_id(&id).ok_or_else(unknown)?;
+    // Held for the whole change, so two replies never lose one another.
+    let course = state.course.write().await;
+    if !course.has_content(page) {
+        return Err(unknown());
+    }
+    let mut file = state
+        .store
+        .load_page(&course.slug, page)?
+        .ok_or_else(unknown)?;
+    let at = file
+        .threads
+        .iter()
+        .position(|stored| stored.id == id)
+        .ok_or_else(unknown)?;
+    file.threads[at].comments.push(StoredComment {
+        author,
+        body: text,
+        at: model::stamp(OffsetDateTime::now_utc()),
+    });
+    state.store.save_blocks(&course.slug, page, &file)?;
+    let stored = file.threads[at].clone();
+    // Under the lock, so the events come in the order of the writes.
+    tell(&state, &file, page, &stored, author, EventKind::Reply);
+    drop(course);
+
+    Ok(Json(stored.view(page, lesson::markdown)))
+}
+
+/// Tell the other party of a write in a thread. A write of the learner is
+/// an `ask` request, with the thread and the source of its block, so the
+/// agent needs no second command. A write of the agent is `kind`.
+fn tell(
+    state: &AppState,
+    file: &PageFile,
+    page: &str,
+    stored: &StoredThread,
+    author: Author,
+    kind: EventKind,
+) {
+    match author {
+        Author::Learner => {
+            let detail = Detail::Ask {
+                thread: stored.view(page, str::to_owned),
+                block: stored.block.clone(),
+                earlier: file.lost(stored),
+            };
+            state
+                .events
+                .request(EventKind::Ask, Some(page), Some(&stored.id), detail);
+        }
+        Author::Agent => state
+            .events
+            .push(kind, Author::Agent, Some(page), Some(&stored.id)),
+    }
+}
+
+/// A block that the page holds, in its lesson or in a debrief, as the agent
+/// wrote it.
+fn block_source(
+    store: &Store,
+    slug: &str,
+    id: &str,
+    file: &PageFile,
+    block: &str,
+) -> Result<BlockSource, ApiError> {
+    // A block that a later push took away is not one to ask about: the
+    // page that shows it is out of date.
+    let (found, quiz) = file
+        .block(block)
+        .ok_or_else(|| ApiError::not_found(format!("page {id} holds no block {block:?}")))?;
+    let (source, within) = match quiz {
+        None => (
+            store.load_source(slug, id)?.unwrap_or_default(),
+            lesson::Within::Lesson,
+        ),
+        Some(n) => (
+            file.quizzes[n - 1]
+                .debrief
+                .as_ref()
+                .map(|debrief| debrief.source.clone())
+                .unwrap_or_default(),
+            lesson::Within::Debrief(n),
+        ),
+    };
+    // The page file and its source are written together, so the source
+    // holds the block. The kind alone still tells the agent where to look.
+    Ok(lesson::sources(&source, within)
+        .into_iter()
+        .find(|source| source.id == block)
+        .unwrap_or_else(|| BlockSource {
+            id: block.to_owned(),
+            kind: found.kind().to_owned(),
+            source: String::new(),
+        }))
 }
 
 /// An answer that the quiz does not take.
@@ -1699,7 +1870,7 @@ mod tests {
         let page = PageFile {
             blocks: parsed.blocks,
             hidden: parsed.hidden,
-            quizzes: Vec::new(),
+            ..PageFile::default()
         };
         state.store.save_page("raft", "2", LESSON, &page).unwrap();
 
@@ -3971,6 +4142,400 @@ mod tests {
             })
         );
         assert_eq!(store.load("raft").unwrap().unwrap(), course);
+    }
+
+    /// Each `at` of a value, checked and then put as `[at]`, so a snapshot
+    /// does not move with the clock.
+    fn at_redacted(mut value: serde_json::Value) -> serde_json::Value {
+        fn walk(value: &mut serde_json::Value) {
+            match value {
+                serde_json::Value::Object(fields) => {
+                    for (key, field) in fields.iter_mut() {
+                        if key == "at"
+                            && let Some(at) = field.as_str()
+                        {
+                            let format = time::format_description::well_known::Rfc3339;
+                            assert!(OffsetDateTime::parse(at, &format).is_ok(), "{at}");
+                            *field = "[at]".into();
+                        } else {
+                            walk(field);
+                        }
+                    }
+                }
+                serde_json::Value::Array(items) => items.iter_mut().for_each(walk),
+                _ => {}
+            }
+        }
+        walk(&mut value);
+        value
+    }
+
+    /// The id of block `at` of page 1.
+    fn block_of(state: &AppState, at: usize) -> String {
+        state.store.load_page("raft", "1").unwrap().unwrap().blocks[at]
+            .id()
+            .to_owned()
+    }
+
+    /// Write in a thread, as the page sends it, or as the agent with
+    /// `"author": "agent"` in the body.
+    async fn thread_write(
+        state: &AppState,
+        uri: &str,
+        body: serde_json::Value,
+    ) -> (StatusCode, serde_json::Value) {
+        json(
+            app(state.clone()),
+            send_json("POST", uri, &body.to_string()),
+        )
+        .await
+    }
+
+    /// What the wait of the agent gets after `after`.
+    async fn agent_waits(state: &AppState, after: u64) -> serde_json::Value {
+        let uri = format!("/api/events?after={after}&who=agent");
+        json(app(state.clone()), get_with_cookie(&uri, TOKEN))
+            .await
+            .1
+    }
+
+    /// The learner asks about a block, the agent gets the question with
+    /// the source of the block, answers it, and the learner asks again.
+    #[tokio::test]
+    async fn the_thread_routes_open_a_thread_and_answer_it() {
+        let (dir, state) = with_lesson().await;
+        let untouched = outside(dir.path());
+        let block = block_of(&state, 1);
+        // The agent waited since its push, so its idle event is behind.
+        let after = agent_waits(&state, 0).await["next"].as_u64().unwrap();
+
+        let (status, opened) = thread_write(
+            &state,
+            "/api/pages/1/threads",
+            serde_json::json!({
+                "block": block,
+                "quote": "  votes once  ",
+                "body": "Once per term, or once ever?\n\n<script>alert(1)</script>",
+            }),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK, "{opened}");
+        insta::assert_json_snapshot!("open_thread", at_redacted(opened.clone()));
+        assert_eq!(opened["id"], "1-1");
+        let agent = agent_waits(&state, after).await;
+        insta::assert_json_snapshot!("events_ask", at_redacted(agent.clone()));
+        assert!(state.events.agent_works(), "the wait handed the ask over");
+
+        // The answer of the agent is no request.
+        let next = agent["next"].as_u64().unwrap();
+        let (status, answered) = thread_write(
+            &state,
+            "/api/threads/1-1",
+            serde_json::json!({ "body": "Once per **term**.", "author": "agent" }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{answered}");
+        insta::assert_json_snapshot!("reply", at_redacted(answered.clone()));
+        let batch = state.events.after(Some(next), events::HOLD).await;
+        let seen: Vec<_> = batch
+            .events
+            .iter()
+            .map(|event| (event.kind, event.author, event.id.as_deref()))
+            .collect();
+        assert_eq!(seen, [(EventKind::Reply, Author::Agent, Some("1-1"))]);
+
+        // The page gets the thread with the page, in HTML.
+        let (_, page) = json(app(state.clone()), get_with_cookie("/api/pages/1", TOKEN)).await;
+        insta::assert_json_snapshot!("page_threads", at_redacted(page.clone()));
+        assert_eq!(page["threads"], serde_json::json!([answered]));
+
+        // A reply of the learner asks again, with the whole thread.
+        let next = state.events.after(None, events::HOLD).await.next;
+        let (status, _) = thread_write(
+            &state,
+            "/api/threads/1-1",
+            serde_json::json!({ "body": "And after a restart?" }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let again = agent_waits(&state, next).await;
+        assert_eq!(again["events"][0]["kind"], "ask");
+        assert_eq!(again["events"][0]["author"], "learner");
+        let bodies: Vec<_> = again["events"][0]["detail"]["thread"]["comments"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|comment| comment["body"].clone())
+            .collect();
+        assert_eq!(
+            bodies,
+            [
+                "Once per term, or once ever?\n\n<script>alert(1)</script>",
+                "Once per **term**.",
+                "And after a restart?"
+            ]
+        );
+        assert_eq!(
+            files(dir.path()),
+            [
+                ".learn/raft/course.json",
+                ".learn/raft/pages/1.json",
+                ".learn/raft/pages/1.md"
+            ]
+        );
+        assert_eq!(outside(dir.path()), untouched, "a write outside .learn/");
+    }
+
+    /// The agent opens a thread about the whole page: a `thread` event,
+    /// which no wait returns.
+    #[tokio::test]
+    async fn the_agent_opens_a_thread_about_the_whole_page() {
+        let (_dir, state) = with_lesson().await;
+        let after = state.events.after(None, events::HOLD).await.next;
+
+        let (status, opened) = thread_write(
+            &state,
+            "/api/pages/1/threads",
+            serde_json::json!({ "block": null, "quote": null,
+                                "body": "We stopped at the vote.", "author": "agent" }),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK, "{opened}");
+        assert_eq!(opened["block"], serde_json::Value::Null);
+        assert_eq!(opened["comments"][0]["author"], "agent");
+        assert_eq!(
+            opened["comments"][0]["body"],
+            "<p>We stopped at the vote.</p>"
+        );
+        let batch = state.events.after(Some(after), events::HOLD).await;
+        assert_eq!(batch.events.len(), 1);
+        assert_eq!(batch.events[0].kind, EventKind::Thread);
+        assert!(!batch.events[0].kind.is_request());
+        assert_eq!(batch.events[0].id.as_deref(), Some("1-1"));
+    }
+
+    #[tokio::test]
+    async fn a_write_in_a_thread_that_the_route_does_not_take_is_refused() {
+        let (_dir, state) = with_lesson().await;
+        let block = block_of(&state, 0);
+        let (status, _) = thread_write(
+            &state,
+            "/api/pages/1/threads",
+            serde_json::json!({ "block": block, "body": "Why?" }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let before = std::fs::read(state.store.dir().join("raft/pages/1.json")).unwrap();
+        let after = state.events.after(None, events::HOLD).await.next;
+
+        let open = |body: serde_json::Value| ("/api/pages/1/threads", body);
+        for ((uri, body), status, code) in [
+            (
+                (
+                    "/api/pages/2/threads",
+                    serde_json::json!({ "block": block, "body": "x" }),
+                ),
+                StatusCode::NOT_FOUND,
+                "notFound",
+            ),
+            (
+                (
+                    "/api/pages/..%2F1/threads",
+                    serde_json::json!({ "block": block, "body": "x" }),
+                ),
+                StatusCode::NOT_FOUND,
+                "notFound",
+            ),
+            (
+                open(serde_json::json!({ "block": "0123456789ab", "body": "x" })),
+                StatusCode::NOT_FOUND,
+                "notFound",
+            ),
+            (
+                open(serde_json::json!({ "block": block, "body": " \n " })),
+                StatusCode::BAD_REQUEST,
+                "badRequest",
+            ),
+            (
+                open(serde_json::json!({ "block": null, "quote": "votes", "body": "x" })),
+                StatusCode::BAD_REQUEST,
+                "badRequest",
+            ),
+            (
+                open(serde_json::json!({ "block": block, "body": "x", "page": "1" })),
+                StatusCode::BAD_REQUEST,
+                "badRequest",
+            ),
+            (
+                open(serde_json::json!({ "block": block })),
+                StatusCode::BAD_REQUEST,
+                "badRequest",
+            ),
+            (
+                ("/api/threads/1-2", serde_json::json!({ "body": "x" })),
+                StatusCode::NOT_FOUND,
+                "notFound",
+            ),
+            (
+                ("/api/threads/2-1", serde_json::json!({ "body": "x" })),
+                StatusCode::NOT_FOUND,
+                "notFound",
+            ),
+            (
+                ("/api/threads/thread", serde_json::json!({ "body": "x" })),
+                StatusCode::NOT_FOUND,
+                "notFound",
+            ),
+            (
+                ("/api/threads/1-1", serde_json::json!({ "body": "" })),
+                StatusCode::BAD_REQUEST,
+                "badRequest",
+            ),
+            (
+                (
+                    "/api/threads/1-1",
+                    serde_json::json!({ "body": "x", "author": "reader" }),
+                ),
+                StatusCode::BAD_REQUEST,
+                "badRequest",
+            ),
+        ] {
+            let (got, answer) = thread_write(&state, uri, body.clone()).await;
+
+            assert_eq!(got, status, "{uri} {body}: {answer}");
+            assert_eq!(answer["error"]["code"], code, "{uri} {body}");
+            assert!(answer["error"]["message"].is_string(), "{answer}");
+        }
+        assert_eq!(
+            std::fs::read(state.store.dir().join("raft/pages/1.json")).unwrap(),
+            before
+        );
+        assert_eq!(state.events.after(None, events::HOLD).await.next, after);
+    }
+
+    /// A push that takes a block away keeps its threads at the end of the
+    /// page, with their quote. A push that keeps a block keeps its threads
+    /// on it, and a block that comes back takes its threads back.
+    #[tokio::test]
+    async fn a_thread_whose_block_is_gone_moves_to_the_end_of_the_page() {
+        let (_dir, state) = with_lesson().await;
+        let (first, vote) = (block_of(&state, 0), block_of(&state, 1));
+        for body in [
+            serde_json::json!({ "block": vote, "quote": "once per term", "body": "Why once?" }),
+            serde_json::json!({ "block": first, "body": "Who starts it?" }),
+            serde_json::json!({ "body": "We stopped here.", "author": "agent" }),
+        ] {
+            let (status, answer) = thread_write(&state, "/api/pages/1/threads", body).await;
+            assert_eq!(status, StatusCode::OK, "{answer}");
+        }
+        let order = |page: &serde_json::Value| -> Vec<String> {
+            page["threads"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|thread| thread["id"].as_str().unwrap().to_owned())
+                .collect()
+        };
+
+        // The vote changes, and the first block stays as it was.
+        let changed = LESSON.replace("once per term", "once in each term");
+        let (status, pushed) = json(app(state.clone()), put("/api/pages/1", changed)).await;
+        assert_eq!(status, StatusCode::OK, "{pushed}");
+
+        assert_eq!(pushed["blocks"][0]["id"], first.as_str());
+        assert_ne!(pushed["blocks"][1]["id"], vote.as_str());
+        assert_eq!(order(&pushed), ["1-2", "1-3", "1-1"]);
+        let gone = &pushed["threads"][2];
+        assert_eq!(gone["block"], vote.as_str());
+        assert_eq!(gone["quote"], "once per term");
+        assert_eq!(gone["comments"][0]["body"], "<p>Why once?</p>");
+        let (_, page) = json(app(state.clone()), get_with_cookie("/api/pages/1", TOKEN)).await;
+        assert_eq!(page, pushed);
+
+        // The learner answers in it, and the agent reads the block as it
+        // was when the learner asked.
+        let after = agent_waits(&state, 0).await["next"].as_u64().unwrap();
+        let (status, _) = thread_write(
+            &state,
+            "/api/threads/1-1",
+            serde_json::json!({ "body": "Still?" }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let asked = agent_waits(&state, after).await;
+        let detail = &asked["events"][0]["detail"];
+        assert_eq!(detail["earlier"], true);
+        assert_eq!(
+            detail["block"],
+            serde_json::json!({ "id": vote, "kind": "text",
+                                "source": "## The vote\n\nEach server votes once per term." })
+        );
+
+        // The vote comes back, and its thread with it.
+        let (_, pushed) = json(app(state.clone()), put("/api/pages/1", LESSON)).await;
+        assert_eq!(order(&pushed), ["1-1", "1-2", "1-3"]);
+    }
+
+    /// A debrief is a page source, and its blocks take questions too.
+    #[tokio::test]
+    async fn a_thread_opens_on_a_block_of_a_debrief() {
+        let (_dir, state) = with_quiz(LESSON, QUIZ).await;
+        answer_quiz(&state, 1).await;
+        let body = debrief_body(DEBRIEF, serde_json::json!({ "random-timeout": "ok" }));
+        let (status, page) = write_debrief(&state, 1, &body).await;
+        assert_eq!(status, StatusCode::OK, "{page}");
+        let diagram = page["quizzes"][0]["debrief"]["blocks"][2]["id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let after = agent_waits(&state, 0).await["next"].as_u64().unwrap();
+
+        let (status, opened) = thread_write(
+            &state,
+            "/api/pages/1/threads",
+            serde_json::json!({ "block": diagram, "body": "Where is the leader?" }),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK, "{opened}");
+        let asked = agent_waits(&state, after).await;
+        assert_eq!(
+            asked["events"][0]["detail"]["block"],
+            serde_json::json!({ "id": diagram, "kind": "diagram",
+                                "source": "```mermaid\nflowchart LR\n  F[Follower] --> C[Candidate]\n```" })
+        );
+        assert_eq!(asked["events"][0]["detail"]["earlier"], false);
+    }
+
+    /// The page places a thread by the id of its block: a debrief that
+    /// repeats a block of the lesson would show its threads twice.
+    #[tokio::test]
+    async fn a_block_of_a_debrief_never_takes_the_id_of_a_block_of_the_lesson() {
+        let (_dir, state) = with_quiz(LESSON, QUIZ).await;
+        answer_quiz(&state, 1).await;
+        let repeat =
+            "# Almost\n\nRead it again.\n\n## The vote\n\nEach server votes once per term.\n";
+        let body = debrief_body(repeat, serde_json::json!({ "random-timeout": "ok" }));
+
+        let (status, page) = write_debrief(&state, 1, &body).await;
+
+        assert_eq!(status, StatusCode::OK, "{page}");
+        let ids = |blocks: &serde_json::Value| -> Vec<String> {
+            let blocks = blocks.as_array().unwrap();
+            blocks
+                .iter()
+                .map(|block| block["id"].as_str().unwrap().to_owned())
+                .collect()
+        };
+        let lesson = ids(&page["blocks"]);
+        let debrief = ids(&page["quizzes"][0]["debrief"]["blocks"]);
+        assert_eq!(debrief.len(), 2, "{page}");
+        assert!(
+            debrief.iter().all(|id| !lesson.contains(id)),
+            "{lesson:?} {debrief:?}"
+        );
     }
 
     /// A trace goes into a log or a bug report. The token must not.

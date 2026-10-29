@@ -120,8 +120,57 @@ for (const scheme of ['light', 'dark'] as const) {
     await first.locator('.debrief').scrollIntoViewIfNeeded();
     await page.screenshot({ path: join(OUT, `${scheme}-quiz-debriefed.png`) });
 
+    // A question of the learner on a block, with the text that it selected
+    // as the quote, then the reply of the agent under it, and a thread of
+    // the agent about the whole page.
+    const asked = agent.wait(both.next);
+    const anchor = page.locator('.thread-anchor', {
+      has: page.getByRole('heading', { name: 'Why a random part' }),
+    });
+    await anchor.scrollIntoViewIfNeeded();
+    await page.evaluate(() => {
+      const wanted = 'the votes would split';
+      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        const at = node.textContent?.indexOf(wanted) ?? -1;
+        if (at >= 0) {
+          const range = document.createRange();
+          range.setStart(node, at);
+          range.setEnd(node, at + wanted.length);
+          getSelection()?.removeAllRanges();
+          getSelection()?.addRange(range);
+          return;
+        }
+      }
+    });
+    await anchor.hover();
+    await anchor.getByRole('button', { name: 'Ask' }).click();
+    await anchor.getByRole('textbox').fill('Why would they split *again* and again?');
+    await page.screenshot({ path: join(OUT, `${scheme}-ask.png`) });
+    await anchor.getByRole('button', { name: 'Send' }).click();
+    const question = await asked;
+    await agent.reply(
+      '1-1',
+      'Each follower waits the **same** time, so all of them start an election in the same ' +
+        'term, and each votes for itself.',
+    );
+    await anchor.locator('.thread-comment[data-author="agent"]').waitFor();
+    await agent.comment('1', 'We stopped at the random part. Next time: `election_timeout`.');
+    await page.locator('.threads-page .thread').waitFor();
+    await page.mouse.move(0, 0);
+    await anchor.locator('.thread').scrollIntoViewIfNeeded();
+    await page.screenshot({ path: join(OUT, `${scheme}-thread.png`) });
+
+    // The agent pushes the page again without that sentence: its thread
+    // moves to the end of the page, with its quote.
+    await agent.page('1', PAGE_1.replace('the votes would split', 'the votes split'));
+    const earlier = page.locator('.threads-earlier');
+    await earlier.waitFor();
+    await earlier.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: join(OUT, `${scheme}-thread-earlier.png`) });
+
     // Next, and the agent at work on the page after.
-    const waitedNext = agent.wait(both.next);
+    const waitedNext = agent.wait(question.next);
     await page.locator('.agent-pill', { hasText: 'Agent connected' }).waitFor();
     await page.getByRole('button', { name: 'Next' }).click();
     const { next } = await waitedNext;

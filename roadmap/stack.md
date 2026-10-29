@@ -380,6 +380,84 @@ no store of an earlier release needs a way back.
 - **A `syllabus` event after a debrief.** The page reads the course again
   on the `debrief` event, which also names the page to read again.
 
+## 2026-10-29 — Holes found by the threads
+
+The threads, sections 6, 8 and 11, left eight questions that the design
+did not answer.
+
+**Decisions.**
+
+- **The id of a thread** is `<page>-<n>`, such as `3-2`: the page, and the
+  rank of the thread in it, from 1. A page id holds no hyphen, so the id
+  names its page. Threads are never removed, so the id stays unique in the
+  course.
+- **The body of a comment.** The store keeps the Markdown that its author
+  wrote. The page gets, in `body`, the HTML that the server writes from it,
+  with the HTML of the source escaped as in section 4.1, as for an option
+  of a choice. The agent gets the Markdown in the detail of `ask`. Both
+  routes answer the thread as the page sees it.
+- **Who writes.** Both routes take `author` in the body, and a body with no
+  `author` is a write of the learner. A write of the learner is an `ask`
+  request. A write of the agent is a `thread` event when it opens a thread,
+  and a `reply` event when it writes in one. Neither is a request.
+- **The refusals.** An unknown page, a block that the page and its
+  debriefs do not hold, and an unknown thread get 404. An empty body, and
+  a quote on a thread with no block, get 400. An empty quote is no quote.
+  A refusal stores nothing.
+- **A block of a debrief** takes threads, as a block of the lesson does.
+  Its id also hashes the number of its quiz: the SHA-256 takes
+  `\ndebrief <n>` after the rank. A debrief may repeat a block of the
+  lesson, or of another debrief, and the page places a thread by the id of
+  its block alone. A debrief written again keeps the ids of its unchanged
+  blocks.
+- **A thread whose block is gone.** The server decides it at each read,
+  from the blocks of the page and of its debriefs, and sends those threads
+  last. The thread keeps its shape: `block` still names the block that is
+  gone. The page shows a thread whose block it does not hold under "On an
+  earlier version of this page". A block that a later push brings back
+  takes its threads back. The thread still takes a reply.
+- **The detail of `ask`** is `{ thread, block, earlier }`: the thread with
+  its comments in Markdown, the block as the agent wrote it, and whether
+  the block is gone. The store keeps the source of the block in the
+  thread, from the moment the thread opened.
+- **A thread about the whole page.** The learner asks on a block. The
+  agent opens a thread about the whole page with `qlearn comment <id>`, and
+  the page shows it at its end, under "About this page".
+
+The page file holds the threads in a new field, `threads`, which an
+earlier page file reads as empty. The format keeps version 1.
+
+The address gets `&block=<id>` when the learner presses Ask on a block.
+Ask replaces the entry of the history, because back and forward walk the
+pages. A reload scrolls to the block, and opens its Ask box again when the
+block has no thread yet.
+
+**Why.** An id that names its page lets a route find the thread with no
+scan of the course, and the agent reads it at a glance. The agent must read
+the question as the learner wrote it, and the page must draw it with no
+Markdown parser of its own. One body for both parties would hand one of
+them the wrong text. Section 8 gives both routes to both parties, and
+section 8.3 counts `ask` among the requests and `thread` and `reply` among
+the writes. A debrief is a page source, and its excerpts and diagrams raise
+questions as the lesson does. The agent must answer a question on a block
+that a push took away, and the page no longer holds its source.
+
+**Rejected:**
+
+- **A random id.** A route would read every page file to
+  find a thread.
+- **A field `earlier` on the thread of the page.** It changes a type of
+  section 6 for a fact that the page reads from the blocks that it shows.
+- **A flag in the store, set by the push.** A block that comes back would
+  leave its threads at the end, and a debrief written again would need the
+  same code.
+- **The HTML in the store.** The agent would get HTML in its detail.
+- **Refuse a reply in a thread whose block is gone.** The thread holds
+  answers of the learner.
+- **A field on the thread that names the list of its block**, lesson or
+  quiz `n`. It changes a type of section 6, where an id that differs says
+  the same thing.
+
 ## Open questions
 
 - **The URL of the repository.** The host is decided: a public repository

@@ -18,6 +18,7 @@ use time::OffsetDateTime;
 use crate::git::exec::Git;
 use crate::model::{self, Block, Course, Line, Page, PageKind, Point};
 use crate::quiz::StoredQuiz;
+use crate::thread::StoredThread;
 
 /// The name of the store, in the worktree and in `.git/info/exclude`.
 const DIR: &str = ".learn";
@@ -236,7 +237,7 @@ impl Store {
 /// What `pages/<id>.json` holds.
 ///
 /// Each field takes `serde(default)`, so the file of an earlier release
-/// still reads. The threads join it in a later release, the same way.
+/// still reads.
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", default)]
 pub struct PageFile {
@@ -250,6 +251,10 @@ pub struct PageFile {
     /// options. A push of the blocks keeps them.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub quizzes: Vec<StoredQuiz>,
+    /// In the order that they opened. A push of the blocks keeps them, so
+    /// a thread whose block is gone is kept too.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub threads: Vec<StoredThread>,
 }
 
 impl PageFile {
@@ -266,7 +271,36 @@ impl PageFile {
             id: id.to_owned(),
             blocks: self.shown(),
             quizzes,
+            threads: self
+                .threads()
+                .into_iter()
+                .map(|(thread, _)| thread.view(id, crate::lesson::markdown))
+                .collect(),
         }
+    }
+
+    /// The threads in the order that the page shows them, each with
+    /// whether its block is gone. A thread whose block a later push took
+    /// away moves to the end, with its quote (section 6 of the design).
+    ///
+    /// The blocks decide at each read, so a block that a later push brings
+    /// back takes its threads back.
+    pub fn threads(&self) -> Vec<(&StoredThread, bool)> {
+        let (held, gone): (Vec<_>, Vec<_>) = self
+            .threads
+            .iter()
+            .map(|thread| (thread, self.lost(thread)))
+            .partition(|(_, gone)| !gone);
+        held.into_iter().chain(gone).collect()
+    }
+
+    /// Whether the block of a thread is gone from the page and from the
+    /// debriefs of its quizzes.
+    pub fn lost(&self, thread: &StoredThread) -> bool {
+        thread
+            .block
+            .as_ref()
+            .is_some_and(|block| self.block(&block.id).is_none())
     }
 
     /// Put None in place of each line of `blocks` that holds the text of a
@@ -495,6 +529,18 @@ impl Store {
                 path.display()
             )
         })
+    }
+
+    /// The source of a page, as the agent pushed it. None when the agent
+    /// has not pushed it.
+    pub fn load_source(&self, slug: &str, id: &str) -> Result<Option<String>> {
+        check_page_id(id)?;
+        let path = self.pages_dir(slug)?.join(format!("{id}.md"));
+        match fs::read_to_string(&path) {
+            Ok(text) => Ok(Some(text)),
+            Err(e) if e.kind() == ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(e).with_context(|| format!("cannot read {}", path.display())),
+        }
     }
 
     /// The page that the agent pushed last, or None before the first push.
@@ -1005,6 +1051,7 @@ mod tests {
             }],
             hidden: BTreeMap::new(),
             quizzes: Vec::new(),
+            threads: Vec::new(),
         }
     }
 
@@ -1061,6 +1108,7 @@ mod tests {
             }],
             hidden: BTreeMap::from([("0123456789ab".to_owned(), line("int b;"))]),
             quizzes: Vec::new(),
+            threads: Vec::new(),
         };
 
         store.save_page("raft", "1", "source", &page).unwrap();
@@ -1238,14 +1286,14 @@ mod tests {
     }
 
     /// A page of a later release carries more than blocks, and a page of
-    /// an earlier one has no quizzes. A missing field reads as empty, and
-    /// an unknown one is left aside.
+    /// an earlier one has no quizzes and no threads. A missing field reads
+    /// as empty, and an unknown one is left aside.
     #[tokio::test]
     async fn a_page_file_reads_with_a_field_more_or_a_field_less() {
         let repo = repo().await;
         let store = Store::at(repo.path());
         let dir = repo.path().join(".learn/raft/pages");
-        write(&dir.join("1.json"), r#"{ "blocks": [], "threads": [{}] }"#);
+        write(&dir.join("1.json"), r#"{ "blocks": [], "charts": [{}] }"#);
         write(&dir.join("2.json"), "{}");
 
         assert_eq!(

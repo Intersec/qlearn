@@ -340,6 +340,91 @@ async fn an_answer_reaches_the_wait_with_its_detail() {
     assert!(interrupt(server).await.success());
 }
 
+/// The learner asks about a block, the wait of the agent gets the question
+/// with the source of the block, and the agent answers with `qlearn reply`.
+/// The agent opens a thread of its own with `qlearn comment`.
+#[tokio::test]
+async fn an_agent_answers_a_question_and_opens_a_thread() {
+    let repo = build_repo();
+    let root = repo.path();
+    let mut server = qlearn(root, &["raft", "--no-open"]).spawn().unwrap();
+    read_url(&mut server).await;
+    let source = "# Two leaders\n\nOne vote per term.\n";
+    let page = json_of(&run(root, &["page", "1", "--file", "-"], Some(source)).await);
+    let block = page["blocks"][0]["id"].as_str().unwrap().to_owned();
+
+    let waiting = tokio::spawn({
+        let root = root.to_owned();
+        async move { run(&root, &["wait", "--after", "0", "--timeout", "20"], None).await }
+    });
+    let client = page_of(root);
+    until_the_agent_waits(&client).await;
+    client
+        .post(
+            "/api/pages/1/threads",
+            &json!({ "block": block, "quote": "One vote", "body": "Per server?" }),
+        )
+        .await
+        .unwrap();
+
+    let batch = json_of(&waiting.await.unwrap());
+    let events = batch["events"].as_array().unwrap();
+    assert_eq!(events.len(), 1, "{batch}");
+    assert_eq!(events[0]["kind"], "ask");
+    assert_eq!(events[0]["id"], "1-1");
+    let detail = &events[0]["detail"];
+    assert_eq!(
+        detail["block"],
+        json!({ "id": block, "kind": "text", "source": "# Two leaders\n\nOne vote per term." })
+    );
+    assert_eq!(detail["thread"]["quote"], "One vote");
+    assert_eq!(detail["thread"]["comments"][0]["body"], "Per server?");
+    assert_eq!(detail["earlier"], false);
+
+    let thread = json_of(
+        &run(
+            root,
+            &["reply", "1-1", "--body", "-"],
+            Some("Per server, *per term*.\n"),
+        )
+        .await,
+    );
+    assert_eq!(thread["comments"][1]["author"], "agent");
+    assert_eq!(
+        thread["comments"][1]["body"],
+        "<p>Per server, <em>per term</em>.</p>"
+    );
+
+    let target = format!("1#{block}");
+    let opened = json_of(&run(root, &["comment", &target, "--body", "- a recap"], None).await);
+    assert_eq!(opened["id"], "1-2");
+    assert_eq!(opened["block"], block.as_str());
+    let whole = json_of(&run(root, &["comment", "1", "--body", "We stopped here."], None).await);
+    assert_eq!(whole["id"], "1-3");
+    assert_eq!(whole["block"], Value::Null);
+
+    // A refusal exits 1 and says why on standard error.
+    let refused = run(root, &["reply", "1-9", "--body", "x"], None).await;
+    assert_eq!(refused.status.code(), Some(1), "{refused:?}");
+    assert!(
+        stderr(&refused).contains("no thread"),
+        "{}",
+        stderr(&refused)
+    );
+    let refused = run(root, &["comment", "1#", "--body", "x"], None).await;
+    assert_eq!(refused.status.code(), Some(1), "{refused:?}");
+
+    let page = client.get("/api/pages/1").await.unwrap();
+    let ids: Vec<_> = page["threads"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|thread| thread["id"].clone())
+        .collect();
+    assert_eq!(ids, ["1-1", "1-2", "1-3"]);
+    assert!(interrupt(server).await.success());
+}
+
 /// The agent writes the debrief of an answered quiz with a grade for each
 /// point of the open question, and reads the points in the order that it
 /// picks them for a later question.

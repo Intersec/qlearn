@@ -110,6 +110,28 @@ pub enum Command {
         points: Vec<String>,
     },
 
+    /// Open a thread in the page, as the agent: on a block, or about the
+    /// whole page. Prints the thread, with its id.
+    Comment {
+        /// The page, then `#` and the block: `3#6495234d4654`. The page
+        /// alone opens a thread about the whole page.
+        #[arg(value_name = "ID[#BLOCK]")]
+        target: String,
+        /// The comment, in Markdown. `-` reads it from standard input.
+        // A text may open with a hyphen, such as a list item.
+        #[arg(long, allow_hyphen_values = true)]
+        body: String,
+    },
+
+    /// Write in a thread, as the agent. Prints the thread.
+    Reply {
+        /// The id of the thread, such as `3-1`.
+        thread: String,
+        /// The comment, in Markdown. `-` reads it from standard input.
+        #[arg(long, allow_hyphen_values = true)]
+        body: String,
+    },
+
     /// Print the points of the course and their results, the missed ones
     /// first, then the others by the date of their last result.
     Points,
@@ -316,6 +338,27 @@ mod tests {
         );
         assert!(Cli::try_parse_from(["qlearn", "debrief", "3", "x", "--file", "-"]).is_err());
         assert!(Cli::try_parse_from(["qlearn", "debrief", "3", "--file", "-"]).is_err());
+    }
+
+    #[test]
+    fn a_comment_names_its_page_and_its_block_and_takes_a_body() {
+        let cli =
+            Cli::try_parse_from(["qlearn", "comment", "3#6495234d4654", "--body", "- a list"])
+                .unwrap();
+        assert!(
+            matches!(cli.command, Some(Command::Comment { ref target, ref body })
+                if target == "3#6495234d4654" && body == "- a list"),
+            "{cli:?}"
+        );
+
+        let cli = Cli::try_parse_from(["qlearn", "reply", "3-1", "--body", "-"]).unwrap();
+        assert!(
+            matches!(cli.command, Some(Command::Reply { ref thread, ref body })
+                if thread == "3-1" && body == "-"),
+            "{cli:?}"
+        );
+        assert!(Cli::try_parse_from(["qlearn", "reply", "3-1"]).is_err());
+        assert!(Cli::try_parse_from(["qlearn", "comment", "--body", "x"]).is_err());
     }
 
     #[test]

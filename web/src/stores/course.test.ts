@@ -3,7 +3,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
 import { ApiError, api } from '@/api/client';
-import type { Course, Event, EventBatch, Page, PageRef } from '@/api/types';
+import type { Course, Event, EventBatch, Page, PageRef, Thread } from '@/api/types';
 import { useCourse } from './course';
 
 /** The HTML of the first block, which these pages hold as text. */
@@ -34,7 +34,7 @@ function courseOf(pages: PageRef[]): Course {
 }
 
 function pageOf(id: string, html = `<h1>Page ${id}</h1>`): Page {
-  return { id, blocks: [{ id: `block${id}`, kind: 'text', html }], quizzes: [] };
+  return { id, blocks: [{ id: `block${id}`, kind: 'text', html }], quizzes: [], threads: [] };
 }
 
 function batch(fields: Partial<EventBatch> = {}): EventBatch {
@@ -802,5 +802,100 @@ describe('an answer of the learner', () => {
     await vi.waitFor(() => expect(store.page?.quizzes[0].choices[0].graded?.ok).toBe(true));
     expect(server.reads.session).toBeGreaterThan(sessions);
     expect(store.course?.parts[0].pages[0].state).toBe('answered');
+  });
+});
+
+describe('a thread', () => {
+  function threadOf(id: string, bodies: string[]): Thread {
+    return {
+      id,
+      page: '1',
+      block: 'block1',
+      quote: null,
+      comments: bodies.map((body, at) => ({
+        author: at % 2 ? 'agent' : 'learner',
+        body: `<p>${body}</p>`,
+        at: '2026-01-01T00:00:00Z',
+      })),
+    };
+  }
+
+  it('opened by the learner shows at once, and the address names its block', async () => {
+    server.push('1', 1);
+    const store = await started();
+    const ask = vi.spyOn(api, 'ask').mockResolvedValue(threadOf('1-1', ['Why?']));
+
+    store.openThread('block1');
+    expect(location.hash).toBe('#page=1&block=block1');
+    expect(await store.ask('1', 'block1', 'votes once', 'Why?')).toBe(true);
+
+    expect(ask).toHaveBeenCalledWith('1', 'block1', 'votes once', 'Why?');
+    expect(store.page?.threads.map((thread) => thread.id)).toEqual(['1-1']);
+    expect(location.hash).toBe('#page=1&block=block1');
+  });
+
+  it('closed by the learner leaves the address with no block', async () => {
+    server.push('1', 1);
+    const store = await started();
+
+    store.openThread('block1');
+    store.openThread(null);
+
+    expect(store.focus).toBeNull();
+    expect(location.hash).toBe('#page=1');
+  });
+
+  it('keeps the question when the server refuses it, and says why', async () => {
+    server.push('1', 1);
+    const store = await started();
+    vi.spyOn(api, 'ask').mockRejectedValue(new ApiError('notFound', 'page 1 holds no block'));
+
+    expect(await store.ask('1', 'gone', null, 'Why?')).toBe(false);
+
+    expect(store.error).toBe('page 1 holds no block');
+    expect(store.page?.threads).toEqual([]);
+  });
+
+  it('comes back with its block when the address names it, as a reload does', async () => {
+    server.push('1', 1);
+    history.replaceState(null, '', '/#page=1&block=block1');
+
+    const store = await started();
+
+    expect(store.page?.id).toBe('1');
+    expect(store.focus).toBe('block1');
+    expect(location.hash).toBe('#page=1&block=block1');
+    await store.open('1');
+    expect(store.focus).toBeNull();
+  });
+
+  it('shows the reply of the agent without a reload', async () => {
+    server.push('1', 1);
+    server.pages.get('1')!.threads = [threadOf('1-1', ['Why?'])];
+    const store = await started();
+    vi.spyOn(api, 'reply').mockResolvedValue(threadOf('1-1', ['Why?', 'Because.', 'Then?']));
+
+    server.pages.get('1')!.threads = [threadOf('1-1', ['Why?', 'Because.'])];
+    const event: Event = { seq: 11, kind: 'reply', author: 'agent', page: '1', id: '1-1' };
+    server.send(batch({ next: 11, events: [event] }));
+    await vi.waitFor(() => expect(store.page?.threads[0].comments).toHaveLength(2));
+
+    expect(await store.reply('1-1', 'Then?')).toBe(true);
+    expect(store.page?.threads[0].comments).toHaveLength(3);
+  });
+
+  it('opened by the agent or asked in another tab reads the page again', async () => {
+    server.push('1', 1);
+    const store = await started();
+    server.pages.get('1')!.threads = [threadOf('1-1', ['Why?'])];
+    const asked: Event = { seq: 11, kind: 'ask', author: 'learner', page: '1', id: '1-1' };
+    server.send(batch({ next: 11, events: [asked] }));
+    await vi.waitFor(() => expect(store.page?.threads).toHaveLength(1));
+
+    server.pages.get('1')!.threads.push({ ...threadOf('1-2', ['A recap.']), block: null });
+    const opened: Event = { seq: 12, kind: 'thread', author: 'agent', page: '1', id: '1-2' };
+    server.send(batch({ next: 12, events: [opened] }));
+    await vi.waitFor(() => expect(store.page?.threads).toHaveLength(2));
+    expect(store.ready).toBeNull();
   });
 });

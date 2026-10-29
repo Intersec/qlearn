@@ -1,7 +1,7 @@
 // Every call to the server. The token travels as a cookie that the first
 // page load left behind, so nothing here carries it.
 
-import type { ErrorBody, Event, EventBatch, Page, Pick, Session } from './types';
+import type { ErrorBody, Event, EventBatch, Page, Pick, Session, Thread } from './types';
 
 export class ApiError extends Error {
   constructor(
@@ -75,6 +75,25 @@ export const api = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ block, error }),
+    }),
+
+  /**
+   * Ask about a block of a page, with the text that the learner selected
+   * in it. The agent gets the question. Answers the thread.
+   */
+  ask: (id: string, block: string, quote: string | null, body: string) =>
+    call<Thread>(`/api/pages/${encodeURIComponent(id)}/threads`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ block, quote, body }),
+    }),
+
+  /** Write in a thread. The agent gets it as a question. Answers the thread. */
+  reply: (thread: string, body: string) =>
+    call<Thread>(`/api/threads/${encodeURIComponent(thread)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ body }),
     }),
 
   /**

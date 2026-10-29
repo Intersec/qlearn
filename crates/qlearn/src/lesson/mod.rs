@@ -18,7 +18,7 @@ use sha2::{Digest, Sha256};
 
 use crate::git::exec::Git;
 use crate::highlight::Highlighter;
-use crate::model::{Block, Line, Marker, Span};
+use crate::model::{Block, BlockSource, Line, Marker, Span};
 
 /// A page that passed every check.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -31,6 +31,14 @@ pub struct Parsed {
     /// The hidden line of each excerpt that has one, by the id of its block.
     /// It stays on the server until the page may show it.
     pub hidden: BTreeMap<String, Line>,
+}
+
+/// Where a source shows: the lesson of a page, or the debrief of its quiz
+/// `n`, from 1.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Within {
+    Lesson,
+    Debrief(usize),
 }
 
 /// One error of a source, at its line.
@@ -76,36 +84,36 @@ pub async fn parse(
     git: &Git,
     highlighter: &Highlighter,
 ) -> Result<Parsed, Vec<Fault>> {
-    parse_with(source, git, highlighter, Hide::Kept).await
+    parse_with(source, Within::Lesson, git, highlighter).await
 }
 
 /// Parse the source of a debrief, as a page (section 5.4 of the design).
 ///
 /// A debrief hides no line. It shows once its quiz is answered, so the
 /// learner would never answer for the line. A hidden line of the lesson in
-/// it waits for the page, in `PageFile::page`.
+/// it waits for the page, in `PageFile::page`. `n` is the number of the
+/// quiz, which the ids of the blocks take.
 pub async fn parse_debrief(
     source: &str,
+    n: usize,
     git: &Git,
     highlighter: &Highlighter,
 ) -> Result<Parsed, Vec<Fault>> {
-    parse_with(source, git, highlighter, Hide::Refused).await
-}
-
-/// Whether a source may hide a line of an excerpt.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Hide {
-    Kept,
-    Refused,
+    parse_with(source, Within::Debrief(n), git, highlighter).await
 }
 
 async fn parse_with(
     source: &str,
+    within: Within,
     git: &Git,
     highlighter: &Highlighter,
-    hide: Hide,
 ) -> Result<Parsed, Vec<Fault>> {
-    let (pieces, title, mut faults) = split(source, highlighter);
+    let Split {
+        pieces,
+        title,
+        mut faults,
+        ..
+    } = split(source, highlighter, within);
 
     // Every excerpt is read, even on a page already refused, so the agent
     // gets every error in one pass.
@@ -116,7 +124,7 @@ async fn parse_with(
         match piece {
             Piece::Block(block) => blocks.push(block),
             Piece::Excerpt(id, spec) => {
-                if let Some(line) = spec.hides_at().filter(|_| hide == Hide::Refused) {
+                if let Some(line) = spec.hides_at().filter(|_| within != Within::Lesson) {
                     faults.push(Fault {
                         line,
                         kind: "excerpt",
@@ -158,8 +166,33 @@ enum Piece {
     Excerpt(String, excerpt::Spec),
 }
 
+/// The blocks of a source as the agent wrote them, in order: a thread
+/// hands the agent the source of its block. A block that fails a check has
+/// no id, so it is left out.
+pub fn sources(source: &str, within: Within) -> Vec<BlockSource> {
+    split(source, Highlighter::shared(), within).sources
+}
+
+/// The HTML of the Markdown of a comment. The HTML of the source is
+/// escaped and a fence is colored, as in a text block.
+pub fn markdown(source: &str) -> String {
+    let items: Vec<Item> = Parser::new_ext(source, OPTIONS)
+        .into_offset_iter()
+        .collect();
+    Writer::new(Highlighter::shared()).node(&items)
+}
+
+/// What `split` finds in a source.
+struct Split {
+    pieces: Vec<Piece>,
+    title: Option<String>,
+    /// The errors that need no git call.
+    faults: Vec<Fault>,
+    sources: Vec<BlockSource>,
+}
+
 /// The pieces of a page, its title, and the errors that need no git call.
-fn split(source: &str, highlighter: &Highlighter) -> (Vec<Piece>, Option<String>, Vec<Fault>) {
+fn split(source: &str, highlighter: &Highlighter, within: Within) -> Split {
     let items: Vec<Item> = Parser::new_ext(source, OPTIONS)
         .into_offset_iter()
         .collect();
@@ -168,9 +201,11 @@ fn split(source: &str, highlighter: &Highlighter) -> (Vec<Piece>, Option<String>
 
     let mut page = Page {
         source,
+        within,
         blocks: Vec::new(),
         open: None,
         seen: HashMap::new(),
+        sources: Vec::new(),
     };
     let mut title = None;
     let mut faults = Vec::new();
@@ -267,7 +302,12 @@ fn split(source: &str, highlighter: &Highlighter) -> (Vec<Piece>, Option<String>
     }
     page.close();
 
-    (page.blocks, title, faults)
+    Split {
+        pieces: page.blocks,
+        title,
+        faults,
+        sources: page.sources,
+    }
 }
 
 /// The Markdown that a page takes.
@@ -327,13 +367,18 @@ fn block_name(event: &Event) -> &'static str {
 /// of its kind and its source. An unchanged block keeps its id when the
 /// agent pushes the page again, so its threads stay on it. A later copy of
 /// the same block hashes its rank too, so two copies never share threads.
-pub fn block_id(kind: &str, source: &str, rank: usize) -> String {
+/// A block of a debrief hashes the number of its quiz too: the page places
+/// a thread by the id of its block, and a debrief may repeat the lesson.
+pub fn block_id(kind: &str, source: &str, rank: usize, within: Within) -> String {
     let mut hasher = Sha256::new();
     hasher.update(kind.as_bytes());
     hasher.update(b"\n");
     hasher.update(source.as_bytes());
     if rank > 1 {
         hasher.update(format!("\n{rank}").as_bytes());
+    }
+    if let Within::Debrief(n) = within {
+        hasher.update(format!("\ndebrief {n}").as_bytes());
     }
 
     hex::encode(&hasher.finalize()[..6])
@@ -601,18 +646,27 @@ fn plain_text(node: &[Item]) -> String {
 /// The blocks of a page, as the parse finds them.
 struct Page<'s> {
     source: &'s str,
+    within: Within,
     blocks: Vec<Piece>,
     /// The text block being written: the bytes that it covers, and its HTML.
     open: Option<(Range<usize>, String)>,
     /// How many times each kind and source came, for the rank of a copy.
     seen: HashMap<(&'static str, &'s str), usize>,
+    /// Each block with an id, as the agent wrote it.
+    sources: Vec<BlockSource>,
 }
 
 impl<'s> Page<'s> {
     fn id(&mut self, kind: &'static str, source: &'s str) -> String {
         let rank = self.seen.entry((kind, source)).or_default();
         *rank += 1;
-        block_id(kind, source, *rank)
+        let id = block_id(kind, source, *rank, self.within);
+        self.sources.push(BlockSource {
+            id: id.clone(),
+            kind: kind.to_owned(),
+            source: source.to_owned(),
+        });
+        id
     }
 
     /// Add a node to the open text block, or open one.
@@ -1172,8 +1226,23 @@ bool grant_vote(struct server *s, int term, int candidate)
     #[tokio::test]
     async fn the_id_is_the_hash_of_the_kind_and_the_source() {
         // printf 'text\n# One' | sha256sum
-        assert_eq!(block_id("text", "# One", 1), "5b1eb887548a");
+        assert_eq!(block_id("text", "# One", 1, Within::Lesson), "5b1eb887548a");
         assert_eq!(ids("# One\n").await, ["5b1eb887548a"]);
+    }
+
+    #[test]
+    fn the_id_of_a_block_of_a_debrief_takes_its_quiz() {
+        // printf 'text\n# One\ndebrief 2' | sha256sum
+        assert_eq!(
+            block_id("text", "# One", 1, Within::Debrief(2)),
+            "3043bfce5167"
+        );
+        let found = sources("# One\n", Within::Debrief(2));
+        assert_eq!(found[0].id, "3043bfce5167");
+        assert_ne!(
+            block_id("text", "# One", 1, Within::Debrief(1)),
+            block_id("text", "# One", 1, Within::Debrief(2))
+        );
     }
 
     #[tokio::test]
@@ -1182,10 +1251,16 @@ bool grant_vote(struct server *s, int term, int candidate)
         let source = format!("{fence}\n\n{fence}\n");
 
         // printf 'excerpt\n```excerpt\npath: a.c\nlines: 1\n```' | sha256sum
-        assert_eq!(block_id("excerpt", fence, 1), "f97986e2c189");
+        assert_eq!(
+            block_id("excerpt", fence, 1, Within::Lesson),
+            "f97986e2c189"
+        );
         assert_eq!(
             ids(&source).await,
-            [block_id("excerpt", fence, 1), block_id("excerpt", fence, 2)]
+            [
+                block_id("excerpt", fence, 1, Within::Lesson),
+                block_id("excerpt", fence, 2, Within::Lesson)
+            ]
         );
     }
 
@@ -1279,7 +1354,10 @@ bool grant_vote(struct server *s, int term, int candidate)
 
         assert_eq!(
             ids(&source).await,
-            [block_id("callout", quote, 1), block_id("callout", quote, 2)]
+            [
+                block_id("callout", quote, 1, Within::Lesson),
+                block_id("callout", quote, 2, Within::Lesson)
+            ]
         );
     }
 
@@ -1298,14 +1376,14 @@ bool grant_vote(struct server *s, int term, int candidate)
         assert_eq!(
             shape[1..],
             [
-                ("diagram", block_id("diagram", fence, 1)),
-                ("diagram", block_id("diagram", fence, 2)),
+                ("diagram", block_id("diagram", fence, 1, Within::Lesson)),
+                ("diagram", block_id("diagram", fence, 2, Within::Lesson)),
             ]
         );
         assert_eq!(
             parsed.blocks[1],
             Block::Diagram {
-                id: block_id("diagram", fence, 1),
+                id: block_id("diagram", fence, 1, Within::Lesson),
                 source: "graph LR\n  A --> B\n".to_owned(),
             }
         );
@@ -1372,6 +1450,47 @@ bool grant_vote(struct server *s, int term, int candidate)
         }
     }
 
+    /// A thread hands the agent the source of its block, so each source
+    /// must carry the id that the page gives the block.
+    #[tokio::test]
+    async fn each_block_has_its_source_under_its_id() {
+        let corpus = plain().await;
+        let source = "# Two leaders\n\nOne term.\n\n\
+                      > [!hook]\n> One vote per term.\n\n\
+                      ```mermaid\ngraph LR\n  A --> B\n```\n\n\
+                      ## The vote\n\nOne term.\n\n\
+                      > [!hook]\n> One vote per term.\n";
+        let parsed = corpus.parse(source).await.unwrap();
+
+        let found = sources(source, Within::Lesson);
+
+        let ids: Vec<&str> = parsed.blocks.iter().map(Block::id).collect();
+        assert_eq!(found.iter().map(|s| s.id.as_str()).collect::<Vec<_>>(), ids);
+        let kinds: Vec<&str> = found.iter().map(|s| s.kind.as_str()).collect();
+        assert_eq!(kinds, ["text", "callout", "diagram", "text", "callout"]);
+        assert_eq!(found[0].source, "# Two leaders\n\nOne term.");
+        assert_eq!(found[2].source, "```mermaid\ngraph LR\n  A --> B\n```");
+        // Two copies of one callout: two ids, one source.
+        assert_ne!(found[1].id, found[4].id);
+        assert_eq!(found[1].source, found[4].source);
+    }
+
+    #[test]
+    fn a_comment_is_markdown_with_its_html_escaped() {
+        let html = markdown("Why `rand()`?\n\n<script>alert(1)</script>\n\n```c\nint a;\n```\n");
+
+        assert!(
+            html.starts_with("<p>Why <code>rand()</code>?</p>"),
+            "{html}"
+        );
+        assert!(html.contains("&lt;script&gt;"), "{html}");
+        assert!(!html.contains("<script"), "{html}");
+        assert!(
+            html.contains("<pre class=\"md-code\"><code><span class=\"tok-"),
+            "{html}"
+        );
+    }
+
     #[test]
     fn deep_quotes_in_a_list_parse_in_linear_time() {
         // Each nested quote once scanned to its own end: this page took
@@ -1379,9 +1498,9 @@ bool grant_vote(struct server *s, int term, int candidate)
         let source = format!("- {}x\n", "> ".repeat(40_000));
         let start = std::time::Instant::now();
 
-        let (pieces, _, faults) = split(&source, Highlighter::shared());
+        let found = split(&source, Highlighter::shared(), Within::Lesson);
 
-        assert_eq!((pieces.len(), faults.len()), (1, 0));
+        assert_eq!((found.pieces.len(), found.faults.len()), (1, 0));
         let spent = start.elapsed();
         assert!(spent < std::time::Duration::from_secs(2), "{spent:?}");
     }
@@ -1448,11 +1567,12 @@ bool grant_vote(struct server *s, int term, int candidate)
         let source = "# Almost\n\n```excerpt\npath: src/raft.c\nlines: 12-14\nmark: 13\nhide: 13\n\
                       ```\n\n```excerpt\npath: src/raft.c\nlines: 900\n```\n";
 
-        let faults = parse_debrief(source, &corpus.git, Highlighter::shared())
+        let faults = parse_debrief(source, 1, &corpus.git, Highlighter::shared())
             .await
             .unwrap_err();
         let shown = parse_debrief(
             &source.replace("hide: 13\n", ""),
+            1,
             &corpus.git,
             Highlighter::shared(),
         )

@@ -309,6 +309,19 @@ export class Agent {
     await this.run(['debrief', id, String(n), '--file', path, ...grades]);
   }
 
+  /**
+   * Open a thread, as the procedure says: `target` is a page, or a page,
+   * `#` and a block. Answers the thread.
+   */
+  async comment(target: string, body: string): Promise<{ id: string }> {
+    return JSON.parse(await this.run(['comment', target, '--body', body])) as { id: string };
+  }
+
+  /** Write in a thread, as the procedure says. */
+  async reply(thread: string, body: string) {
+    await this.run(['reply', thread, '--body', body]);
+  }
+
   async status(text: string) {
     await this.run(['status', text]);
   }

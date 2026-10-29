@@ -18,6 +18,7 @@ pub mod report;
 pub mod status;
 pub mod store;
 pub mod syllabus;
+pub mod thread;
 pub mod trace;
 pub mod version;
 
