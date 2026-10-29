@@ -4,9 +4,9 @@
 // back to the agent, which fixes the page (section 4.3 of the design). The
 // cheatsheet sends nothing back, so its diagrams promise no fix.
 
-import { onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import type { DiagramBlock } from '@/api/types';
-import { Refused, dark, draw, watchTheme } from '@/diagram';
+import { Refused, WIDE, dark, draw, naturalWidth, watchTheme } from '@/diagram';
 
 const props = withDefaults(
   defineProps<{
@@ -23,6 +23,11 @@ const emit = defineEmits<{
 }>();
 
 const svg = ref<string | null>(null);
+/**
+ * Too wide for one column of the cheatsheet: there it spans both, so that
+ * its text stays readable.
+ */
+const wide = computed(() => svg.value !== null && (naturalWidth(svg.value) ?? 0) > WIDE);
 /**
  * The theme of the drawing. Print takes the light theme, and Mermaid
  * writes its colors into the SVG, so print lightens a dark drawing.
@@ -79,7 +84,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <figure class="diagram" :data-scheme="scheme">
+  <figure class="diagram" :data-scheme="scheme" :data-wide="wide ? 'true' : undefined">
     <!-- eslint-disable-next-line vue/no-v-html -- drawn by Mermaid in strict mode, cleaned in diagram.ts -->
     <div v-if="svg !== null" class="diagram-svg" v-html="svg" />
     <div v-else-if="failure" class="diagram-broken">

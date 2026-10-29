@@ -5,9 +5,10 @@
 // columns, on the screen and in print. It takes no question: it is not a
 // page of the course.
 
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import type { Cheatsheet, CodeRange, Course, Grade } from '@/api/types';
 import { format } from '@/place';
+import { fileName, sheetFile } from '@/sheetfile';
 import BlocksView from './BlocksView.vue';
 
 const props = defineProps<{ cheatsheet: Cheatsheet; course: Course }>();
@@ -42,6 +43,41 @@ function onClick(e: MouseEvent, id: string) {
 function print() {
   window.print();
 }
+
+const sheet = ref<HTMLElement | null>(null);
+/** The page builds the HTML file: it draws the diagrams again and reads the images. */
+const saving = ref(false);
+const failed = ref<string | null>(null);
+
+async function saveHtml() {
+  if (!sheet.value || saving.value) {
+    return;
+  }
+  saving.value = true;
+  failed.value = null;
+  try {
+    const html = await sheetFile(
+      sheet.value,
+      props.cheatsheet,
+      `Cheatsheet: ${props.course.title}`,
+    );
+    download(html, fileName(props.course.slug));
+  } catch (error) {
+    failed.value = error instanceof Error ? error.message : String(error);
+  } finally {
+    saving.value = false;
+  }
+}
+
+function download(html: string, name: string) {
+  const url = URL.createObjectURL(new Blob([html], { type: 'text/html;charset=utf-8' }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = name;
+  link.click();
+  // The browser reads the blob after the click returns.
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
 </script>
 
 <template>
@@ -49,21 +85,33 @@ function print() {
     <div class="cheatsheet-bar">
       <p v-if="finished" role="note" class="cheatsheet-keep">
         This cheatsheet lives in <code>{{ dir }}</code> of this worktree. Deleting the course
-        deletes it, so save it first: print it, pick <strong>Save as PDF</strong> in the print
-        dialog, or save it as Markdown for a wiki.
+        deletes it, so save it first: print it or pick <strong>Save as PDF</strong> in the print
+        dialog, save it as one HTML file, or as Markdown for a wiki.
       </p>
       <div class="cheatsheet-exports">
         <button type="button" class="cheatsheet-print" @click="print">Print or save as PDF</button>
+        <button
+          type="button"
+          class="cheatsheet-html"
+          :aria-disabled="saving"
+          :aria-busy="saving"
+          @click="saveHtml"
+        >
+          Save as HTML
+        </button>
         <!-- A link of the same origin carries the cookie of the token. -->
         <a class="cheatsheet-markdown" href="/api/cheatsheet.md" :download="markdownName"
           >Save as Markdown</a
         >
       </div>
+      <p v-if="failed" role="alert" class="cheatsheet-failed">
+        The page cannot build the HTML file: {{ failed }}
+      </p>
     </div>
 
-    <div class="cheatsheet-sheet">
+    <div ref="sheet" class="cheatsheet-sheet">
       <!-- No route takes a broken block of the cheatsheet. -->
-      <BlocksView :blocks="cheatsheet.blocks" :reported="false" />
+      <BlocksView :blocks="cheatsheet.blocks" :reported="false" unrolled />
 
       <section class="cheatsheet-section" aria-labelledby="cheatsheet-map">
         <h2 id="cheatsheet-map" class="cheatsheet-head">Map of the code</h2>

@@ -965,6 +965,13 @@ a.syllabus-entry:focus-visible {
   outline: 2px solid var(--action);
   outline-offset: 2px;
 }
+/* An image that the saved cheatsheet left out: its alt text in its place. */
+.image-left-out {
+  margin: 0;
+  color: var(--ink-quiet);
+  font-size: 12px;
+  font-style: italic;
+}
 
 /* ---------------------------------------------------------- the syntax */
 
@@ -1131,6 +1138,9 @@ a.syllabus-entry:focus-visible {
 .chart-plot svg {
   display: block;
   max-width: 100%;
+  /* A narrower box, such as the column of a saved cheatsheet, keeps the
+     proportions. */
+  height: auto;
 }
 .chart-plot text {
   fill: var(--ink-quiet);
@@ -1311,6 +1321,30 @@ a.syllabus-entry:focus-visible {
 }
 .steps .diagram {
   margin: 0;
+}
+/* Every step at once, in the cheatsheet: one after the other, each with
+   its number. */
+.steps-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.steps-step + .steps-step {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--edge-soft);
+}
+.steps-step .steps-label {
+  margin-bottom: 2px;
+}
+.steps-step .steps-body {
+  margin-bottom: 6px;
+}
+.steps-number {
+  margin-right: 4px;
+  color: var(--ink-quiet);
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
 }
 
 /* ------------------------------------------------------------ the quiz */
@@ -2062,6 +2096,7 @@ a.syllabus-entry:focus-visible {
   margin-left: auto;
 }
 .cheatsheet-print,
+.cheatsheet-html,
 .cheatsheet-markdown {
   padding: 4px 14px;
   border: 1px solid var(--edge);
@@ -2074,13 +2109,29 @@ a.syllabus-entry:focus-visible {
   text-decoration: none;
 }
 .cheatsheet-print:hover,
+.cheatsheet-html:hover,
 .cheatsheet-markdown:hover {
   background: var(--edge-soft);
 }
 .cheatsheet-print:focus-visible,
+.cheatsheet-html:focus-visible,
 .cheatsheet-markdown:focus-visible {
   outline: 2px solid var(--action);
   outline-offset: 2px;
+}
+.cheatsheet-html[aria-busy='true'] {
+  color: var(--ink-faint);
+  cursor: progress;
+}
+.cheatsheet-failed {
+  flex-basis: 100%;
+  margin: 0;
+  padding: 6px 12px;
+  border-left: 4px solid var(--waiting-edge);
+  border-radius: 4px;
+  background: var(--error);
+  color: var(--error-ink);
+  font-size: 13px;
 }
 .cheatsheet-sheet {
   column-count: 2;
@@ -2099,6 +2150,35 @@ a.syllabus-entry:focus-visible {
 /* The title of the sheet spans both columns. */
 .cheatsheet-sheet > .thread-anchor:first-child:has(> .md-doc > h1:first-child) {
   column-span: all;
+}
+/* So does a block with a diagram too wide for one column, where its text
+   would shrink below a readable size, and the heading just before it. */
+.cheatsheet-sheet > .thread-anchor:has(.diagram[data-wide]),
+.cheatsheet-sheet
+  > .thread-anchor:has(> .md-doc > :last-child:is(h1, h2, h3, h4, h5, h6)):has(
+    + .thread-anchor .diagram[data-wide]
+  ) {
+  column-span: all;
+}
+/* Steps show every step: a long list may go on in the next column, but a
+   step stays whole. */
+.cheatsheet-sheet > .thread-anchor:has(.steps-unrolled) {
+  break-inside: auto;
+}
+.cheatsheet .steps-step {
+  break-inside: avoid;
+}
+/* A long line of code wraps, as in print: the sheet is read whole, and a
+   scroll bar that the system hides would clip the end of the line. So does
+   the cell of a step. */
+.cheatsheet .excerpt-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.cheatsheet .steps-table th,
+.cheatsheet .steps-table td {
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 .cheatsheet .md-doc {
   font-size: 12.5px;

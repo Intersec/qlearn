@@ -5,8 +5,9 @@
 // This suite watches the console too: the cheatsheet draws with no error.
 
 import { readFile } from 'node:fs/promises';
+import { pathToFileURL } from 'node:url';
 import { expect, test, type Page } from '@playwright/test';
-import { DEBRIEF_1, PAGE_1, QUIZ_1, SHEET, SYLLABUS } from './agent.ts';
+import { DEBRIEF_1, PAGE_1, QUIZ_1, SHEET, SHEET_FULL, SYLLABUS } from './agent.ts';
 import { start, type Running } from './server.ts';
 
 let server: Running;
@@ -163,4 +164,112 @@ test('print shows the sheet alone, in two columns, with light colors', async ({ 
   expect(
     await sheet.locator('.diagram-svg').evaluate((svg) => getComputedStyle(svg).filter),
   ).toContain('invert(1)');
+});
+
+test('a wide diagram spans both columns, and a long line of code wraps', async ({ page }) => {
+  await server.agent.page('1', PAGE_1);
+  await server.agent.cheatsheet(SHEET);
+  await page.goto(`${server.url}#cheatsheet`);
+  const sheet = page.locator('.cheatsheet-sheet');
+  const svg = sheet.locator('.diagram-svg svg');
+  await svg.waitFor();
+
+  const look = () =>
+    page.evaluate(() => {
+      const anchors = [...document.querySelectorAll('.cheatsheet-sheet > .thread-anchor')];
+      const of = (text: string) =>
+        getComputedStyle(anchors.find((anchor) => anchor.textContent?.trim() === text)!).columnSpan;
+      const drawn = document.querySelector<SVGSVGElement>('.cheatsheet .diagram-svg svg')!;
+      return {
+        heading: of('The states'),
+        diagram: getComputedStyle(drawn.closest('.thread-anchor')!).columnSpan,
+        // The 14px text of Mermaid, at the scale that the page draws it.
+        text: (14 * drawn.getBoundingClientRect().width) / drawn.viewBox.baseVal.width,
+        code: getComputedStyle(document.querySelector('.cheatsheet .excerpt-text')!).whiteSpace,
+      };
+    });
+
+  const screen = await look();
+  expect(screen).toMatchObject({ heading: 'all', diagram: 'all', code: 'pre-wrap' });
+  expect(screen.text).toBeGreaterThanOrEqual(11);
+
+  await page.setViewportSize({ width: 794, height: 1123 });
+  await page.emulateMedia({ media: 'print' });
+  const printed = await look();
+  expect(printed).toMatchObject({ heading: 'all', diagram: 'all', code: 'pre-wrap' });
+  expect(printed.text).toBeGreaterThanOrEqual(11);
+});
+
+test('the button saves one HTML file that stands alone, light, in two columns', async ({
+  page,
+  browser,
+}) => {
+  await server.agent.page('1', PAGE_1);
+  await server.agent.cheatsheet(SHEET_FULL);
+  // The page is dark, and the file is light all the same.
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await page.goto(`${server.url}#cheatsheet`);
+  const sheet = page.locator('.cheatsheet-sheet');
+  await expect(sheet.locator('.diagram-svg svg')).toHaveCount(2);
+  await expect(sheet.locator('.steps-step')).toHaveCount(3);
+
+  const saved = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Save as HTML' }).click();
+  const download = await saved;
+  expect(download.suggestedFilename()).toBe('myproject-cheatsheet.html');
+  // The name ends in .html, so the browser opens the file as a page.
+  const path = test.info().outputPath(download.suggestedFilename());
+  await download.saveAs(path);
+  const html = await readFile(path, 'utf8');
+  expect(html).not.toMatch(/<script/i);
+  expect(html).not.toMatch(/\son\w+=/i);
+  expect(html).not.toMatch(/https?:/i);
+  expect(html).not.toContain('/api/');
+  expect(html).not.toContain('var(--series');
+
+  // The file alone, offline, in a browser that prefers dark.
+  const context = await browser.newContext({ offline: true, colorScheme: 'dark' });
+  const alone = await context.newPage();
+  const loaded: string[] = [];
+  alone.on('request', (request) => loaded.push(request.url()));
+  const url = pathToFileURL(path).href;
+  await alone.goto(url);
+
+  const file = alone.locator('article.cheatsheet');
+  await expect(file.getByRole('heading', { name: 'Raft elections on one page' })).toBeVisible();
+  await expect(file.locator('.diagram-svg svg')).toHaveCount(2);
+  await expect(file.locator('.diagram-svg svg').first()).toBeVisible();
+  await expect(file.locator('.chart .chart-bar').first()).toBeVisible();
+  await expect(file.locator('.steps-step')).toHaveCount(3);
+  await expect(file.locator('.excerpt .excerpt-path')).toHaveText('src/election.c:1-6');
+  await expect(file.locator('.cheatsheet-range')).toHaveCount(1);
+  await expect(file.locator('#cheatsheet-revisit')).toHaveText('To revisit');
+  const look = await alone.evaluate(() => {
+    const image = document.querySelector<HTMLImageElement>('.image img')!;
+    return {
+      columns: getComputedStyle(document.querySelector('.cheatsheet-sheet')!).columnCount,
+      ground: getComputedStyle(document.body).backgroundColor,
+      image: image.complete && image.naturalWidth,
+      bar: getComputedStyle(document.querySelector('.chart-bar')!).fill,
+      diagram: document.querySelector('.diagram-svg svg style')?.textContent ?? '',
+    };
+  });
+  expect(look.columns).toBe('2');
+  expect(look.ground).toBe('rgb(255, 255, 255)');
+  expect(look.image).toBe(3);
+  // The light color of the first series, written into the SVG.
+  expect(look.bar).toBe('rgb(42, 120, 214)');
+  // Mermaid drew it again with the light colors of the page.
+  expect(look.diagram).toContain('#eef4fe');
+  expect(look.diagram).not.toContain('#17202e');
+  // Nothing loaded but the file and its data: URIs.
+  expect(loaded.filter((one) => one !== url && !one.startsWith('data:'))).toEqual([]);
+
+  await alone.emulateMedia({ media: 'print' });
+  expect(
+    await alone.evaluate(
+      () => getComputedStyle(document.querySelector('.cheatsheet-sheet')!).columnCount,
+    ),
+  ).toBe('2');
+  await context.close();
 });

@@ -80,6 +80,11 @@ The excerpts come as fenced code under their `path:from-to` and commit,
 the diagrams as `mermaid` fences, the charts as tables, and the steps as a
 numbered list. The command fails until the agent writes the cheatsheet.
 
+In the page, **Save as HTML** saves the cheatsheet as one file that opens
+in any browser, with no server and no network. It holds the diagrams, the
+charts, the colored code and the images, and it prints on A4 as the page
+does.
+
 ## Learn with an agent
 
 An agent in a terminal, such as Claude Code, teaches the course. For Claude

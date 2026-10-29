@@ -458,9 +458,15 @@ When the learner says that the course is over:
    prints the points to revisit.
 2. Write the cheatsheet with `qlearn cheatsheet` (see "The
    cheatsheet"): one page that the learner keeps. Tell the learner that it
-   is in the syllabus column, and how to save it:
-   - as a PDF: the print dialog of the browser, **Save as PDF**;
-   - as Markdown, for a wiki: the button **Save as Markdown**, or
+   is in the syllabus column, and how to save it. The page has three
+   exports:
+   - PDF: the button **Print or save as PDF** opens the print dialog of
+     the browser. Pick **Save as PDF** there;
+   - HTML: the button **Save as HTML** saves one file that opens in any
+     browser, with no server: the diagrams, the charts, the colored code
+     and the images are in the file. Each step of a steps block shows
+     one after the other;
+   - Markdown, for a wiki: the button **Save as Markdown**, or
      `qlearn export cheatsheet > cheatsheet.md` in their terminal.
 3. Offer, with a choice, to write or update the developer doc of the
    subject: the concepts, the map of the code, the pitfalls, the
@@ -491,8 +497,8 @@ When the learner says that the course is over:
 The course stays in `.learn/<slug>/`, and `qlearn <slug>` opens it again.
 Deleting it removes its pages, the answers of the learner and the
 cheatsheet, and nothing brings them back. Delete it only when the learner
-agrees and, if the course has a cheatsheet, has saved it as a PDF or as
-Markdown.
+agrees and, if the course has a cheatsheet, has saved it as a PDF, as
+HTML or as Markdown.
 
 `qlearn delete` refuses a course that a server serves:
 

@@ -1210,6 +1210,104 @@ server of one session.
 - **An empty answer before the write.** A saved file with no content
   would look like a cheatsheet.
 
+## 2026-10-29 — Holes found by the HTML export
+
+Section 9 says that the page builds the HTML export: one file with inline
+CSS, the diagrams as inline SVG, and the code with its colors. The code
+needed more answers. The screenshots of the cheatsheet also showed two
+faults of its layout.
+
+**Decisions.**
+
+- **The file is a copy of the sheet on the screen.** The button **Save as
+  HTML** sits beside **Print or save as PDF** and **Save as Markdown**. The
+  page copies the element of the sheet into a new document, then changes
+  the copy. It downloads the file through a `Blob` and a link with
+  `download`. The name is `<slug>-cheatsheet.html`, by the rule of the
+  Markdown file. The title of the document is `Cheatsheet: <course title>`.
+- **The CSS is the rules of the page, filtered.** A style rule stays when
+  its selector matches an element of the file. A pseudo-element counts as
+  its element. A rule that the browser cannot test, such as `:host`,
+  stays. The blocks `@media`, `@supports`, `@layer` and `@container` keep
+  the rules inside them that stay, and `@page` stays. A `@media` block
+  whose condition names the dark color scheme is left out, with
+  `@keyframes`, `@property` and `@font-face`.
+- **The file is light only.** It keeps the light tokens on `:root`, and a
+  `color-scheme` meta of `light`. Mermaid writes its colors into the SVG,
+  so a dark file would need a second drawing of each diagram. The file is
+  a document to read and to print, and print is light already.
+- **Each diagram is drawn again, in the light theme.** The page may show
+  the dark theme. The light palette is the custom properties of the
+  `:root` rules that no `@media` holds. A new drawing gets a new id, and
+  Mermaid prefixes its markers and its style by that id, so two diagrams
+  never share an id in the file. The `<style>` inside the SVG stays. A
+  diagram that Mermaid refuses shows its error, as on the screen, even
+  when the page had not drawn it yet.
+- **Mermaid draws one diagram at a time.** Its config is global:
+  `initialize` sets it at once, and a queued render reads it when it
+  runs. `diagram.ts` chains every set-up, parse and render on one
+  promise, so the light drawing of the file and a drawing of the page
+  never take each other's palette.
+- **A chart keeps the SVG that the page drew.** The colors of its series
+  are written as values in its inline styles. The rest of its look comes
+  from the rules of the file. The targets of the pointer and the tooltip
+  are left out. The chart keeps the width of its column, and scales down
+  in a narrower box.
+- **The cheatsheet shows every step of a steps block, one after the
+  other**, on the screen too. A file runs no script, and print shows one
+  state of the player only. Each step shows its number, its label, its
+  body, then its table with the changed cells, or its diagram. The sheet
+  on the screen is then what print and the file show. A long steps block
+  may go on in the next column, but a step stays whole.
+- **An excerpt keeps the colored spans of the page**, with the class rules
+  of the syntax copied. A hidden line stays a blank: the page never had
+  its text.
+- **An image is a `data:` URI**, from the bytes of `GET /api/media/:name`,
+  with the type that the server read in the bytes. The images of a file
+  hold 8 MB at most before base64. An image that does not fit, or that the
+  server does not send, leaves a note with its alt text in its place. An
+  image of the server holds 5 MB at most, so the budget takes the largest
+  one.
+- **The file runs nothing and loads nothing.** It holds no `<script>`, no
+  button, no comment and no event attribute. Every link becomes its text:
+  a page of the course or of the server does not exist outside the app. A
+  web link of the agent loses its address too, and the Markdown export
+  keeps it. An `<img>` with no `data:` source is left out. The `xmlns`
+  attributes of an SVG are left out: they name a namespace by an `http`
+  URL, and HTML needs none. A URL that the agent wrote as plain text stays
+  text.
+- **Every HTML string of the agent went through DOMPurify** before it
+  reached the sheet on the screen. The copy keeps that HTML as it is.
+- **A wide diagram spans both columns.** Mermaid draws its text at 14px. A
+  diagram wider than 400px, from its `viewBox`, would draw that text below
+  11px in one column. The page marks it with `data-wide`, and its block
+  takes `column-span: all`, on the screen and in print. So does a block
+  that ends with a heading just before it. A chart stays in its column: the
+  page draws it at the width of the column, with text at 12px.
+- **A long line of an excerpt wraps in the cheatsheet**, on the screen as
+  in print. It scrolled in its box, but a system that hides scroll bars
+  showed the line cut at the edge of the column. The sheet is read whole.
+  The cells of a step table wrap too.
+
+**Why.** A copy of the sheet on the screen keeps one source of the layout:
+the file follows each change of `main.css` with no second stylesheet to
+keep in step. Only the page has the drawn diagrams and charts, as section
+9 says. A file that loads nothing opens years later, offline, on any
+machine. The budget keeps a file that a mail or a wiki takes.
+
+**Rejected:**
+
+- **A stylesheet of the file, kept beside the view.** A third copy of the
+  tokens and of the rules of the blocks, which drifts from the page.
+- **The dark theme in the file.** Each diagram would come twice, or print
+  would need the filter that inverts it.
+- **The player in the file.** It needs a script, and the file has none.
+- **Every diagram, chart and steps block across both columns.** A small
+  diagram and a chart read well in one column, and the sheet must fit on
+  one page.
+- **An image left out whole.** A small figure is often the point of the
+  sheet.
+
 ## Open questions
 
 - **The URL of the repository.** The host is decided: a public repository

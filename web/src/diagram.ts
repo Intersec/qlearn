@@ -35,11 +35,26 @@ export function dark(): boolean {
 }
 
 /**
- * The colors of the page theme, as Mermaid names them. A token that the
- * page does not define is left out, and Mermaid keeps its own.
+ * Where the colors of a drawing come from: the tokens of the page theme,
+ * by name, and whether that theme is dark.
  */
-export function themeVariables(): Record<string, string | boolean> {
+export interface Palette {
+  dark: boolean;
+  /** The value of a token such as `--ink`, or "" when it is not defined. */
+  token(name: string): string;
+}
+
+/** The theme that the page shows now. */
+export function shown(): Palette {
   const style = getComputedStyle(document.documentElement);
+  return { dark: dark(), token: (name) => style.getPropertyValue(name).trim() };
+}
+
+/**
+ * The colors of a palette, as Mermaid names them. A token that the palette
+ * does not define is left out, and Mermaid keeps its own.
+ */
+export function themeVariables(palette: Palette = shown()): Record<string, string | boolean> {
   const tokens: Record<string, string> = {
     background: '--page',
     primaryColor: '--agent',
@@ -78,12 +93,12 @@ export function themeVariables(): Record<string, string | boolean> {
   };
 
   const out: Record<string, string | boolean> = {
-    darkMode: dark(),
+    darkMode: palette.dark,
     fontFamily: 'system-ui, sans-serif',
     fontSize: '14px',
   };
   for (const [name, token] of Object.entries(tokens)) {
-    const value = style.getPropertyValue(token).trim();
+    const value = palette.token(token);
     if (value) {
       out[name] = value;
     }
@@ -94,15 +109,30 @@ export function themeVariables(): Record<string, string | boolean> {
 /** Each drawing gets an id of its own: Mermaid scopes its styles by it. */
 let drawn = 0;
 
-/** Mermaid, set up for the page. */
-async function ready(): Promise<Mermaid> {
+/** The end of the last job of Mermaid. */
+let queue: Promise<unknown> = Promise.resolve();
+
+/**
+ * Run a job of Mermaid once the last one ends. Mermaid queues a parse and
+ * a render, but `initialize` sets its global config at once, and a render
+ * reads it when it runs: a drawing in another palette, such as the light
+ * one of a saved file, must not start between them.
+ */
+function serial<T>(job: () => Promise<T>): Promise<T> {
+  const run = queue.then(job);
+  queue = run.catch(() => {});
+  return run;
+}
+
+/** Mermaid, set up with the colors of a palette. */
+async function ready(palette: Palette = shown()): Promise<Mermaid> {
   const mermaid = await load();
   const config: MermaidConfig = {
     startOnLoad: false,
     // No script, no click, and the labels escaped.
     securityLevel: 'strict',
     theme: 'base',
-    themeVariables: themeVariables(),
+    themeVariables: themeVariables(palette),
     // Labels as SVG text: the SVG profile of DOMPurify drops the HTML of a
     // foreignObject.
     htmlLabels: false,
@@ -116,35 +146,53 @@ async function ready(): Promise<Mermaid> {
 }
 
 /**
- * The SVG of a source, safe to give to v-html. A source that Mermaid
- * refuses throws `Refused`. Any other error is one of the page.
+ * The SVG of a source, safe to give to v-html, in the colors of the page
+ * or of another palette. A source that Mermaid refuses throws `Refused`.
+ * Any other error is one of the page.
  */
-export async function draw(source: string): Promise<string> {
-  const mermaid = await ready();
-
-  let svg: string;
-  try {
-    // A parse fails with a short message, where a render may leave its
-    // half-drawn work behind.
-    await mermaid.parse(source);
-    ({ svg } = await mermaid.render(`diagram-${(drawn += 1)}`, source));
-  } catch (error) {
-    throw new Refused(error instanceof Error ? error.message : String(error));
-  }
+export async function draw(source: string, palette?: Palette): Promise<string> {
+  const svg = await serial(async () => {
+    const mermaid = await ready(palette);
+    try {
+      // A parse fails with a short message, where a render may leave its
+      // half-drawn work behind.
+      await mermaid.parse(source);
+      return (await mermaid.render(`diagram-${(drawn += 1)}`, source)).svg;
+    } catch (error) {
+      throw new Refused(error instanceof Error ? error.message : String(error));
+    }
+  });
   return DOMPurify.sanitize(svg, { USE_PROFILES: { svg: true, svgFilters: true } });
+}
+
+/**
+ * Above this width in pixels, a diagram scaled into one column of the
+ * cheatsheet would draw its 14px text below 11px.
+ */
+export const WIDE = 400;
+
+/** The width that Mermaid drew, from the viewBox of its SVG, or null. */
+export function naturalWidth(svg: string): number | null {
+  const box = /<svg\b[^>]*\sviewBox="[-\d.e]+[\s,]+[-\d.e]+[\s,]+([\d.e]+)[\s,]+[\d.e]+"/i.exec(
+    svg,
+  );
+  const width = box ? Number(box[1]) : NaN;
+  return Number.isFinite(width) ? width : null;
 }
 
 /**
  * Parse a source without drawing it, for a diagram that the page does not
  * show yet. A source that Mermaid refuses throws `Refused`.
  */
-export async function check(source: string): Promise<void> {
-  const mermaid = await ready();
-  try {
-    await mermaid.parse(source);
-  } catch (error) {
-    throw new Refused(error instanceof Error ? error.message : String(error));
-  }
+export function check(source: string): Promise<void> {
+  return serial(async () => {
+    const mermaid = await ready();
+    try {
+      await mermaid.parse(source);
+    } catch (error) {
+      throw new Refused(error instanceof Error ? error.message : String(error));
+    }
+  });
 }
 
 /**

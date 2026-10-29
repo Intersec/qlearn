@@ -6,6 +6,7 @@
 import { chromium } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import config from '../playwright.config.ts';
 import {
   CHOICE_LEVEL,
@@ -20,7 +21,7 @@ import {
   PAGE_STEPS,
   QUIZ_1,
   QUIZ_2,
-  SHEET,
+  SHEET_FULL,
   SYLLABUS,
 } from './agent.ts';
 import { start } from './server.ts';
@@ -330,17 +331,44 @@ for (const scheme of ['light', 'dark'] as const) {
     // The end of the course: the agent writes the cheatsheet and finishes
     // the course. The note opens the sheet, then print lays it on A4.
     await page.setViewportSize({ width: 1600, height: 1000 });
-    await agent.cheatsheet(SHEET);
+    await agent.cheatsheet(SHEET_FULL);
     await agent.finish();
     const note = page.locator('.sheet-ready');
     await note.waitFor();
     await page.screenshot({ path: join(OUT, `${scheme}-cheatsheet-ready.png`) });
     await note.getByRole('link', { name: 'Open it' }).click();
     const sheet = page.locator('.cheatsheet');
-    await sheet.locator('.diagram-svg svg').waitFor();
+    await sheet.locator('.diagram-svg svg').first().waitFor();
     await page.screenshot({ path: join(OUT, `${scheme}-cheatsheet.png`) });
+    // The three exports, beside the note that deleting the course deletes
+    // the sheet.
+    await sheet.locator('.cheatsheet-bar').screenshot({
+      path: join(OUT, `${scheme}-cheatsheet-exports.png`),
+    });
+    await sheet.locator('.steps-unrolled').scrollIntoViewIfNeeded();
+    await page.screenshot({ path: join(OUT, `${scheme}-cheatsheet-steps.png`) });
     await sheet.locator('.cheatsheet-section').last().scrollIntoViewIfNeeded();
     await page.screenshot({ path: join(OUT, `${scheme}-cheatsheet-end.png`) });
+
+    // The HTML file of the sheet, opened alone, as the learner opens it
+    // later: on the screen, then in print.
+    const saved = page.waitForEvent('download');
+    await sheet.getByRole('button', { name: 'Save as HTML' }).click();
+    const file = join(OUT, `${scheme}-cheatsheet.html`);
+    await (await saved).saveAs(file);
+    const alone = await browser.newPage({
+      viewport: { width: 1600, height: 1000 },
+      colorScheme: scheme,
+    });
+    await alone.goto(pathToFileURL(file).href);
+    await alone.screenshot({ path: join(OUT, `${scheme}-cheatsheet-file.png`), fullPage: true });
+    await alone.setViewportSize({ width: 794, height: 1123 });
+    await alone.emulateMedia({ media: 'print' });
+    await alone.screenshot({
+      path: join(OUT, `${scheme}-cheatsheet-file-print.png`),
+      fullPage: true,
+    });
+    await alone.close();
     // The width of A4 at 96 dpi, as the print dialog lays it out.
     await page.setViewportSize({ width: 794, height: 1123 });
     await page.emulateMedia({ media: 'print' });

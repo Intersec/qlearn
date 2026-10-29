@@ -1,9 +1,8 @@
 <script setup lang="ts">
 // Steps of a page (section 4.5 of the design): a state that changes over
-// time, which the learner plays one step at a time. A cell that changed
-// since the previous table is bold, with a dot, on the color of a marked
-// line, so a reader who does not see the color sees the change too. A
-// screen reader hears it after the cell.
+// time, which the learner plays one step at a time. The cheatsheet shows
+// every step at once instead: it is read, printed and saved whole, and a
+// saved file runs no script to play them.
 //
 // Every text of the agent goes in as text, except the body of a step: the
 // server wrote its HTML, and the page cleans it.
@@ -14,6 +13,7 @@ import { Refused, check } from '@/diagram';
 import { clean } from '@/html';
 import { changes } from '@/steps';
 import DiagramView from './DiagramView.vue';
+import StepsTable from './StepsTable.vue';
 
 const props = withDefaults(
   defineProps<{
@@ -21,8 +21,10 @@ const props = withDefaults(
     steps: Steps;
     /** A refused step diagram reaches the agent. */
     reported?: boolean;
+    /** Every step at once, one after the other, with no player. */
+    unrolled?: boolean;
   }>(),
-  { reported: true },
+  { reported: true, unrolled: false },
 );
 
 const emit = defineEmits<{
@@ -37,11 +39,24 @@ const body = computed(() => clean(step.value.html));
 const cells = computed(() => changes(props.steps.steps, at.value));
 const changed = computed(() => cells.value.some((row) => row.some((cell) => cell.changed)));
 
-/** The diagram of the step, as DiagramView takes it: the block is the steps block. */
-const diagram = computed<DiagramBlock | null>(() =>
-  step.value.diagram === null
-    ? null
-    : { id: props.id, kind: 'diagram', source: step.value.diagram },
+/** A step diagram, as DiagramView takes it: the block is the steps block. */
+function diagramOf(source: string | null): DiagramBlock | null {
+  return source === null ? null : { id: props.id, kind: 'diagram', source };
+}
+
+const diagram = computed(() => diagramOf(step.value.diagram));
+
+/** Every step, for the unrolled view. */
+const all = computed(() =>
+  props.steps.steps.map((one, n) => ({
+    step: one,
+    body: clean(one.html),
+    cells: changes(props.steps.steps, n),
+    diagram: diagramOf(one.diagram),
+  })),
+);
+const anyChanged = computed(() =>
+  all.value.some((one) => one.cells.some((row) => row.some((cell) => cell.changed))),
 );
 
 function go(to: number) {
@@ -62,14 +77,6 @@ function key(event: KeyboardEvent) {
   }
   event.preventDefault();
   go(to(at.value));
-}
-
-/** What a screen reader hears after a changed cell. */
-function said(was: string | null): string {
-  if (was === null) {
-    return '(new)';
-  }
-  return was === '' ? '(changed, was empty)' : `(changed, was ${was})`;
 }
 
 /** The step in an error, as the server names a field: steps count from 0. */
@@ -126,12 +133,12 @@ function start() {
 }
 
 /**
- * Mermaid refused the step on screen. The check of every step reports
+ * Mermaid refused step `n` on screen. The check of every step reports
  * first, as it names them all: this one is heard only if the check found
  * nothing, such as a source that parses but does not draw.
  */
-async function refused(error: string) {
-  const name = where(at.value);
+async function refused(n: number, error: string) {
+  const name = where(n);
   await checking;
   report(`${name}: ${error}`);
 }
@@ -152,7 +159,34 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <figure class="steps" tabindex="0" :aria-label="`${steps.title}, steps`" @keydown="key">
+  <figure v-if="unrolled" class="steps steps-unrolled" :aria-label="`${steps.title}, steps`">
+    <figcaption class="steps-title">{{ steps.title }}</figcaption>
+    <ol class="steps-list">
+      <li v-for="(one, n) in all" :key="n" class="steps-step" :data-step="n">
+        <p class="steps-label">
+          <span class="steps-number">{{ n + 1 }} / {{ count }}</span> {{ one.step.label }}
+        </p>
+        <!-- eslint-disable-next-line vue/no-v-html -- written by the server, cleaned in html.ts -->
+        <p class="md-doc steps-body" v-html="one.body" />
+        <StepsTable
+          v-if="one.step.rows"
+          :columns="steps.columns"
+          :rows="one.step.rows"
+          :cells="one.cells"
+        />
+        <DiagramView
+          v-if="one.diagram"
+          :block="one.diagram"
+          :reported="props.reported"
+          @broken="(_, error) => refused(n, error)"
+        />
+      </li>
+    </ol>
+    <p v-if="anyChanged" class="steps-legend" aria-hidden="true">
+      <span class="steps-dot">●</span><strong>Bold</strong>: changed since the previous step
+    </p>
+  </figure>
+  <figure v-else class="steps" tabindex="0" :aria-label="`${steps.title}, steps`" @keydown="key">
     <figcaption class="steps-title">{{ steps.title }}</figcaption>
     <div class="steps-bar">
       <p class="steps-label">{{ step.label }}</p>
@@ -185,30 +219,7 @@ onBeforeUnmount(() => {
     <!-- eslint-disable-next-line vue/no-v-html -- written by the server, cleaned in html.ts -->
     <p class="md-doc steps-body" v-html="body" />
 
-    <div v-if="step.rows" class="steps-scroll">
-      <table class="steps-table">
-        <thead>
-          <tr>
-            <th v-for="column in steps.columns" :key="column" scope="col">{{ column }}</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="(row, r) in step.rows" :key="r">
-            <td
-              v-for="(cell, c) in row"
-              :key="c"
-              :class="{ 'steps-changed': cells[r]?.[c]?.changed }"
-            >
-              <template v-if="cells[r]?.[c]?.changed">
-                <span class="steps-dot" aria-hidden="true">●</span>{{ cell }}
-                <span class="sr-only">{{ said(cells[r]![c]!.was) }}</span>
-              </template>
-              <template v-else>{{ cell }}</template>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
+    <StepsTable v-if="step.rows" :columns="steps.columns" :rows="step.rows" :cells="cells" />
     <p v-if="changed" class="steps-legend" aria-hidden="true">
       <span class="steps-dot">●</span><strong>Bold</strong>: changed since the previous step
     </p>
@@ -216,7 +227,7 @@ onBeforeUnmount(() => {
       v-if="diagram"
       :block="diagram"
       :reported="props.reported"
-      @broken="(_, error) => refused(error)"
+      @broken="(_, error) => refused(at, error)"
     />
   </figure>
 </template>

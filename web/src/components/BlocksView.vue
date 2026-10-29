@@ -22,8 +22,10 @@ const props = withDefaults(
     blocks: Block[];
     /** A broken block reaches the agent: false in the cheatsheet. */
     reported?: boolean;
+    /** Steps show every step at once: true in the cheatsheet. */
+    unrolled?: boolean;
   }>(),
-  { reported: true },
+  { reported: true, unrolled: false },
 );
 
 const emit = defineEmits<{
@@ -100,6 +102,7 @@ async function send(block: string, quote: string | null, body: string): Promise<
         :id="block.id"
         :steps="block.steps"
         :reported="reported"
+        :unrolled="unrolled"
         @broken="(id, error) => emit('broken', id, error)"
       />
     </section>

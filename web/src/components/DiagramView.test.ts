@@ -6,6 +6,7 @@ import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils';
 import type { MermaidConfig } from 'mermaid';
 import DiagramView from './DiagramView.vue';
 import type { DiagramBlock } from '@/api/types';
+import { draw } from '@/diagram';
 
 const mermaid = vi.hoisted(() => ({
   initialize: vi.fn(),
@@ -56,6 +57,48 @@ describe('DiagramView', () => {
     expect(wrapper.find('.diagram-svg svg text').text()).toBe('Follower');
     expect(wrapper.find('.diagram-broken').exists()).toBe(false);
     expect(wrapper.emitted('broken')).toBeUndefined();
+  });
+
+  it('marks a drawing too wide for a column of the cheatsheet', async () => {
+    mermaid.render.mockResolvedValue({ svg: '<svg viewBox="4 4 821.4 83"><text>F</text></svg>' });
+    const wide = await view();
+    expect(wide.find('.diagram').attributes('data-wide')).toBe('true');
+
+    mermaid.render.mockResolvedValue({ svg: '<svg viewBox="0 0 300 400"><text>F</text></svg>' });
+    const narrow = await view();
+    expect(narrow.find('.diagram').attributes('data-wide')).toBeUndefined();
+  });
+
+  it('draws in the colors of another palette, such as the light one of a saved file', async () => {
+    document.documentElement.dataset.theme = 'dark';
+
+    await draw('graph LR\n  A --> B\n', {
+      dark: false,
+      token: (name) => (name === '--ink' ? '#202124' : ''),
+    });
+
+    expect(config().themeVariables).toMatchObject({ darkMode: false, primaryTextColor: '#202124' });
+    expect(config().themeVariables).not.toHaveProperty('background');
+  });
+
+  it('renders each drawing with its own palette, when two run at once', async () => {
+    document.documentElement.dataset.theme = 'dark';
+    // Mermaid queues a render but sets its config at once, and a render
+    // reads the config of the last `initialize`.
+    let current: MermaidConfig | undefined;
+    mermaid.initialize.mockImplementation((given: MermaidConfig) => {
+      current = given;
+    });
+    const seen: unknown[] = [];
+    mermaid.render.mockImplementation(async () => {
+      seen.push(current?.themeVariables?.darkMode);
+      return { svg: SVG };
+    });
+
+    const light = { dark: false, token: () => '' };
+    await Promise.all([draw('graph LR\n  A --> B\n', light), draw('graph LR\n  A --> B\n')]);
+
+    expect(seen).toEqual([false, true]);
   });
 
   it('runs Mermaid in its strict mode, quiet, with the colors of the page', async () => {

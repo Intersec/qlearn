@@ -125,6 +125,7 @@ describe('CheatsheetView', () => {
     expect(wrapper.find('.ask').exists()).toBe(false);
     expect(wrapper.findAll('button').map((button) => button.text())).toEqual([
       'Print or save as PDF',
+      'Save as HTML',
     ]);
   });
 
@@ -160,6 +161,7 @@ describe('CheatsheetView', () => {
     expect(note).toContain('.learn/raft/');
     expect(note).toContain('Deleting the course deletes it');
     expect(note).toContain('Save as PDF');
+    expect(note).toContain('HTML');
     expect(note).toContain('Markdown');
   });
 
@@ -202,6 +204,61 @@ describe('CheatsheetView', () => {
     expect(link.text()).toBe('Save as Markdown');
     expect(link.attributes('href')).toBe('/api/cheatsheet.md');
     expect(link.attributes('download')).toBe('raft-cheatsheet.md');
+  });
+
+  it('saves the sheet as one HTML file, under the name of the course', async () => {
+    let saved: Blob | null = null;
+    const created = vi.fn((blob: Blob) => {
+      saved = blob;
+      return 'blob:sheet';
+    });
+    // jsdom has no object URL: the browser tests save a real file.
+    Object.assign(URL, { createObjectURL: created, revokeObjectURL: vi.fn() });
+    const clicked = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (
+      this: HTMLAnchorElement,
+    ) {
+      expect(this.href).toBe('blob:sheet');
+      expect(this.download).toBe('raft-cheatsheet.html');
+    });
+    const wrapper = mount(CheatsheetView, { props: { cheatsheet: sheet(), course: course() } });
+
+    await wrapper.get('.cheatsheet-html').trigger('click');
+    await flushPromises();
+
+    expect(clicked).toHaveBeenCalledOnce();
+    expect(saved!.type).toBe('text/html;charset=utf-8');
+    const html = await saved!.text();
+    expect(html).toContain('<title>Cheatsheet: Raft</title>');
+    expect(html).toContain('Raft in one page');
+    expect(wrapper.find('.cheatsheet-failed').exists()).toBe(false);
+    clicked.mockRestore();
+  });
+
+  it('shows the steps of a block all at once', async () => {
+    const blocks: Cheatsheet['blocks'] = [
+      {
+        id: 'vote',
+        kind: 'steps',
+        steps: {
+          title: 'A vote',
+          columns: ['Server'],
+          steps: [
+            { label: 't = 0', html: 'S1 wakes.', rows: [['S1']], diagram: null },
+            { label: 't = 1', html: 'S2 wakes.', rows: [['S2']], diagram: null },
+          ],
+        },
+      },
+    ];
+    const wrapper = mount(CheatsheetView, {
+      props: { cheatsheet: sheet({ blocks }), course: course() },
+    });
+    await flushPromises();
+
+    expect(wrapper.findAll('.steps-step .steps-body').map((body) => body.text())).toEqual([
+      'S1 wakes.',
+      'S2 wakes.',
+    ]);
+    expect(wrapper.find('.steps-player').exists()).toBe(false);
   });
 
   it('prints with the print dialog of the browser', async () => {

@@ -334,6 +334,46 @@ mark: 3
 \`\`\`
 `;
 
+/**
+ * The cheatsheet with a block of each kind: steps, a chart and an image
+ * after the blocks of SHEET.
+ */
+export const SHEET_FULL = `${SHEET}
+## Two candidates
+
+\`\`\`steps
+{
+  "title": "Two candidates in term 6",
+  "columns": ["Server", "Term", "State", "Voted for"],
+  "steps": [
+    { "label": "t = 0 ms", "body": "S1 times out first, and votes for *itself*.",
+      "rows": [["S1", 6, "candidate", "S1"], ["S2", 5, "follower", ""]] },
+    { "label": "t = 2 ms", "body": "S2 gets the \`RequestVote\` of S1, and takes term 6.",
+      "rows": [["S1", 6, "candidate", "S1"], ["S2", 6, "follower", "S1"]] },
+    { "label": "t = 3 ms", "body": "S1 asks S3 too.",
+      "diagram": "sequenceDiagram\\n  S1->>S3: RequestVote(term 6)\\n  S3-->>S1: vote granted\\n" }
+  ]
+}
+\`\`\`
+
+## Election time
+
+\`\`\`chart
+{
+  "kind": "bar",
+  "title": "Election time, by timeout range",
+  "x": { "label": "Timeout range (ms)", "values": ["150-300", "150-200", "150-155"] },
+  "y": { "label": "Median election time", "unit": "ms" },
+  "series": [
+    { "name": "5 servers", "values": [283, 410, 1100] },
+    { "name": "9 servers", "values": [301, 455, 1290] }
+  ]
+}
+\`\`\`
+
+![Six blue pixels](docs/pixels.png)
+`;
+
 /** The level at the start, asked at the top of the syllabus column. */
 export const CHOICE_LEVEL = {
   questions: [

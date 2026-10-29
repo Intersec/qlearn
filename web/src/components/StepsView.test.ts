@@ -247,6 +247,31 @@ describe('StepsView', () => {
     expect(wrapper.emitted('broken')).toEqual([['s1', 'steps[2].diagram: Cannot draw']]);
   });
 
+  it('shows every step at once when unrolled, each with its number and its changes', async () => {
+    mermaid.render.mockRejectedValue(new Error('Cannot draw'));
+    const wrapper = mount(StepsView, { props: { id: 's1', steps: VOTE, unrolled: true } });
+    await flushPromises();
+
+    const labels = wrapper.findAll('.steps-step .steps-label').map((label) => label.text());
+    expect(labels).toEqual([
+      '1 / 4 t = 0 ms',
+      '2 / 4 t = 2 ms',
+      '3 / 4 t = 3 ms',
+      '4 / 4 t = 4 ms',
+    ]);
+    expect(wrapper.find('button').exists()).toBe(false);
+    expect(wrapper.find('figure.steps').attributes('tabindex')).toBeUndefined();
+    const second = wrapper.get('.steps-step[data-step="1"]');
+    expect(second.findAll('td.steps-changed').map((cell) => cell.text())).toEqual([
+      '●6 (changed, was 5)',
+      '●S1 (changed, was empty)',
+    ]);
+    expect(wrapper.find('.steps-step[data-step="2"] .diagram').exists()).toBe(true);
+    expect(wrapper.findAll('.steps-legend')).toHaveLength(1);
+    // A step diagram that does not draw names its own step.
+    expect(wrapper.emitted('broken')).toEqual([['s1', 'steps[2].diagram: Cannot draw']]);
+  });
+
   it('shows the texts of the agent as text', async () => {
     const wrapper = await view({
       title: '<b>Votes</b>',
