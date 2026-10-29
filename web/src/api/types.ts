@@ -52,8 +52,12 @@ export interface Score {
 
 export interface Finding {
   id: string;
+  /** Plain text, one line. */
   title: string;
-  /** Markdown. */
+  /**
+   * The page gets the HTML that the server writes from the Markdown of the
+   * agent, as for a comment.
+   */
   body: string;
   /** False reads "to check". */
   checked: boolean;

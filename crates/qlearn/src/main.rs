@@ -227,6 +227,26 @@ async fn agent_command(cli: &cli::Cli, home: &Home) -> Result<Option<i32>> {
                 },
             }
         }
+        Some(cli::Command::Finding {
+            id,
+            title,
+            body,
+            checked,
+        }) => {
+            let body = agent::read_body(body)?;
+            let client = agent::connect(home).await?;
+            match agent::finding(&client, id, title, &body, *checked).await {
+                Ok(finding) => print(&finding),
+                // One line per error, each with its field.
+                Err(error) => match error.downcast_ref::<Refusal>() {
+                    Some(refusal) if refusal.code == "invalidFinding" => {
+                        eprintln!("{}", refusal.message);
+                        return Ok(Some(1));
+                    }
+                    _ => return Err(error),
+                },
+            }
+        }
         Some(cli::Command::Points) => {
             let client = agent::connect(home).await?;
             print(&agent::points(&client).await?);

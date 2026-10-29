@@ -250,6 +250,26 @@ for (const scheme of ['light', 'dark'] as const) {
     await page.locator('.lesson .choice[data-answered="true"]').waitFor();
     await page.screenshot({ path: join(OUT, `${scheme}-choice-answered.png`) });
 
+    // Two findings at the bottom of the syllabus column: one that the team
+    // has to check, and one that it confirmed.
+    await agent.finding(
+      'vote-race',
+      'Two candidates can win one term',
+      '`grant_vote()` reads `voted_for` before it takes the lock, so two requests of one ' +
+        'term can **both** get the vote.',
+    );
+    await agent.finding(
+      'stale-comment',
+      'The comment of the timer names a gone flag',
+      'The comment above `election_timeout()` names `--fast`, which no code reads.',
+      true,
+    );
+    const findings = page.getByRole('region', { name: 'Findings' });
+    await findings.locator('.findings-count', { hasText: '2' }).waitFor();
+    await findings.getByRole('button', { name: /Findings/ }).click();
+    await findings.locator('.finding').nth(1).scrollIntoViewIfNeeded();
+    await page.screenshot({ path: join(OUT, `${scheme}-findings.png`) });
+
     // Steps: the first step, then a later step with the cells that
     // changed.
     await agent.page('4', PAGE_STEPS);

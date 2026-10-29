@@ -84,7 +84,14 @@ expression: at_redacted(body)
   ],
   "course": {
     "created": "2026-01-01T00:00:00Z",
-    "findings": [],
+    "findings": [
+      {
+        "body": "`election_timeout` draws from <b>one</b> seed.",
+        "checked": false,
+        "id": "seed-race",
+        "title": "Two timers can fire in one term"
+      }
+    ],
     "followUp": null,
     "goal": "",
     "parts": [

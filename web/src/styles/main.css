@@ -482,6 +482,104 @@ a.syllabus-entry:focus-visible {
   outline-offset: 2px;
 }
 
+/* The findings close the column. The list opens on demand, so a long one
+   never pushes the syllabus out of sight. */
+.findings {
+  margin-top: 18px;
+  padding-top: 8px;
+  border-top: 1px solid var(--edge);
+}
+.findings-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 14px 5px 16px;
+  color: var(--ink);
+  text-align: left;
+}
+.findings-toggle:hover {
+  background: var(--edge-soft);
+}
+.findings-toggle:focus-visible {
+  outline: 2px solid var(--action);
+  outline-offset: -2px;
+}
+.findings-caret {
+  flex: none;
+  width: 0;
+  height: 0;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  border-left: 5px solid var(--ink-quiet);
+  transition: transform 0.1s;
+}
+.findings-toggle[aria-expanded='true'] .findings-caret {
+  transform: rotate(90deg);
+}
+.findings-name {
+  color: var(--ink-quiet);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.findings-count {
+  color: var(--ink-quiet);
+  font-family: var(--code-font);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.findings-to-check {
+  margin-left: auto;
+  padding: 0 6px;
+  border: 1px solid var(--marked-edge);
+  border-radius: 999px;
+  background: var(--marked);
+  font-size: 11px;
+}
+.findings-list {
+  padding: 4px 10px 0;
+}
+.finding {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--edge);
+  border-left: 3px solid var(--marked-edge);
+  border-radius: 4px;
+  background: var(--page);
+}
+.finding[data-checked='true'] {
+  border-left-color: var(--right-edge);
+}
+.finding-badge {
+  display: inline-block;
+  padding: 0 6px;
+  border: 1px solid var(--marked-edge);
+  border-radius: 999px;
+  background: var(--marked);
+  font-size: 11px;
+}
+.finding[data-checked='true'] .finding-badge {
+  border-color: var(--right-edge);
+  background: var(--right);
+}
+.finding-title {
+  margin: 4px 0 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+/* Above `.md-doc`, which comes later and sets the size of a page. */
+.finding .finding-body {
+  margin-top: 4px;
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.finding .finding-body > :last-child {
+  margin-bottom: 0;
+}
+
 /* A narrow screen leaves no room beside the page: the syllabus covers it
    while the learner picks a page. */
 @media (max-width: 900px) {

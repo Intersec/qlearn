@@ -16,8 +16,8 @@ never ask the learner whether they want the page. Another skill may load
 this procedure and add sources and rules of its own, such as tickets or
 internal docs. If it does, follow those rules too.
 
-This release has no findings and no cheatsheet yet. The parts of this
-procedure that need them say what to do instead.
+This release has no cheatsheet yet. The parts of this procedure that
+need it say what to do instead.
 
 This procedure comes in four parts:
 
@@ -62,6 +62,7 @@ terminal has its place in the page:
 | "Say next when you are ready" | The **Next** button: your `qlearn wait` returns a `next` request when the learner presses it |
 | "I am writing the next lesson" | A status, with `qlearn status` |
 | A progress file | The store, which `qlearn export --json` reads back |
+| A list of problems found in the code | A finding, with `qlearn finding` |
 | A sketch in ASCII | A diagram, or a table |
 
 Before the server runs, your terminal is the only place to ask for the
@@ -149,8 +150,9 @@ context was reset in the middle of a course:
 
    It prints one JSON document:
    - `course`: the title, the goal, the profile, the quiz mode, the
-     status, the follow-up date, and the syllabus in `parts`, with the
-     state and the score of each page.
+     status, the follow-up date, the syllabus in `parts`, with the state
+     and the score of each page, and the `findings`, with their body in
+     Markdown.
    - `current`: the page that you pushed last.
    - `pages`: each page with content, in the order of the syllabus, with
      its `source` as you pushed it, its `quizzes`, and its `threads`. A
@@ -413,13 +415,34 @@ page `f<n>`, with the next free follow-up number:
 
 ## Findings
 
-A course on real code can find real problems: a bug, a race, a comment
-that says the wrong thing. This release does not record findings in the
-course yet. Until it does:
+A course on real code can find real problems: a bug, a race, a check that
+is missing, a comment that says the wrong thing, a behavior that no doc
+describes. A finding records one in the course, for the learner to check
+with the team. The page lists the findings at the bottom of the syllabus
+column, each with a badge: "to check" or "checked".
 
-- Check each suspected problem in the code before you show it.
-- Keep a list of the findings in your notes, each one marked "checked" or
-  "to check". Tell the learner of each finding in a thread on the page.
+- Write a finding when you find, while you research or teach, something
+  in the code that looks wrong or undocumented. Write no finding for a
+  question of taste, or for a fact that you have not read in the code.
+- Check the problem in the code before you write the finding. In the
+  body, say what the code does, where (the path and the lines), and why it
+  may be wrong. Tell the learner of a new finding in the page where you
+  teach that code.
+- Give each finding an id of lowercase words joined by hyphens, such as
+  `vote-race`. The title is one line.
+
+```sh
+qlearn finding vote-race --title "Two candidates can win one term" --body - <<'EOF'
+`grant_vote()` in `src/raft.c:40-52` reads `voted_for` before it takes
+the lock, so two requests of one term can both get the vote.
+EOF
+```
+
+- `qlearn finding` with the id of a finding replaces it whole: give the
+  title and the body again. A finding is "to check" until the learner
+  tells you that the team confirmed it. Then write it again with
+  `--checked`. If the team says that the code is right, write it again
+  with a body that says why, and with `--checked`.
 - To prove a finding, offer to write a test that reproduces it. If the
   learner agrees, write it on a scratch branch or worktree, never on a
   shared branch, as a separate commit that says not to merge it.
@@ -430,10 +453,12 @@ course yet. Until it does:
 
 When the learner says that the course is over:
 
-1. Open a thread on the last page with the findings, and with the points
-   to revisit: those that `qlearn points` lists with a last result of
-   `missed` or `partial`. The syllabus column already shows the score of
-   each page. In their terminal, `qlearn export` prints the same summary.
+1. Open a thread on the last page with the points to revisit: those
+   that `qlearn points` lists with a last result of `missed` or
+   `partial`. The syllabus column already shows the score of each page
+   and the findings. Name each finding that is still to check, so the
+   learner takes it to the team. In their terminal, `qlearn export`
+   prints the points to revisit.
 2. This release has no cheatsheet yet: skip it.
 3. Offer, with a choice, to write or update the developer doc of the
    subject: the concepts, the map of the code, the pitfalls, the
@@ -1167,7 +1192,7 @@ lesson:
 
 - the summary of where the course stopped, before a break;
 - a recap of the points that the learner is not sure of;
-- a finding, and the summary at the end of the course;
+- the summary at the end of the course;
 - the answer to a question that the learner typed in your terminal.
 
 ```sh

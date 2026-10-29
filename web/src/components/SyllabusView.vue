@@ -2,7 +2,8 @@
 // The syllabus in the left column: the parts and their pages, each with
 // its state and its score (section 3 of the design). A planned page has no
 // content yet, so it is shown but cannot be opened. The choices that name
-// no page come first, in the slot (section 7).
+// no page come first, in the slot (section 7). The findings come last, in
+// the slot `end`.
 
 import { computed } from 'vue';
 import type { PageRef, PageState, Part, Score } from '@/api/types';
@@ -100,5 +101,6 @@ function hint(page: PageRef): string {
         </li>
       </ol>
     </section>
+    <slot name="end" />
   </nav>
 </template>

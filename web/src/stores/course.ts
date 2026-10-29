@@ -519,7 +519,8 @@ export const useCourse = defineStore('course', () => {
       if (event.author !== 'agent') {
         continue;
       }
-      if (event.kind === 'course' || event.kind === 'syllabus') {
+      // A finding lives in the course.
+      if (event.kind === 'course' || event.kind === 'syllabus' || event.kind === 'finding') {
         session = true;
       }
       // A quiz may take its page back to taught, and shows under its lesson.

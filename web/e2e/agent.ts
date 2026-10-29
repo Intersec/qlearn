@@ -444,6 +444,12 @@ export class Agent {
     return JSON.parse(await this.run(['choose', '--file', path])) as { id: string };
   }
 
+  /** Write a finding, or replace the one with its id, as the procedure says. */
+  async finding(id: string, title: string, body: string, checked = false) {
+    const flag = checked ? ['--checked'] : [];
+    await this.run(['finding', id, '--title', title, '--body', body, ...flag]);
+  }
+
   /** Write in a thread, as the procedure says. */
   async reply(thread: string, body: string) {
     await this.run(['reply', thread, '--body', body]);

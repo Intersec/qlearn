@@ -1,0 +1,12 @@
+---
+source: crates/qlearn/src/api/mod.rs
+expression: "session[\"course\"][\"findings\"]"
+---
+[
+  {
+    "body": "<p><code>election_timeout</code> draws from &lt;b&gt;one&lt;/b&gt; seed.</p>",
+    "checked": false,
+    "id": "seed-race",
+    "title": "Two timers can fire in one term"
+  }
+]

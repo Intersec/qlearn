@@ -1,0 +1,10 @@
+---
+source: crates/qlearn/src/api/mod.rs
+expression: answer
+---
+{
+  "error": {
+    "code": "invalidFinding",
+    "message": "id: \"Seed_Race\" is not a finding id. Use lowercase words of letters and digits, joined by single hyphens, 40 characters at most, such as seed-race\ntitle: empty\nbody: missing\nchecked: takes a boolean, not a string"
+  }
+}

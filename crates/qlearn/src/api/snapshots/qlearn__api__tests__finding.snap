@@ -1,0 +1,10 @@
+---
+source: crates/qlearn/src/api/mod.rs
+expression: body
+---
+{
+  "body": "`election_timeout` draws from <b>one</b> seed.",
+  "checked": false,
+  "id": "seed-race",
+  "title": "Two timers can fire in one term"
+}

@@ -425,6 +425,107 @@ async fn an_agent_answers_a_question_and_opens_a_thread() {
     assert!(interrupt(server).await.success());
 }
 
+/// The agent writes a finding with `qlearn finding`, then writes it again
+/// with `--checked` once the team confirms it. The page gets the body as
+/// HTML, and the export gives it back in Markdown.
+#[tokio::test]
+async fn an_agent_writes_a_finding_and_marks_it_checked() {
+    let repo = build_repo();
+    let root = repo.path();
+    let mut server = qlearn(root, &["raft", "--no-open"]).spawn().unwrap();
+    read_url(&mut server).await;
+
+    let body = "- `vote()` takes no lock.\n- Two *timers* may fire.\n";
+    let args = ["finding", "vote-race", "--title", "A race in the vote"];
+    let written = json_of(&run(root, &[&args[..], &["--body", "-"]].concat(), Some(body)).await);
+    assert_eq!(
+        written,
+        json!({ "id": "vote-race", "title": "A race in the vote",
+                "body": "- `vote()` takes no lock.\n- Two *timers* may fire.", "checked": false })
+    );
+    let other = [
+        "finding",
+        "stale-doc",
+        "--title",
+        "The doc names a gone flag",
+    ];
+    json_of(
+        &run(
+            root,
+            &[&other[..], &["--body", "`--fast` is gone."]].concat(),
+            None,
+        )
+        .await,
+    );
+    let confirmed = json_of(
+        &run(
+            root,
+            &[
+                &args[..],
+                &["--body", "The team confirmed it.", "--checked"],
+            ]
+            .concat(),
+            None,
+        )
+        .await,
+    );
+    assert_eq!(confirmed["checked"], true);
+
+    // A refusal prints every fault on standard error, and exits 1.
+    let refused = run(
+        root,
+        &["finding", "Vote Race", "--title", " ", "--body", "x"],
+        None,
+    )
+    .await;
+    assert_eq!(refused.status.code(), Some(1), "{refused:?}");
+    assert!(refused.stdout.is_empty(), "{refused:?}");
+    let errors = stderr(&refused);
+    let lines: Vec<_> = errors.lines().collect();
+    assert_eq!(lines.len(), 2, "{errors}");
+    assert!(
+        lines[0].starts_with("id: \"Vote Race\" is not a finding id"),
+        "{errors}"
+    );
+    assert_eq!(lines[1], "title: empty", "{errors}");
+
+    // An empty id gets the fault of its id, as any other bad id.
+    let refused = run(root, &["finding", "", "--title", "t", "--body", "b"], None).await;
+    assert_eq!(refused.status.code(), Some(1), "{refused:?}");
+    let errors = stderr(&refused);
+    assert!(
+        errors.starts_with("id: \"\" is not a finding id"),
+        "{errors}"
+    );
+
+    let stored: Value = serde_json::from_str(
+        &std::fs::read_to_string(root.join(".learn/raft/course.json")).unwrap(),
+    )
+    .unwrap();
+    let ids: Vec<_> = stored["findings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|finding| (finding["id"].clone(), finding["checked"].clone()))
+        .collect();
+    assert_eq!(
+        ids,
+        [
+            (json!("vote-race"), json!(true)),
+            (json!("stale-doc"), json!(false))
+        ]
+    );
+
+    let session = page_of(root).get("/api/session").await.unwrap();
+    assert_eq!(
+        session["course"]["findings"][1]["body"],
+        "<p><code>--fast</code> is gone.</p>"
+    );
+    let export = json_of(&run(root, &["export", "--json"], None).await);
+    assert_eq!(export["course"]["findings"], stored["findings"]);
+    assert!(interrupt(server).await.success());
+}
+
 /// The agent asks a choice with `qlearn choose`, the learner answers it in
 /// the page, and the wait of the agent gets the labels of the picks. A
 /// refused choice prints every fault.

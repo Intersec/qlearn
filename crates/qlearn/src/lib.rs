@@ -10,6 +10,7 @@ pub mod assets;
 pub mod choice;
 pub mod events;
 pub mod export;
+pub mod finding;
 pub mod git;
 pub mod highlight;
 pub mod json;

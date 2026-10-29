@@ -165,6 +165,25 @@ pub enum Command {
         file: String,
     },
 
+    /// Write a finding, as the agent: something in the code that looks
+    /// wrong or undocumented, for the learner to check with the team. A
+    /// finding of the same id is replaced whole. Prints the finding.
+    Finding {
+        /// Lowercase words joined by hyphens, such as `seed-race`.
+        id: String,
+        /// One line.
+        #[arg(long, allow_hyphen_values = true)]
+        title: String,
+        /// What the code does, where, and why it may be wrong, in Markdown.
+        /// `-` reads it from standard input.
+        // A text may open with a hyphen, such as a list item.
+        #[arg(long, allow_hyphen_values = true)]
+        body: String,
+        /// The team confirmed it. Without it, the finding is to check.
+        #[arg(long)]
+        checked: bool,
+    },
+
     /// Print the points of the course and their results, the missed ones
     /// first, then the others by the date of their last result.
     Points,

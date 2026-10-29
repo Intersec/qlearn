@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 import AgentPresence from './components/AgentPresence.vue';
 import ChoiceView from './components/ChoiceView.vue';
+import FindingsView from './components/FindingsView.vue';
 import PageView from './components/PageView.vue';
 import SyllabusView from './components/SyllabusView.vue';
 import type { QuizAnswer } from './api/types';
@@ -168,6 +169,9 @@ onBeforeUnmount(() => {
           compact
           :send="(answers) => store.choose(choice.id, answers)"
         />
+        <template #end>
+          <FindingsView :findings="course.findings" />
+        </template>
       </SyllabusView>
       <main ref="pane" class="course">
         <template v-if="page">

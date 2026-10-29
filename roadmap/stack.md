@@ -963,6 +963,68 @@ reader can give.
 - **The type from the extension alone.** A PNG named `.svg` would be
   served as an SVG.
 
+## 2026-10-29 — Holes found by the findings
+
+Sections 3, 8, 10 and 11 give the type of a finding, its route, its
+event and its command. The code needed more answers.
+
+**Decisions.**
+
+- **A finding is written whole.** `PUT /api/findings/:id` takes
+  `{ title, body, checked }`. It creates the finding, or replaces the one
+  with its id in place, so the list keeps the order of the first writes.
+  `checked` left out is `false`: a finding written again with no
+  `--checked` is to check again. The route answers the finding as stored,
+  and pushes a `finding` event of the agent with the id in `id` and no
+  page.
+- **The id** is lowercase words of letters and digits, joined by single
+  hyphens, 40 characters at most, such as `vote-race`. A hyphen at an end
+  or twice in a row is refused: it is most often a typo, which would write
+  a second finding.
+- **The title** is trimmed, not empty, on one line, and 120 characters at
+  most. The page escapes it. **The body** is Markdown, trimmed, and may be
+  empty.
+- **The refusals.** A bad id, a bad title and a field that is missing,
+  unknown or of the wrong type come back at once, one line each with its
+  field, as `invalidFinding`, and store nothing. The route walks the body
+  by hand, as for a syllabus, because serde stops at the first fault. An
+  empty id is refused as any other bad id. A body that is not JSON gets
+  `badRequest`. `qlearn finding` prints each line on standard error and
+  exits 1.
+- **The body on the wire.** `course.json` keeps the Markdown that the
+  agent wrote. The session sends, in `body`, the HTML that the server
+  writes from it, with the HTML of the source escaped as in section 4.1,
+  as for a comment. The route, the export and every other answer to the
+  agent keep the Markdown. The export holds the findings in `course`, so
+  section 8.4 needs no new field.
+- **The page** shows the findings at the bottom of the syllabus column,
+  under a button "Findings" with their count and the count of those to
+  check. The button opens the list in the column: each finding with its
+  title, its body, and a badge "To check" or "Checked". The column shows
+  nothing of the findings while the course has none. A `finding` event
+  reads the session again. The learner edits no finding, and the address
+  does not name the list.
+- **A path segment of a command** writes a space as `%20`. It wrote `+`,
+  which a path keeps, so a refused id named another id.
+
+**Why.** One write for a new finding and a changed one keeps the command
+of section 11 as it is, and an id that the agent picks lets it mark the
+finding checked later. A short id and a title on one line fit the narrow
+column. The page draws Markdown with no parser of its own, and the agent
+must read back what it wrote. The column already lists what the course
+holds, and the list closed by default keeps the syllabus in sight. A list
+in the column needs no new place in the address of section 8.1.
+
+**Rejected:**
+
+- **A route for `checked` alone.** Section 8 names one route of the
+  findings.
+- **A view of the findings in the place of the page.** Section 8.1 would
+  need a new place in the address, and the learner would leave the page.
+- **The HTML in `course.json`.** The agent would get HTML in its export.
+- **The findings in the summary of `qlearn export`.** Section 11 says what
+  the summary prints. The page and the JSON export hold the findings.
+
 ## Open questions
 
 - **The URL of the repository.** The host is decided: a public repository

@@ -26,7 +26,7 @@ use crate::highlight::Highlighter;
 use crate::lesson::{self, Fault};
 use crate::model::{
     self, AgentStatus, Author, Batch, Block, BlockSource, Broken, ChoiceId, ChoiceSent,
-    ChoicesSent, Choosing, Course, CourseChange, Detail, Event, EventKind, Export, Graded,
+    ChoicesSent, Choosing, Course, CourseChange, Detail, Event, EventKind, Export, Finding, Graded,
     GradedPoint, OpenSent, Page, PageKind, Point, PointResult, QuizNumber, ReplySent, Session,
     StatusText, Thread, ThreadOpened,
 };
@@ -109,6 +109,8 @@ pub fn app(state: AppState) -> Router {
         .route("/api/threads/{id}", post(reply))
         .route("/api/choices", post(choose))
         .route("/api/choices/{id}", post(answer_choice))
+        .route("/api/findings/", put(write_unnamed_finding))
+        .route("/api/findings/{id}", put(write_finding))
         .route("/api/media/{name}", get(media))
         .method_not_allowed_fallback(method_not_allowed)
         .fallback(interface)
@@ -195,8 +197,12 @@ async fn session(State(state): State<AppState>) -> Json<Session> {
         .map(StoredChoosing::view)
         .collect();
 
+    // The page draws the body of a finding with no Markdown parser.
+    let mut course = course.clone();
+    course.findings = course.findings.iter().map(crate::finding::view).collect();
+
     Json(Session {
-        course: course.clone(),
+        course,
         current: state.current(),
         version: crate::version::LONG.to_owned(),
         choices,
@@ -1235,6 +1241,47 @@ async fn answer_choice(
     Ok(Json(stored.view()))
 }
 
+/// Write a finding: a new one, or in place of the one with its id.
+/// Answers the finding as the agent wrote it, in Markdown.
+///
+/// A refused finding gets every fault at once, so the agent fixes them in
+/// one pass.
+async fn write_finding(
+    State(state): State<AppState>,
+    path: Result<Path<String>, PathRejection>,
+    body: Result<Json<serde_json::Value>, JsonRejection>,
+) -> Result<Json<Finding>, ApiError> {
+    let Path(id) = path.map_err(bad_path)?;
+    let Json(body) = body.map_err(bad_json)?;
+    let finding =
+        crate::finding::check(&id, &body).map_err(|faults| ApiError::invalid_finding(&faults))?;
+
+    let mut course = state.course.write().await;
+    // The copy in memory changes only once `course.json` is written, so a
+    // write that fails leaves the course as the store has it.
+    let mut changed = course.clone();
+    crate::finding::write(&mut changed.findings, finding.clone());
+    changed.updated = model::stamp(OffsetDateTime::now_utc());
+    state.store.save(&changed)?;
+    *course = changed;
+    // Under the lock, so the events come in the order of the writes.
+    state
+        .events
+        .push(EventKind::Finding, Author::Agent, None, Some(&finding.id));
+    drop(course);
+
+    Ok(Json(finding))
+}
+
+/// An empty id matches no `{id}`, and owes the refusal of a bad id, not
+/// a route that names nothing.
+async fn write_unnamed_finding(
+    state: State<AppState>,
+    body: Result<Json<serde_json::Value>, JsonRejection>,
+) -> Result<Json<Finding>, ApiError> {
+    write_finding(state, Ok(Path(String::new())), body).await
+}
+
 /// An answer that the quiz does not take.
 fn refused(refusal: Refusal) -> ApiError {
     match refusal {
@@ -1396,6 +1443,16 @@ impl ApiError {
         Self {
             status: StatusCode::BAD_REQUEST,
             code: "invalidSyllabus",
+            message: faults.join("\n"),
+        }
+    }
+
+    /// A finding that fails a check. The message holds one line per
+    /// fault, each with its field.
+    fn invalid_finding(faults: &[String]) -> Self {
+        Self {
+            status: StatusCode::BAD_REQUEST,
+            code: "invalidFinding",
             message: faults.join("\n"),
         }
     }
@@ -2692,6 +2749,153 @@ mod tests {
         assert_eq!(course["parts"][0]["pages"].as_array().unwrap().len(), 1);
         let (status, _) = json(app(state), get_with_cookie("/api/pages/c1", TOKEN)).await;
         assert_eq!(status, StatusCode::OK);
+    }
+
+    const FINDING: &str = r#"{"title":"  Two timers can fire in one term  ",
+        "body":"`election_timeout` draws from <b>one</b> seed.\n","author":"agent"}"#;
+
+    async fn write_finding(
+        state: &AppState,
+        id: &str,
+        body: &str,
+    ) -> (StatusCode, serde_json::Value) {
+        let uri = format!("/api/findings/{id}");
+        json(app(state.clone()), send_json("PUT", &uri, body)).await
+    }
+
+    /// The findings as `course.json` holds them.
+    fn stored_findings(dir: &std::path::Path) -> serde_json::Value {
+        let text = std::fs::read_to_string(dir.join(".learn/raft/course.json")).unwrap();
+        serde_json::from_str::<serde_json::Value>(&text).unwrap()["findings"].clone()
+    }
+
+    #[tokio::test]
+    async fn the_finding_route_writes_a_finding_and_answers_it_in_markdown() {
+        let dir = repo().await;
+        let state = state_in(dir.path());
+        let untouched = outside(dir.path());
+
+        let (status, body) = write_finding(&state, "seed-race", FINDING).await;
+
+        assert_eq!(status, StatusCode::OK, "{body}");
+        insta::assert_json_snapshot!("finding", body);
+        assert_eq!(stored_findings(dir.path()), serde_json::json!([body]));
+        let stored = Store::at(dir.path()).load("raft").unwrap().unwrap();
+        assert_eq!(stored, *state.course.read().await, "course.json holds it");
+        let batch = state.events.after(Some(0), events::HOLD).await;
+        assert_eq!(batch.events.len(), 1);
+        let event = &batch.events[0];
+        assert_eq!(event.kind, EventKind::Finding);
+        assert_eq!(event.author, Author::Agent);
+        assert_eq!(event.page, None);
+        assert_eq!(event.id.as_deref(), Some("seed-race"));
+        assert_eq!(outside(dir.path()), untouched, "a write outside .learn/");
+    }
+
+    /// The agent marks a finding checked by writing it again whole. It keeps
+    /// its place, so the list in the page does not move.
+    #[tokio::test]
+    async fn a_finding_written_again_replaces_the_one_with_its_id() {
+        let dir = repo().await;
+        let state = state_in(dir.path());
+        for (id, title) in [("seed-race", "A race"), ("stale-comment", "A comment")] {
+            let body = serde_json::json!({ "title": title, "body": "" }).to_string();
+            let (status, answer) = write_finding(&state, id, &body).await;
+            assert_eq!(status, StatusCode::OK, "{answer}");
+        }
+
+        let body = r#"{"title":"The race is real","body":"The team confirmed it.","checked":true}"#;
+        let (status, answer) = write_finding(&state, "seed-race", body).await;
+
+        assert_eq!(status, StatusCode::OK, "{answer}");
+        assert_eq!(
+            stored_findings(dir.path()),
+            serde_json::json!([
+                { "id": "seed-race", "title": "The race is real",
+                  "body": "The team confirmed it.", "checked": true },
+                { "id": "stale-comment", "title": "A comment", "body": "", "checked": false },
+            ])
+        );
+        let batch = state.events.after(Some(0), events::HOLD).await;
+        let ids: Vec<_> = batch.events.iter().map(|e| e.id.as_deref()).collect();
+        assert_eq!(
+            ids,
+            [Some("seed-race"), Some("stale-comment"), Some("seed-race")]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_refused_finding_gets_every_fault_and_stores_nothing() {
+        let dir = repo().await;
+        let state = state_in(dir.path());
+        let untouched = outside(dir.path());
+        let before = state.course.read().await.clone();
+
+        let (status, answer) =
+            write_finding(&state, "Seed_Race", r#"{"title":" ","body":"x"}"#).await;
+
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{answer}");
+        insta::assert_json_snapshot!("finding_refused", answer);
+
+        // A field of the wrong shape is one fault more, not the only one.
+        let (status, answer) =
+            write_finding(&state, "Seed_Race", r#"{"title":" ","checked":"yes"}"#).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{answer}");
+        insta::assert_json_snapshot!("finding_refused_shape", answer);
+
+        // An empty id matches no `{id}` of the route, and owes the same
+        // refusal as any other bad id.
+        let (status, answer) = write_finding(&state, "", r#"{"title":"A race","body":""}"#).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{answer}");
+        assert_eq!(answer["error"]["code"], "invalidFinding", "{answer}");
+        let message = answer["error"]["message"].as_str().unwrap();
+        assert!(
+            message.starts_with("id: \"\" is not a finding id"),
+            "{message}"
+        );
+
+        let long = "a".repeat(crate::finding::ID_MOST + 1);
+        for (id, body) in [
+            ("race", ""),
+            ("race", "not json"),
+            ("race", "{}"),
+            ("race", r#"{"title":"A race"}"#),
+            ("race", r#"{"title":null,"body":""}"#),
+            ("race", r#"{"title":"A race","body":"","checked":"yes"}"#),
+            ("race", r#"{"title":"A race","body":"","state":"open"}"#),
+            ("race", r#"{"title":"A race","body":"","author":"learner"}"#),
+            ("race-", r#"{"title":"A race","body":""}"#),
+            (long.as_str(), r#"{"title":"A race","body":""}"#),
+        ] {
+            let (status, answer) = write_finding(&state, id, body).await;
+            assert_eq!(status, StatusCode::BAD_REQUEST, "{id} {body}: {answer}");
+            assert!(answer["error"]["message"].is_string(), "{answer}");
+        }
+        assert_eq!(files(dir.path()), Vec::<String>::new());
+        assert_eq!(*state.course.read().await, before);
+        assert_eq!(state.events.after(None, events::HOLD).await.next, 0);
+        assert_eq!(outside(dir.path()), untouched, "a write outside .learn/");
+    }
+
+    /// The page draws the body with no Markdown parser of its own, and the
+    /// HTML of the source never reaches it as HTML.
+    #[tokio::test]
+    async fn the_session_sends_the_body_of_a_finding_as_html() {
+        let dir = repo().await;
+        let state = state_in(dir.path());
+        let (status, answer) = write_finding(&state, "seed-race", FINDING).await;
+        assert_eq!(status, StatusCode::OK, "{answer}");
+
+        let (status, session) =
+            json(app(state.clone()), get_with_cookie("/api/session", TOKEN)).await;
+
+        assert_eq!(status, StatusCode::OK, "{session}");
+        insta::assert_json_snapshot!("session_findings", session["course"]["findings"]);
+        // The store and the agent keep the Markdown.
+        assert_eq!(
+            state.course.read().await.findings[0].body,
+            "`election_timeout` draws from <b>one</b> seed."
+        );
     }
 
     /// A null reads as a field left out unless the server refuses it, and
@@ -5585,6 +5789,9 @@ mod tests {
         )
         .await;
         assert_eq!(status, StatusCode::OK, "{quiz}");
+        // A finding goes out in Markdown, as the agent wrote it.
+        let (status, finding) = write_finding(&state, "seed-race", FINDING).await;
+        assert_eq!(status, StatusCode::OK, "{finding}");
         let notes = dir.path().join(".learn/raft/notes");
         std::fs::create_dir_all(notes.join("sources")).unwrap();
         std::fs::write(notes.join("plan.md"), "The plan.\n").unwrap();

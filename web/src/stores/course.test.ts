@@ -1053,6 +1053,35 @@ describe('the choices', () => {
   });
 });
 
+describe('a finding', () => {
+  it('shows in the course as the agent writes it, and moves nothing', async () => {
+    server.push('1', 1);
+    const store = await started();
+    const reads = server.reads.page.length;
+
+    server.course.findings = [
+      { id: 'vote-race', title: 'A race', body: '<p>Two votes.</p>', checked: false },
+    ];
+    const written: Event = {
+      seq: 11,
+      kind: 'finding',
+      author: 'agent',
+      page: null,
+      id: 'vote-race',
+    };
+    server.send(batch({ next: 11, events: [written] }));
+    await vi.waitFor(() => expect(store.course?.findings).toHaveLength(1));
+
+    server.course.findings[0].checked = true;
+    const again: Event = { ...written, seq: 12 };
+    server.send(batch({ next: 12, events: [again] }));
+    await vi.waitFor(() => expect(store.course?.findings[0].checked).toBe(true));
+    expect(store.page?.id).toBe('1');
+    expect(store.ready).toBeNull();
+    expect(server.reads.page).toHaveLength(reads);
+  });
+});
+
 describe('a server that answers with an error', () => {
   it('says why, and takes the error away once the course reads again', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });

@@ -293,6 +293,20 @@ pub async fn debrief(
     })
 }
 
+/// Write a finding, or replace the one with its id. Answers the finding.
+pub async fn finding(
+    client: &Client,
+    id: &str,
+    title: &str,
+    body: &str,
+    checked: bool,
+) -> Result<Value> {
+    let body = json!({ "title": title, "body": body, "checked": checked, "author": "agent" });
+
+    let id = segment(id);
+    client.put(&format!("/api/findings/{id}"), &body).await
+}
+
 /// The points of the course, in the order in which the agent picks the
 /// point of a question on an earlier lesson.
 pub async fn points(client: &Client) -> Result<Value> {
@@ -348,10 +362,13 @@ pub async fn status(client: &Client, text: &str) -> Result<Value> {
         .await
 }
 
-/// A page id as one segment of a path. The server refuses an id that is
-/// not one, and the request must reach it rather than another route.
+/// An id as one segment of a path. The server refuses an id that is not
+/// one, and the request must reach it rather than another route.
 fn segment(id: &str) -> String {
-    form_urlencoded::byte_serialize(id.as_bytes()).collect()
+    let encoded: String = form_urlencoded::byte_serialize(id.as_bytes()).collect();
+    // A form writes a space as `+`, which a path keeps as `+`, so the
+    // refusal would name another id. A `+` of the id is `%2B` by now.
+    encoded.replace('+', "%20")
 }
 
 /// How often a wait looks for a server that stopped.
@@ -575,6 +592,7 @@ mod tests {
     fn an_id_never_leaves_its_segment() {
         assert_eq!(segment("7a"), "7a");
         assert_eq!(segment("../x?y"), "..%2Fx%3Fy");
+        assert_eq!(segment("a b+c"), "a%20b%2Bc");
     }
 
     /// A server stopped with Ctrl-Z still accepts the connection, and never

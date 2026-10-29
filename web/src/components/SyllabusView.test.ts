@@ -149,4 +149,14 @@ describe('SyllabusView', () => {
     expect(wrapper.findAll('.syllabus-latest')).toHaveLength(1);
     expect(wrapper.find('[data-page="2"] a').attributes('aria-current')).toBeUndefined();
   });
+
+  it('puts the slot end after the pages, for the findings', () => {
+    const wrapper = mount(SyllabusView, {
+      props: { parts: [{ title: '', pages: [ref('1')] }], shown: null, current: null },
+      slots: { end: '<section class="findings">Findings</section>' },
+    });
+
+    const nav = wrapper.get('nav').element;
+    expect(nav.lastElementChild?.className).toBe('findings');
+  });
 });
