@@ -191,10 +191,11 @@ export const useCourse = defineStore('course', () => {
   }
 
   /**
-   * Send a question about a block of a page. Answers whether the server
-   * took it, so the box keeps what the learner typed when not.
+   * Send a question about a block of a page, or about the whole page with
+   * a null block. Answers whether the server took it, so the box keeps
+   * what the learner typed when not.
    */
-  async function ask(id: string, block: string, quote: string | null, body: string) {
+  async function ask(id: string, block: string | null, quote: string | null, body: string) {
     try {
       merge(await api.ask(id, block, quote, body));
     } catch (e) {
@@ -270,8 +271,9 @@ export const useCourse = defineStore('course', () => {
   }
 
   /**
-   * The learner opened the thread of a block of the page on the screen. The
-   * address says so, in place: it is no move to another page.
+   * The learner opened the thread of a block of the page on the screen, or
+   * the one about the page. The address says so, in place: it is no move
+   * to another page.
    */
   function openThread(block: string | null) {
     focus.value = block;

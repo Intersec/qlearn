@@ -1,0 +1,40 @@
+---
+source: crates/qlearn/src/api/mod.rs
+expression: "server_redacted(&state, at_redacted(agent.clone()))"
+---
+{
+  "agent": true,
+  "events": [
+    {
+      "author": "learner",
+      "detail": {
+        "block": null,
+        "earlier": false,
+        "thread": {
+          "block": null,
+          "comments": [
+            {
+              "at": "[at]",
+              "author": "learner",
+              "body": "Where does the term *start*?"
+            }
+          ],
+          "id": "1-1",
+          "page": "1",
+          "quote": null
+        }
+      },
+      "id": "1-1",
+      "kind": "ask",
+      "page": "1",
+      "seq": 3
+    }
+  ],
+  "left": false,
+  "next": 3,
+  "preparing": false,
+  "reset": false,
+  "server": "[server]",
+  "status": null,
+  "working": false
+}

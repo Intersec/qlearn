@@ -89,9 +89,10 @@ export const api = {
 
   /**
    * Ask about a block of a page, with the text that the learner selected
-   * in it. The agent gets the question. Answers the thread.
+   * in it, or about the whole page with a null block. The agent gets the
+   * question. Answers the thread.
    */
-  ask: (id: string, block: string, quote: string | null, body: string) =>
+  ask: (id: string, block: string | null, quote: string | null, body: string) =>
     call<Thread>(`/api/pages/${encodeURIComponent(id)}/threads`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

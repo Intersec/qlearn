@@ -75,8 +75,8 @@ watch(
   { immediate: true },
 );
 
-/** Send a question about a block of the page on the screen. */
-function sendQuestion(block: string, quote: string | null, body: string): Promise<boolean> {
+/** Send a question about a block of the page on the screen, or about the page. */
+function sendQuestion(block: string | null, quote: string | null, body: string): Promise<boolean> {
   const shown = page.value;
   return shown ? store.ask(shown.id, block, quote, body) : Promise.resolve(false);
 }

@@ -704,6 +704,54 @@ the learner.
 - **Refuse a delete while any server runs on the worktree.** A server of
   another course never writes this one.
 
+## 2026-10-29 — The learner asks about the whole page
+
+The entry "Holes found by the threads" let the learner ask on a block
+only. Only the agent opened a thread about the whole page. The user
+changed this on this date.
+
+**Decisions.**
+
+- **The learner asks about the whole page.** The page shows an "Ask
+  about this page" button at its end, before Next. The button opens the
+  Ask box under "About this page", after the threads already there. The
+  box takes the place of the button until the learner sends the question
+  or cancels it.
+- **The route stays as it is.** `POST /api/pages/:id/threads` already
+  takes `block: null` from both parties, and still refuses a quote with
+  no block. A question of the learner about the page is an `ask` request.
+  Its detail keeps the shape `{ thread, block, earlier }`, with
+  `block: null` and `earlier: false`. A reply of the learner in a thread
+  of the agent about the page already had this detail.
+- **The address writes `&block=page`.** A block id is 12 hex digits, so
+  it never reads `page`. A reload scrolls to "About this page". If the
+  page has no thread about it yet, the reload opens the Ask box again, as
+  for a block. Cancel takes `&block=page` out of the address under the
+  same rule.
+- **The threads of an earlier version stay last.** The button sits
+  between "About this page" and "On an earlier version of this page".
+- **The procedure** says that an `ask` request may have no block. The
+  agent answers it with `qlearn reply`, as any other question.
+
+**Why.** A learner asks about the page as a whole: how its parts fit, or
+what comes next. No block holds such a question. With no button, the
+learner had to pick a block, and the agent read a source that the
+question was not about. Sections 6 and 8 already let both parties open a
+thread with no block, so only the page lacked a button. A reserved value
+keeps the rule of a reload that the threads of a block follow.
+
+**Rejected:**
+
+- **No `&block` for the page.** A reload could not tell a question about
+  the page from no open thread, and would not open the box again.
+- **A new key, such as `&about=page`.** Two keys for one fact: an
+  address could name a block and the page at once.
+- **The button in the footer, beside Next.** While the agent works, the
+  footer shows its status in place of Next. The box opens under "About
+  this page", far from the footer.
+- **The button after the threads of an earlier version.** Those threads
+  come last on the page, as the entry "Holes found by the threads" says.
+
 ## Open questions
 
 - **The URL of the repository.** The host is decided: a public repository

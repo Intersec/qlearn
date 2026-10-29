@@ -1,6 +1,7 @@
-// The threads of step 3: the learner asks about a block with a quote, the
-// wait of the agent gets the question with the source of the block, and
-// the reply of the agent shows in the page at once.
+// The threads of step 3: the learner asks about a block with a quote, or
+// about the whole page, the wait of the agent gets the question with the
+// source of the block, and the reply of the agent shows in the page at
+// once.
 
 import { expect, test, type Page } from '@playwright/test';
 import { PAGE_1 } from './agent.ts';
@@ -127,6 +128,74 @@ test('the learner asks about a block, and the reply of the agent shows live', as
   await expect(thread.locator('.thread-comment')).toHaveCount(3);
   await expect(anchor.getByRole('heading', { name: 'Why a random part' })).toBeInViewport();
   expect(await page.locator('main.course').evaluate((pane) => pane.scrollTop)).toBeGreaterThan(0);
+});
+
+test('the learner asks about the whole page, and the reply shows live', async ({ page }) => {
+  const { agent } = server;
+  const waited = agent.wait(0);
+  await page.goto(server.url);
+
+  // The button sits at the end of the page, before Next.
+  const button = page.getByRole('button', { name: 'Ask about this page' });
+  const [ask, next] = await Promise.all([
+    button.boundingBox(),
+    page.getByRole('button', { name: 'Next' }).boundingBox(),
+  ]);
+  expect(ask!.y).toBeLessThan(next!.y);
+  await button.click();
+  const about = page.getByRole('region', { name: 'About this page' });
+  await expect(about.locator('.threads-head')).toHaveText('About this page');
+  await expect(page).toHaveURL(/#page=1&block=page$/);
+  await about.getByRole('textbox', { name: 'Your question' }).fill('Where does a *term* start?');
+  await about.getByRole('button', { name: 'Send' }).click();
+
+  const thread = about.locator('.thread');
+  await expect(thread.locator('.thread-comment[data-author="learner"]')).toContainText(
+    'Where does a term start?',
+  );
+  await expect(thread.locator('.thread-quote')).toHaveCount(0);
+  await expect(about.locator('.asking')).toHaveCount(0);
+  await expect(button).toBeVisible();
+
+  // The agent gets the question, with no block.
+  const { events } = await waited;
+  expect(events).toEqual([
+    {
+      seq: expect.any(Number),
+      kind: 'ask',
+      author: 'learner',
+      page: '1',
+      id: '1-1',
+      detail: {
+        thread: {
+          id: '1-1',
+          page: '1',
+          block: null,
+          quote: null,
+          comments: [
+            { author: 'learner', body: 'Where does a *term* start?', at: expect.any(String) },
+          ],
+        },
+        block: null,
+        earlier: false,
+      },
+    },
+  ]);
+
+  // The reply of the agent shows with no reload.
+  await agent.reply('1-1', 'A candidate starts it, when its **timeout** fires.');
+  await expect(thread.locator('.thread-comment[data-author="agent"] strong')).toHaveText('timeout');
+  await expect(thread.locator('.thread-waiting')).toHaveCount(0);
+
+  // A reload comes back to the thread, at the end of the page, with no box
+  // open: the thread is there.
+  await page.setViewportSize({ width: 1600, height: 300 });
+  await page.reload();
+  await expect(page).toHaveURL(/#page=1&block=page$/);
+  await expect(thread.locator('.thread-comment')).toHaveCount(2);
+  await expect(about.locator('.threads-head')).toBeInViewport();
+  expect(await page.locator('main.course').evaluate((pane) => pane.scrollTop)).toBeGreaterThan(0);
+  await expect(about.locator('.asking')).toHaveCount(0);
 });
 
 test('a thread whose block is gone moves to the end of the page', async ({ page }) => {

@@ -1403,9 +1403,39 @@ a.syllabus-entry:focus-visible {
   outline-offset: 1px;
 }
 @media (prefers-reduced-motion: reduce) {
-  .ask {
+  .ask,
+  .ask-page {
     transition: none;
   }
+}
+
+/* Ask about the whole page, at its end: the same quiet button as the Ask
+   of a block, in the flow of the page. */
+.ask-page-end {
+  margin: 1.5em 0 0;
+}
+.ask-page {
+  padding: 3px 14px;
+  border: 1px solid var(--edge);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--ink-quiet);
+  font-size: 13px;
+  font-weight: 600;
+  transition:
+    color 0.1s,
+    background-color 0.1s,
+    border-color 0.1s;
+}
+.ask-page:hover,
+.ask-page:focus-visible {
+  border-color: var(--agent-edge);
+  background: var(--agent);
+  color: var(--action);
+}
+.ask-page:focus-visible {
+  outline: 2px solid var(--action);
+  outline-offset: 1px;
 }
 
 /* The threads of a block, under it, on a rail of the agent. */

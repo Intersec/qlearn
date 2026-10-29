@@ -8,7 +8,8 @@ import type { Block, Page, Thread } from './api/types';
 
 /** The block whose Ask box is open, with the text selected in it. */
 export interface Asking {
-  block: string;
+  /** Null: the box asks about the whole page, with no quote. */
+  block: string | null;
   quote: string | null;
 }
 
@@ -16,14 +17,14 @@ export interface ThreadContext {
   /** The threads under a block, in the order that they opened. */
   of(block: string): Thread[];
   asking: Ref<Asking | null>;
-  /** Open the Ask box under a block. */
-  open(block: string, quote: string | null): void;
+  /** Open the Ask box under a block, or about the whole page with null. */
+  open(block: string | null, quote: string | null): void;
   /** Close the Ask box once its question is sent. */
   close(): void;
   /** Close the Ask box with no question. */
   cancel(): void;
   /** Send a question. Answers whether the server took it. */
-  ask(block: string, quote: string | null, body: string): Promise<boolean>;
+  ask(block: string | null, quote: string | null, body: string): Promise<boolean>;
   /** Write in a thread. Answers whether the server took it. */
   reply(thread: string, body: string): Promise<boolean>;
 }

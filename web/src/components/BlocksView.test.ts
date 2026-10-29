@@ -121,6 +121,86 @@ describe('the Ask button', () => {
   });
 });
 
+describe('the Ask about this page button', () => {
+  it('opens a question about the page under "About this page", with no quote', async () => {
+    const ask = vi.fn().mockResolvedValue(true);
+    const wrapper = mount(PageView, { props: { page: pageWith(), ask }, attachTo: document.body });
+    expect(wrapper.find('.threads-page').exists()).toBe(false);
+
+    // The text selected in a block is no quote of the page.
+    select(wrapper.find('[data-block="a"]').element, 'votes once');
+    await wrapper.find('.ask-page').trigger('click');
+
+    expect(wrapper.emitted('focus')).toEqual([['page']]);
+    const section = wrapper.find('.threads-page');
+    expect(section.find('.threads-head').text()).toBe('About this page');
+    expect(section.attributes('data-anchor')).toBe('page');
+    const asking = section.find('.asking');
+    expect(asking.find('.thread-quote').exists()).toBe(false);
+    expect(document.activeElement).toBe(asking.find('textarea').element);
+    // The box takes the place of the button.
+    expect(wrapper.find('.ask-page').exists()).toBe(false);
+    await asking.find('textarea').setValue('Where does the term start?');
+    await asking.find('form').trigger('submit');
+    await flushPromises();
+
+    expect(ask).toHaveBeenCalledWith(null, null, 'Where does the term start?');
+    expect(wrapper.find('.asking').exists()).toBe(false);
+    expect(wrapper.find('.ask-page').exists()).toBe(true);
+    wrapper.unmount();
+  });
+
+  it('comes after the threads about the page, and before those of an earlier version', () => {
+    const page = pageWith([threadOn('1-1', 'gone'), threadOn('1-2', null)]);
+    const wrapper = mount(PageView, { props: { page } });
+
+    const sections = wrapper.findAll('.lesson > *').map((node) => node.classes());
+    expect(sections.slice(-3)).toEqual([
+      ['threads', 'threads-page'],
+      ['ask-page-end'],
+      ['threads', 'threads-earlier'],
+    ]);
+  });
+
+  it('keeps the question when the server refuses it, and Cancel closes it', async () => {
+    const ask = vi.fn().mockResolvedValue(false);
+    const wrapper = mount(PageView, { props: { page: pageWith(), ask } });
+
+    await wrapper.find('.ask-page').trigger('click');
+    await wrapper.find('.threads-page textarea').setValue('Why?');
+    await wrapper.find('.threads-page form').trigger('submit');
+    await flushPromises();
+
+    expect(wrapper.find('.threads-page textarea').element).toHaveProperty('value', 'Why?');
+    await wrapper.find('.threads-page .comment-cancel').trigger('click');
+    expect(wrapper.find('.threads-page').exists()).toBe(false);
+    // A reload would open the box again.
+    expect(wrapper.emitted('focus')).toEqual([['page'], [null]]);
+  });
+
+  it('keeps the page in the address on Cancel when a thread is about it', async () => {
+    const wrapper = mount(PageView, { props: { page: pageWith([threadOn('1-1', null)]) } });
+
+    await wrapper.find('.ask-page').trigger('click');
+    await wrapper.find('.threads-page .comment-cancel').trigger('click');
+
+    expect(wrapper.emitted('focus')).toEqual([['page']]);
+    expect(wrapper.find('.threads-page .thread').exists()).toBe(true);
+  });
+
+  it('opens the box about the page that the address names, unless a thread is there', () => {
+    const empty = mount(PageView, { props: { page: pageWith(), focus: 'page' } });
+    expect(empty.find('.threads-page .asking').exists()).toBe(true);
+    expect(empty.find('[data-anchor="a"] .asking').exists()).toBe(false);
+
+    const held = mount(PageView, {
+      props: { page: pageWith([threadOn('1-1', null)]), focus: 'page' },
+    });
+    expect(held.find('.threads-page .thread').exists()).toBe(true);
+    expect(held.find('.asking').exists()).toBe(false);
+  });
+});
+
 describe('the threads of a page', () => {
   it('go under their block, about the page at the end, and those of a gone block last', () => {
     const page = pageWith([

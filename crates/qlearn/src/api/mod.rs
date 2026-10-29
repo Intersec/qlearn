@@ -4497,6 +4497,35 @@ mod tests {
         assert_eq!(batch.events[0].id.as_deref(), Some("1-1"));
     }
 
+    /// The learner asks about the whole page: an `ask` request whose
+    /// detail has no block, as a thread of the agent about the page has.
+    #[tokio::test]
+    async fn the_learner_asks_about_the_whole_page() {
+        let (_dir, state) = with_lesson().await;
+        let after = agent_waits(&state, 0).await["next"].as_u64().unwrap();
+
+        let (status, opened) = thread_write(
+            &state,
+            "/api/pages/1/threads",
+            serde_json::json!({ "block": null, "body": "Where does the term *start*?" }),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK, "{opened}");
+        assert_eq!(opened["block"], serde_json::Value::Null);
+        assert_eq!(opened["quote"], serde_json::Value::Null);
+        let agent = agent_waits(&state, after).await;
+        insta::assert_json_snapshot!(
+            "events_ask_page",
+            server_redacted(&state, at_redacted(agent.clone()))
+        );
+        assert!(state.events.agent_works(), "the wait handed the ask over");
+
+        // The page shows it at its end, with no block.
+        let (_, page) = json(app(state.clone()), get_with_cookie("/api/pages/1", TOKEN)).await;
+        assert_eq!(page["threads"], serde_json::json!([opened]));
+    }
+
     #[tokio::test]
     async fn a_write_in_a_thread_that_the_route_does_not_take_is_refused() {
         let (_dir, state) = with_lesson().await;

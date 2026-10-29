@@ -8,9 +8,15 @@
 export interface Place {
   /** The id of the page being read. */
   page: string;
-  /** The block whose thread is open, when one is. */
+  /** The block whose thread is open, or WHOLE_PAGE, when one is. */
   block?: string;
 }
+
+/**
+ * The block of the address when the learner asks about the whole page. A
+ * block id is 12 hex digits, so it never takes this value.
+ */
+export const WHOLE_PAGE = 'page';
 
 /** The fragment of a place, `#page=7a&block=3f9c2e81d0b4`. */
 export function format(place: Place): string {

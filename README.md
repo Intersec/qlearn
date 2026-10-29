@@ -50,7 +50,8 @@ What the browser will show:
 - The quiz under the lesson: the open question first, then the
   multiple-choice questions, then the debrief of the agent. They stay on the
   page.
-- An **Ask** button on each block of a lesson. Your question opens a thread,
+- An **Ask** button on each block of a lesson, and one at the end of the
+  page for a question about the whole page. Your question opens a thread,
   and the agent answers in it.
 - The points of the course, with the result of each one, so you see what to
   revisit.

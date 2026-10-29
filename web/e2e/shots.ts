@@ -163,6 +163,26 @@ for (const scheme of ['light', 'dark'] as const) {
     await anchor.locator('.thread').scrollIntoViewIfNeeded();
     await page.screenshot({ path: join(OUT, `${scheme}-thread.png`) });
 
+    // The learner asks about the whole page, under the thread of the agent,
+    // and the agent answers there.
+    const pageAsked = agent.wait(question.next);
+    await page.getByRole('button', { name: 'Ask about this page' }).click();
+    const about = page.getByRole('region', { name: 'About this page' });
+    await about
+      .getByRole('textbox', { name: 'Your question' })
+      .fill('Is the random part the same on each server?');
+    await about.locator('.asking').scrollIntoViewIfNeeded();
+    await page.screenshot({ path: join(OUT, `${scheme}-ask-page.png`) });
+    await about.locator('.asking').getByRole('button', { name: 'Send' }).click();
+    const pageQuestion = await pageAsked;
+    await agent.reply(
+      '1-3',
+      'No. Each server draws its own, so one of them times out **first** and asks for votes.',
+    );
+    await about.locator('.thread').nth(1).locator('[data-author="agent"]').waitFor();
+    await page.getByRole('button', { name: 'Next' }).scrollIntoViewIfNeeded();
+    await page.screenshot({ path: join(OUT, `${scheme}-thread-page.png`) });
+
     // The agent pushes the page again without that sentence: its thread
     // moves to the end of the page, with its quote.
     await agent.page('1', PAGE_1.replace('the votes would split', 'the votes split'));
@@ -172,7 +192,7 @@ for (const scheme of ['light', 'dark'] as const) {
     await page.screenshot({ path: join(OUT, `${scheme}-thread-earlier.png`) });
 
     // Next, and the agent at work on the page after.
-    const waitedNext = agent.wait(question.next);
+    const waitedNext = agent.wait(pageQuestion.next);
     await page.locator('.agent-pill', { hasText: 'Agent connected' }).waitFor();
     await page.getByRole('button', { name: 'Next' }).click();
     const { next } = await waitedNext;

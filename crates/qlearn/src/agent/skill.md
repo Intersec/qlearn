@@ -967,6 +967,11 @@ the page shows an **Ask** button on each block. The question opens a
 thread under the block. If the learner selected text inside the block,
 that text is the quote of the thread.
 
+The learner can also ask about the whole page, with the **Ask about this
+page** button at its end. That thread has no block and no quote. The page
+shows it at its end, under "About this page", with the threads that you
+opened there.
+
 A question of the learner, and each reply of the learner in a thread, make
 your `wait` return a request of kind `ask`. Its `page` names the page, and
 its `id` names the thread, such as `3-1`. Its `detail` holds:
@@ -979,6 +984,12 @@ its `id` names the thread, such as `3-1`. Its `detail` holds:
 - `earlier`: `true` when a later push of the page took the block away. The
   page then shows the thread at its end, under "On an earlier version of
   this page". `block.source` is the block as it was when the learner asked.
+  A thread about the whole page is never `earlier`.
+
+If `block` is `null`, the question is about the page as a whole: how its
+parts fit, a term that it uses, or what comes next. Read the page with
+`qlearn export --json` if your context no longer holds it. Answer in the
+thread with `qlearn reply`, as for a question on a block.
 
 Answer in the thread:
 

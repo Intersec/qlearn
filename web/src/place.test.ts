@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { format, parse } from './place';
+import { WHOLE_PAGE, format, parse } from './place';
 
 describe('format', () => {
   it('names the page alone when no thread is open', () => {
@@ -31,6 +31,12 @@ describe('parse', () => {
 
   it('ignores the keys it does not know', () => {
     expect(parse('#page=1&change=I8f3a&ps=2')).toEqual({ page: '1', block: undefined });
+  });
+
+  it('reads the question about the whole page, which no block id can name', () => {
+    expect(format({ page: '1', block: WHOLE_PAGE })).toBe('#page=1&block=page');
+    expect(parse('#page=1&block=page')).toEqual({ page: '1', block: WHOLE_PAGE });
+    expect(WHOLE_PAGE).not.toMatch(/^[0-9a-f]{12}$/);
   });
 
   it('reads back what format wrote', () => {

@@ -502,9 +502,12 @@ page to `debriefed` when no quiz of the page is left without one.
 
 ## 6. Threads
 
-The learner can ask a question about any block. The page shows an **Ask**
-button on the block. If the learner selects text inside the block, the
-selection becomes the quote of the thread.
+The learner can ask a question about any block, or about the whole page.
+The page shows an **Ask** button on each block, and an **Ask about this
+page** button at the end of the page, before Next. If the learner selects
+text inside a block and presses its Ask, the selection becomes the quote
+of the thread. A question about the whole page has no quote. The page
+shows its thread at its end, under "About this page".
 
 ```ts
 type Thread = {
@@ -593,8 +596,10 @@ writer, and grants no permission.
 ### 8.1 The place in the fragment
 
 The address bar says where the learner is: `#page=<id>`, and
-`&block=<id>` when the learner opened a thread. Back and forward walk the
-pages that the learner read. A reload comes back to the same place.
+`&block=<id>` when the learner opened a thread. A question about the whole
+page writes `&block=page`. A block id is 12 hex digits, so it never reads
+`page`. Back and forward walk the pages that the learner read. A reload
+comes back to the same place.
 
 ### 8.2 Status
 
@@ -646,7 +651,7 @@ second command:
 |---|---|
 | `next` | The page that the learner left |
 | `answer` | The quiz, the open answer, each choice with the option picked, `ok`, and the "Other" text |
-| `ask` | The thread, the id and the source of its block |
+| `ask` | The thread, the id and the source of its block, or no block for a thread about the whole page |
 | `chosen` | The choice and the answers |
 | `broken` | The block, its source, and the error of the page |
 
