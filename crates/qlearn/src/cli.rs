@@ -31,6 +31,15 @@ pub struct Cli {
     pub port: u16,
 }
 
+/// What `qlearn export` prints in place of the course.
+#[derive(Subcommand, Debug)]
+pub enum ExportWhat {
+    /// Print the cheatsheet as Markdown, for a wiki: the blocks of the
+    /// agent, then the map of the code and the points to revisit. Fails
+    /// until the agent writes the cheatsheet.
+    Cheatsheet,
+}
+
 #[derive(Subcommand, Debug)]
 pub enum Command {
     /// List the courses of `.learn/`.
@@ -43,13 +52,17 @@ pub enum Command {
     /// Print the course: its syllabus with the state and the score of each
     /// page, and the points to revisit. Reads the course of the server of
     /// the worktree, or, with no server, the only course of `.learn/`.
-    // `qlearn export cheatsheet` comes later as a subcommand, so `export`
-    // takes no positional argument that would capture the word `cheatsheet`.
+    // No positional argument, such as a slug: the word `cheatsheet` goes
+    // to the subcommand.
+    #[command(args_conflicts_with_subcommands = true)]
     Export {
         /// Print the whole course as JSON, as an agent reads it to resume
         /// the course.
         #[arg(long)]
         json: bool,
+
+        #[command(subcommand)]
+        what: Option<ExportWhat>,
     },
 
     /// Delete a course: remove `.learn/<slug>/`, with the answers and the
@@ -381,10 +394,12 @@ mod tests {
                 "the procedure names `qlearn {word}`, which this release does not have"
             ));
         };
-        // A word after a command that takes none names a subcommand that
-        // this release lacks, such as `qlearn export cheatsheet`.
+        // A word after a command that takes none names a subcommand, which
+        // this release must have, such as `cheatsheet` in `qlearn export
+        // cheatsheet`.
         let next = call[word.len()..].split_whitespace().next().unwrap_or("");
-        let takes_a_word = command.get_positionals().next().is_some() || command.has_subcommands();
+        let takes_a_word =
+            command.get_positionals().next().is_some() || command.find_subcommand(next).is_some();
         (!takes_a_word && next.starts_with(|c: char| c.is_ascii_lowercase())).then(|| {
             format!(
                 "the procedure names `qlearn {word} {next}`, and this release has no \
@@ -432,9 +447,9 @@ mod tests {
     #[test]
     fn inline_code_that_wraps_is_one_call() {
         let cli = Cli::command();
-        let text = "Then run `qlearn export\ncheatsheet` to get it,\nor `qlearn\nbogus`.\n";
+        let text = "Then run `qlearn export\nsheet` to get it,\nor `qlearn\nbogus`.\n";
 
-        assert_eq!(named_calls(text), ["export cheatsheet", "bogus"]);
+        assert_eq!(named_calls(text), ["export sheet", "bogus"]);
         assert!(refusal(&cli, &named_calls(text)[0]).is_some());
     }
 
@@ -458,11 +473,12 @@ mod tests {
     fn a_word_after_a_command_that_takes_none_is_refused() {
         let cli = Cli::command();
 
-        assert!(refusal(&cli, "export cheatsheet").is_some());
+        assert!(refusal(&cli, "export sheet").is_some());
         assert!(refusal(&cli, "points list").is_some());
         assert!(refusal(&cli, "bogus").is_some());
         for call in [
             "export --json",
+            "export cheatsheet > raft.md",
             "points",
             "page 3 --file -",
             "delete <slug> --yes",
@@ -603,15 +619,36 @@ mod tests {
     }
 
     #[test]
-    fn an_export_takes_json_and_no_other_word() {
+    fn an_export_takes_json_or_the_word_cheatsheet() {
         let cli = Cli::try_parse_from(["qlearn", "export"]).unwrap();
-        assert!(matches!(cli.command, Some(Command::Export { json: false })));
+        assert!(matches!(
+            cli.command,
+            Some(Command::Export {
+                json: false,
+                what: None
+            })
+        ));
         let cli = Cli::try_parse_from(["qlearn", "export", "--json"]).unwrap();
-        assert!(matches!(cli.command, Some(Command::Export { json: true })));
+        assert!(matches!(
+            cli.command,
+            Some(Command::Export {
+                json: true,
+                what: None
+            })
+        ));
+        let cli = Cli::try_parse_from(["qlearn", "export", "cheatsheet"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Some(Command::Export {
+                what: Some(ExportWhat::Cheatsheet),
+                ..
+            })
+        ));
 
-        // The word of `qlearn export cheatsheet`, which a later step adds,
-        // must not parse as something else meanwhile.
-        assert!(Cli::try_parse_from(["qlearn", "export", "cheatsheet"]).is_err());
+        // A slug in place of the word would export nothing that it names.
+        assert!(Cli::try_parse_from(["qlearn", "export", "raft"]).is_err());
+        assert!(Cli::try_parse_from(["qlearn", "export", "--json", "cheatsheet"]).is_err());
+        assert!(Cli::try_parse_from(["qlearn", "export", "cheatsheet", "--json"]).is_err());
     }
 
     #[test]

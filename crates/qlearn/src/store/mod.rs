@@ -31,7 +31,7 @@ pub const CHEATSHEET: &str = "cheatsheet.md";
 /// The blocks of the cheatsheet, as the parser wrote them. The excerpts keep
 /// the commit that the write read them at, so the source is not parsed
 /// again at a read.
-const CHEATSHEET_BLOCKS: &str = "cheatsheet.json";
+pub const CHEATSHEET_BLOCKS: &str = "cheatsheet.json";
 
 pub struct Store {
     dir: PathBuf,
@@ -716,6 +716,17 @@ impl Store {
                 path.display()
             )
         })
+    }
+
+    /// The source of the cheatsheet, as the agent wrote it. None when the
+    /// agent has not written it.
+    pub fn load_cheatsheet_source(&self, slug: &str) -> Result<Option<String>> {
+        let path = self.course_dir(slug).join(CHEATSHEET);
+        match fs::read_to_string(&path) {
+            Ok(text) => Ok(Some(text)),
+            Err(e) if e.kind() == ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(e).with_context(|| format!("cannot read {}", path.display())),
+        }
     }
 
     /// The source of a page, as the agent pushed it. None when the agent

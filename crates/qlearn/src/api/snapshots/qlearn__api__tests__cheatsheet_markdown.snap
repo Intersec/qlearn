@@ -1,0 +1,30 @@
+---
+source: crates/qlearn/src/api/mod.rs
+expression: shape
+---
+{
+  "before": {
+    "body": {
+      "error": {
+        "code": "notFound",
+        "message": "the agent has not written the cheatsheet of this course yet. It writes it with `qlearn cheatsheet`"
+      }
+    },
+    "status": 404
+  },
+  "withoutToken": {
+    "body": {
+      "error": {
+        "code": "unauthorized",
+        "message": "open the address that qlearn printed: it carries the token"
+      }
+    },
+    "status": 401
+  },
+  "written": {
+    "contentDisposition": "attachment; filename=\"raft-cheatsheet.md\"",
+    "contentType": "text/markdown; charset=utf-8",
+    "contentTypeOptions": "nosniff",
+    "status": 200
+  }
+}

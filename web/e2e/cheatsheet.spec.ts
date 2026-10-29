@@ -4,6 +4,7 @@
 //
 // This suite watches the console too: the cheatsheet draws with no error.
 
+import { readFile } from 'node:fs/promises';
 import { expect, test, type Page } from '@playwright/test';
 import { DEBRIEF_1, PAGE_1, QUIZ_1, SHEET, SYLLABUS } from './agent.ts';
 import { start, type Running } from './server.ts';
@@ -95,6 +96,24 @@ test('the cheatsheet adds the map of the code and the points to revisit', async 
   await expect(sheet).toBeVisible();
 });
 
+test('the button saves the cheatsheet as Markdown, with the cookie of the page', async ({
+  page,
+}) => {
+  await server.agent.page('1', PAGE_1);
+  await server.agent.cheatsheet(SHEET);
+  await page.goto(`${server.url}#cheatsheet`);
+
+  const saved = page.waitForEvent('download');
+  await page.getByRole('link', { name: 'Save as Markdown' }).click();
+  const download = await saved;
+
+  expect(download.suggestedFilename()).toBe('myproject-cheatsheet.md');
+  const text = await readFile(await download.path(), 'utf8');
+  expect(text).toMatch(/^# Raft elections on one page\n/);
+  expect(text).toContain('\n## Map of the code\n');
+  expect(text).toContain('\n## To revisit\n');
+});
+
 test('the page under the cheatsheet opens from its top', async ({ page }) => {
   await server.agent.page('1', PAGE_1);
   await server.agent.cheatsheet(SHEET);
@@ -135,6 +154,7 @@ test('print shows the sheet alone, in two columns, with light colors', async ({ 
 
   expect(await look()).toEqual({ columns: '2', ground: 'rgb(255, 255, 255)' });
   await expect(page.locator('button:visible')).toHaveCount(0);
+  await expect(page.locator('.cheatsheet-markdown')).toBeHidden();
   await expect(page.getByRole('navigation', { name: 'Syllabus' })).toBeHidden();
   await expect(page.locator('.top-bar')).toBeHidden();
   await expect(sheet.locator('.cheatsheet-range')).toBeVisible();

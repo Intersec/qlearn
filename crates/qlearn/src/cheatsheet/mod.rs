@@ -6,6 +6,8 @@
 //! by construction, and a result that the learner gets after the write
 //! shows at the next read.
 
+pub mod markdown;
+
 use std::collections::BTreeSet;
 
 use anyhow::{Result, anyhow};
@@ -14,7 +16,12 @@ use serde::{Deserialize, Serialize};
 use crate::model::{
     Block, Cheatsheet, CodeRange, Course, Excerpt, Grade, PageName, Point, Revisit,
 };
-use crate::store::{PageFile, Store};
+use crate::store::{self, PageFile, Store};
+
+/// Why there is no cheatsheet to export, as the route and the command say
+/// it.
+pub const NOT_WRITTEN: &str = "the agent has not written the cheatsheet of this course yet. \
+     It writes it with `qlearn cheatsheet`";
 
 /// What `cheatsheet.json` holds.
 ///
@@ -40,7 +47,49 @@ pub fn build(store: &Store, course: &Course, sheet: Option<CheatsheetFile>) -> R
             revisit: Vec::new(),
         });
     };
+    let points = store.load_points(&course.slug)?;
+    written(store, course, sheet, points)
+}
 
+/// The cheatsheet as Markdown, for a wiki (section 9 of the design). None:
+/// the agent has not written it.
+///
+/// `points` gives the points of the course: a server reads them, and
+/// `qlearn export cheatsheet` with no server settles them as a server
+/// would at its start. It is called only once the cheatsheet is written.
+pub fn markdown(
+    store: &Store,
+    course: &Course,
+    points: impl FnOnce() -> Result<Vec<Point>>,
+) -> Result<Option<String>> {
+    let Some(sheet) = store.load_cheatsheet(&course.slug)? else {
+        return Ok(None);
+    };
+    // The blocks file is written last, so the source is there. One missing
+    // was removed by hand.
+    let source = store.load_cheatsheet_source(&course.slug)?.ok_or_else(|| {
+        anyhow!(
+            "{} is missing, though {} holds the blocks of the cheatsheet. Ask the agent \
+             to write the cheatsheet again with `qlearn cheatsheet`",
+            store
+                .course_dir(&course.slug)
+                .join(store::CHEATSHEET)
+                .display(),
+            store::CHEATSHEET_BLOCKS
+        )
+    })?;
+    let sheet = written(store, course, sheet, points()?)?;
+    markdown::render(&sheet, &source).map(Some)
+}
+
+/// The cheatsheet that the agent wrote, with the two sections of the
+/// server.
+fn written(
+    store: &Store,
+    course: &Course,
+    sheet: CheatsheetFile,
+    points: Vec<Point>,
+) -> Result<Cheatsheet> {
     let pages = pages_of(store, course)?;
     let mut blocks = sheet.blocks;
     // The agent may show the hidden line of a page whose quiz waits, as a
@@ -57,7 +106,7 @@ pub fn build(store: &Store, course: &Course, sheet: Option<CheatsheetFile>) -> R
         written: true,
         blocks,
         map: map(&shown),
-        revisit: revisit(course, store.load_points(&course.slug)?),
+        revisit: revisit(course, points),
     })
 }
 

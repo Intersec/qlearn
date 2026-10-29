@@ -181,6 +181,67 @@ async fn a_course_exported_and_reopened_after_a_restart_shows_everything() {
     assert!(interrupt(server).await.success());
 }
 
+/// The learner saves the cheatsheet as Markdown with `qlearn export
+/// cheatsheet`, through the server or with none, before a delete.
+#[tokio::test]
+async fn the_cheatsheet_exports_as_markdown_with_a_server_and_with_none() {
+    let repo = build_repo();
+    let root = repo.path();
+    let mut server = qlearn(root, &["raft", "--no-open"]).spawn().unwrap();
+    read_url(&mut server).await;
+    teach(root).await;
+
+    // Before the agent writes it, both ways name the command that does.
+    let missing = run(root, &["export", "cheatsheet"], None).await;
+    assert_eq!(missing.status.code(), Some(1), "{missing:?}");
+    assert!(
+        stderr(&missing).contains("`qlearn cheatsheet`"),
+        "{missing:?}"
+    );
+    assert!(missing.stdout.is_empty(), "{missing:?}");
+    assert!(interrupt(server).await.success());
+    let offline = run(root, &["export", "cheatsheet"], None).await;
+    assert_eq!(offline.status.code(), Some(1), "{offline:?}");
+    assert_eq!(stderr(&offline), stderr(&missing));
+
+    let mut server = qlearn(root, &["raft", "--no-open"]).spawn().unwrap();
+    read_url(&mut server).await;
+    let sheet = "# Raft in one page\n\n> [!hook]\n> The first to wake up wins.\n\n\
+                 ```excerpt\npath: a.txt\nlines: 1\n```\n";
+    json_of(&run(root, &["cheatsheet", "--file", "-"], Some(sheet)).await);
+
+    let served = run(root, &["export", "cheatsheet"], None).await;
+    assert!(served.status.success(), "{served:?}");
+    let text = stdout(&served);
+    assert!(
+        text.starts_with("# Raft in one page\n\n> **🧠 Hook.**\n"),
+        "{text}"
+    );
+    assert!(text.contains("```\none\n```"), "{text}");
+    assert!(text.contains("\n## Map of the code\n"), "{text}");
+    assert!(
+        text.ends_with(
+            "## To revisit\n\n\
+             - **Missed**: How a split vote ends (Two leaders, page 1)\n\
+             - **Partial**: Why the timeout is random (Two leaders, page 1)\n"
+        ),
+        "{text}"
+    );
+    assert!(interrupt(server).await.success());
+
+    // With no server, the store gives the same file, and nothing is
+    // written.
+    let stored = std::fs::read_to_string(root.join(".learn/raft/course.json")).unwrap();
+    let offline = run(root, &["export", "cheatsheet"], None).await;
+    assert!(offline.status.success(), "{offline:?}");
+    assert_eq!(stdout(&offline), text);
+    assert_eq!(
+        std::fs::read_to_string(root.join(".learn/raft/course.json")).unwrap(),
+        stored
+    );
+    assert!(!root.join(".learn/server.json").exists());
+}
+
 #[tokio::test]
 async fn an_export_with_no_server_and_several_courses_says_what_to_run() {
     let repo = build_repo();

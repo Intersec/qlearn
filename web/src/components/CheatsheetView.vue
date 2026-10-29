@@ -19,6 +19,9 @@ const finished = computed(() => props.course.status === 'finished');
 /** Where the store keeps the course, as the learner finds it in the worktree. */
 const dir = computed(() => `.learn/${props.course.slug}/`);
 
+/** The name that the server gives the file, so the browser keeps it. */
+const markdownName = computed(() => `${props.course.slug}-cheatsheet.md`);
+
 function where(range: CodeRange): string {
   return range.from === range.to
     ? `${range.path}:${range.from}`
@@ -46,12 +49,15 @@ function print() {
     <div class="cheatsheet-bar">
       <p v-if="finished" role="note" class="cheatsheet-keep">
         This cheatsheet lives in <code>{{ dir }}</code> of this worktree. Deleting the course
-        deletes it, so save it first: print it, or pick <strong>Save as PDF</strong> in the print
-        dialog.
+        deletes it, so save it first: print it, pick <strong>Save as PDF</strong> in the print
+        dialog, or save it as Markdown for a wiki.
       </p>
-      <!-- The exports of the cheatsheet join the print here. -->
       <div class="cheatsheet-exports">
         <button type="button" class="cheatsheet-print" @click="print">Print or save as PDF</button>
+        <!-- A link of the same origin carries the cookie of the token. -->
+        <a class="cheatsheet-markdown" href="/api/cheatsheet.md" :download="markdownName"
+          >Save as Markdown</a
+        >
       </div>
     </div>
 

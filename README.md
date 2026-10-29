@@ -29,7 +29,7 @@ qlearn list                     # list the courses of .learn/
 qlearn export                   # the syllabus, the scores, the points to revisit
 qlearn export --json            # the whole course, as an agent reads it to resume
 qlearn delete raft-election     # delete a course, once its server is stopped
-qlearn export cheatsheet        # the cheatsheet, as Markdown
+qlearn export cheatsheet        # the cheatsheet, as Markdown for a wiki
 ```
 
 | Option | What it does |
@@ -68,6 +68,17 @@ it. `--yes` skips the question.
 
 `qlearn export` asks the server of the worktree for the course. With no
 server, it reads the only course of `.learn/`.
+
+`qlearn export cheatsheet` prints the cheatsheet as Markdown on standard
+output, the same way. Save it before a delete:
+
+```sh
+qlearn export cheatsheet > raft-cheatsheet.md
+```
+
+The excerpts come as fenced code under their `path:from-to` and commit,
+the diagrams as `mermaid` fences, the charts as tables, and the steps as a
+numbered list. The command fails until the agent writes the cheatsheet.
 
 ## Learn with an agent
 

@@ -44,6 +44,13 @@ impl Client {
         self.send("GET", path, None).await
     }
 
+    /// The body of a route that answers a text and not JSON, such as the
+    /// Markdown of the cheatsheet.
+    pub async fn get_text(&self, path: &str) -> Result<String> {
+        let body = self.answer("GET", path, None).await?;
+        String::from_utf8(body).context("the server sent a text that is not UTF-8")
+    }
+
     pub async fn post(&self, path: &str, body: &Value) -> Result<Value> {
         self.send("POST", path, Some(Body::json(body))).await
     }
@@ -67,14 +74,20 @@ impl Client {
     }
 
     async fn send(&self, method: &str, path: &str, body: Option<Body>) -> Result<Value> {
+        let body = self.answer(method, path, body).await?;
+        Ok(serde_json::from_slice(&body).unwrap_or(Value::Null))
+    }
+
+    /// The body of a success, or the refusal of the server as an error.
+    async fn answer(&self, method: &str, path: &str, body: Option<Body>) -> Result<Vec<u8>> {
         let call = self.exchange(method, path, body);
         let raw = tokio::time::timeout(self.timeout, call)
             .await
             .with_context(|| format!("the server did not answer {method} {path}"))??;
         let (status, body) = parse(&raw)?;
-        let value: Value = serde_json::from_slice(&body).unwrap_or(Value::Null);
 
         if !(200..300).contains(&status) {
+            let value: Value = serde_json::from_slice(&body).unwrap_or(Value::Null);
             let message = value["error"]["message"]
                 .as_str()
                 .map(str::to_owned)
@@ -86,7 +99,7 @@ impl Client {
             }
             .into());
         }
-        Ok(value)
+        Ok(body)
     }
 
     async fn exchange(&self, method: &str, path: &str, body: Option<Body>) -> Result<Vec<u8>> {

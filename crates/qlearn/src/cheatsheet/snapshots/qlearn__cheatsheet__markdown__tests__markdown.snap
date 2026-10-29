@@ -1,0 +1,84 @@
+---
+source: crates/qlearn/src/cheatsheet/markdown.rs
+expression: text
+---
+# Raft in one page
+
+The random timeout breaks the tie. A `|` in code, and <b>raw HTML</b>.
+
+| Name | What |
+|---|---|
+| `election_timeout` | the wait of a follower |
+
+> **🧠 Hook.**
+> The first follower to wake up wins.
+
+>**⚠️ Pitfall.** A `base` of 0 divides by zero.
+>
+> Check it.
+
+`src/raft.c:2-4` at `<top>`, lines 2-3 marked
+
+```c
+int election_timeout(int base)
+{
+▒▒▒ hidden line ▒▒▒
+```
+
+`vendor/lib/src/lib.c:2` at `<lib>` in submodule `vendor/lib`
+
+```c
+struct server *servers;
+```
+
+```mermaid
+graph LR
+  F[Follower] --> C[Candidate]
+```
+
+**Election time, by timeout range**
+
+Values: Median election time, in ms.
+
+| Timeout range (ms) | 5 servers |
+| --- | ---: |
+| 150-300 | 283 |
+| 150-151 | 1520 |
+
+**The term of each server**
+
+Values: Term.
+
+| Time (s) | S1 | S\|2 |
+| --- | ---: | ---: |
+| 0 | 1 | 1 |
+| 1 |  | 2 |
+| 2 | 3 | 3 |
+
+**From follower to leader**
+
+1. **Before**: Every server is a *follower*.
+
+   | Server | State |
+   | --- | --- |
+   | S1 | follower |
+   | S2 | follower |
+
+2. **The vote**: S1 asks S2 for its `vote`.
+
+   ```mermaid
+   sequenceDiagram
+     S1->>S2: RequestVote
+   ```
+
+**Image**: The states of a server (`docs/states.png` at `<top>`)
+
+## Map of the code
+
+- `src/raft.c:1-4` at `<top>` (The timer, page 1; The \*vote\*, page c1)
+- `vendor/lib/src/lib.c:2` at `<lib>` in submodule `vendor/lib` (The servers, page 2)
+
+## To revisit
+
+- **Missed**: How a split vote ends (The timer, page 1)
+- **Partial**: How many votes win (page 9)

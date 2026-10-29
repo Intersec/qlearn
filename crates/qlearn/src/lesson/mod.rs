@@ -213,6 +213,50 @@ pub fn sources(source: &str, within: Within) -> Vec<BlockSource> {
     split(source, Highlighter::shared(), within).sources
 }
 
+/// A source cut into blocks that each read alone, for an export.
+pub struct Cut {
+    /// The Markdown of each block by id, from the start of its first line.
+    pub blocks: HashMap<String, String>,
+    /// The link reference definitions that lie outside every block. They
+    /// give no event, so no block holds them, yet a block may name them.
+    pub definitions: Vec<String>,
+}
+
+/// The blocks of a source as Markdown that reads alone, by id.
+pub fn cut(source: &str, within: Within) -> Cut {
+    let split = split(source, Highlighter::shared(), within);
+    let blocks = split
+        .sources
+        .into_iter()
+        .zip(&split.spans)
+        .map(|(block, span)| (block.id, source[span.clone()].to_owned()))
+        .collect();
+
+    let parser = Parser::new_ext(source, OPTIONS);
+    let mut outside: Vec<Range<usize>> = parser
+        .reference_definitions()
+        .iter()
+        .map(|(_, definition)| definition.span.clone())
+        .filter(|at| {
+            !split
+                .spans
+                .iter()
+                .any(|span| span.start <= at.start && at.end <= span.end)
+        })
+        .collect();
+    // The definitions sit in a map, with no order.
+    outside.sort_by_key(|at| at.start);
+    let definitions = outside
+        .into_iter()
+        .map(|at| source[at].trim().to_owned())
+        .collect();
+
+    Cut {
+        blocks,
+        definitions,
+    }
+}
+
 /// The HTML of the Markdown of a comment. The HTML of the source is
 /// escaped and a fence is colored, as in a text block.
 pub fn markdown(source: &str) -> String {
@@ -229,6 +273,7 @@ struct Split {
     /// The errors that need no git call.
     faults: Vec<Fault>,
     sources: Vec<BlockSource>,
+    spans: Vec<Range<usize>>,
 }
 
 /// The pieces of a page, its title, and the errors that need no git call.
@@ -246,6 +291,7 @@ fn split(source: &str, highlighter: &Highlighter, within: Within) -> Split {
         open: None,
         seen: HashMap::new(),
         sources: Vec::new(),
+        spans: Vec::new(),
     };
     let mut title = None;
     let mut faults = Vec::new();
@@ -294,8 +340,6 @@ fn split(source: &str, highlighter: &Highlighter, within: Within) -> Split {
                 // A callout is a block of its own, as a heading starts one.
                 page.close();
                 let line = line_of(range.start);
-                // The blank lines after a quote are not part of it.
-                let quote_source = source[range].trim_end();
                 match Marker::of_word(&opening.word) {
                     None => faults.push(unknown_marker(line, &opening.word)),
                     Some(marker) => {
@@ -312,7 +356,7 @@ fn split(source: &str, highlighter: &Highlighter, within: Within) -> Split {
                             true => faults.push(empty_callout(line)),
                             false => {
                                 let html = Writer::new(highlighter).node(&body);
-                                let id = page.id("callout", quote_source);
+                                let id = page.id("callout", range.clone());
                                 page.blocks
                                     .push(Piece::Block(Block::Callout { id, marker, html }));
                             }
@@ -324,11 +368,9 @@ fn split(source: &str, highlighter: &Highlighter, within: Within) -> Split {
                 page.close();
                 let fence = line_of(range.start);
                 let body = fence_body(node);
-                // The blank lines after a fence are not part of it.
-                let fence_source = source[range].trim_end();
                 match excerpt::spec(&body, fence) {
                     Ok(spec) => {
-                        let id = page.id("excerpt", fence_source);
+                        let id = page.id("excerpt", range.clone());
                         page.blocks.push(Piece::Excerpt(id, spec));
                     }
                     Err(found) => faults.extend(found),
@@ -338,11 +380,9 @@ fn split(source: &str, highlighter: &Highlighter, within: Within) -> Split {
                 page.close();
                 let line = line_of(range.start);
                 let body = fence_body(node);
-                // The blank lines after a fence are not part of it.
-                let fence_source = source[range].trim_end();
                 match check_diagram(&body, line) {
                     Ok(()) => {
-                        let id = page.id("diagram", fence_source);
+                        let id = page.id("diagram", range.clone());
                         page.blocks
                             .push(Piece::Block(Block::Diagram { id, source: body }));
                     }
@@ -353,11 +393,9 @@ fn split(source: &str, highlighter: &Highlighter, within: Within) -> Split {
                 page.close();
                 let line = line_of(range.start);
                 let body = fence_body(node);
-                // The blank lines after a fence are not part of it.
-                let fence_source = source[range].trim_end();
                 match chart::parse(&body, line) {
                     Ok(chart) => {
-                        let id = page.id("chart", fence_source);
+                        let id = page.id("chart", range.clone());
                         page.blocks.push(Piece::Block(Block::Chart { id, chart }));
                     }
                     Err(found) => faults.extend(found),
@@ -367,11 +405,9 @@ fn split(source: &str, highlighter: &Highlighter, within: Within) -> Split {
                 page.close();
                 let line = line_of(range.start);
                 let body = fence_body(node);
-                // The blank lines after a fence are not part of it.
-                let fence_source = source[range].trim_end();
                 match steps::parse(&body, line) {
                     Ok(steps) => {
-                        let id = page.id("steps", fence_source);
+                        let id = page.id("steps", range.clone());
                         page.blocks.push(Piece::Block(Block::Steps { id, steps }));
                     }
                     Err(found) => faults.extend(found),
@@ -383,11 +419,9 @@ fn split(source: &str, highlighter: &Highlighter, within: Within) -> Split {
                 let Event::Start(Tag::Image { dest_url, .. }) = &node[1].0 else {
                     unreachable!("the role checked the image");
                 };
-                // The blank lines after a paragraph are not part of it.
-                let paragraph_source = source[range].trim_end();
                 match image::spec(&plain_text(&node[2..node.len() - 2]), dest_url, line) {
                     Ok(spec) => {
-                        let id = page.id("image", paragraph_source);
+                        let id = page.id("image", range.clone());
                         page.blocks.push(Piece::Image(id, spec));
                     }
                     Err(found) => faults.extend(found),
@@ -407,6 +441,7 @@ fn split(source: &str, highlighter: &Highlighter, within: Within) -> Split {
         title,
         faults,
         sources: page.sources,
+        spans: page.spans,
     }
 }
 
@@ -813,10 +848,25 @@ struct Page<'s> {
     seen: HashMap<(&'static str, &'s str), usize>,
     /// Each block with an id, as the agent wrote it.
     sources: Vec<BlockSource>,
+    /// The bytes of each of `sources`, from the start of its first line.
+    spans: Vec<Range<usize>>,
 }
 
 impl<'s> Page<'s> {
-    fn id(&mut self, kind: &'static str, source: &'s str) -> String {
+    /// The id of the block that `range` of the source holds.
+    fn id(&mut self, kind: &'static str, range: Range<usize>) -> String {
+        let whole: &'s str = self.source;
+        // The blank lines after a block are not part of it: a page pushed
+        // again with one more section keeps the id of this one.
+        let source = whole[range.clone()].trim_end();
+        // The parser starts a block after its indent, which an indented
+        // code block needs.
+        let line = whole[..range.start].rfind('\n').map_or(0, |at| at + 1);
+        let start = match whole[line..range.start].trim_start_matches([' ', '\t']) {
+            "" => line,
+            _ => range.start,
+        };
+        self.spans.push(start..range.start + source.len());
         let rank = self.seen.entry((kind, source)).or_default();
         *rank += 1;
         let id = block_id(kind, source, *rank, self.within);
@@ -847,11 +897,7 @@ impl<'s> Page<'s> {
         let Some((covered, html)) = self.open.take() else {
             return;
         };
-        // The blank lines after a block are not part of it: a page pushed
-        // again with one more section keeps the id of this one.
-        let source = self.source[covered].trim_end();
-
-        let id = self.id("text", source);
+        let id = self.id("text", covered);
         self.blocks.push(Piece::Block(Block::Text { id, html }));
     }
 }

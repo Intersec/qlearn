@@ -68,6 +68,28 @@ pub fn parse(body: &str, fence: usize) -> Result<Steps, Vec<Fault>> {
     }
 }
 
+/// The body of each step, in Markdown, from the source of a steps fence
+/// that passed the checks. A block holds the bodies as HTML only, and the
+/// Markdown export of the cheatsheet needs them as the agent wrote them.
+/// None when the source is no such fence.
+pub fn bodies(fence: &str) -> Option<Vec<String>> {
+    use pulldown_cmark::{Event, Parser};
+
+    let json: String = Parser::new(fence)
+        .filter_map(|event| match event {
+            Event::Text(text) => Some(text.into_string()),
+            _ => None,
+        })
+        .collect();
+    let value: Value = serde_json::from_str(&json).ok()?;
+    value
+        .get("steps")?
+        .as_array()?
+        .iter()
+        .map(|step| Some(step.get("body")?.as_str()?.trim().to_owned()))
+        .collect()
+}
+
 fn read(value: &Value, faults: &mut Vec<String>) -> Option<Steps> {
     let fields = object(value, "the steps", faults)?;
     for name in fields.keys() {
@@ -371,6 +393,20 @@ fn read_diagram(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The Markdown of each body, as the agent wrote it, for the export of
+    /// the cheatsheet.
+    #[test]
+    fn the_bodies_come_from_the_source_of_the_fence() {
+        let fence = "~~~steps\n{ \"steps\": [\n  { \"label\": \"a\", \"body\": \" S1 *wakes*. \" },\n  \
+                     { \"label\": \"b\", \"body\": \"`vote` <b>\" } ] }\n~~~";
+
+        assert_eq!(
+            bodies(fence),
+            Some(vec!["S1 *wakes*.".to_owned(), "`vote` <b>".to_owned()])
+        );
+        assert_eq!(bodies("Some text."), None);
+    }
 
     fn faults(body: &str) -> Vec<String> {
         parse(body, 10)

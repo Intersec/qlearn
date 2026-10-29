@@ -1,8 +1,8 @@
 //! The HTTP routes.
 //!
-//! Every answer but an image is JSON, and every error carries the same
-//! shape, so the page and the commands of the agent never have to guess
-//! what came back.
+//! Every answer but an image and the Markdown of the cheatsheet is JSON,
+//! and every error carries the same shape, so the page and the commands
+//! of the agent never have to guess what came back.
 
 pub mod auth;
 
@@ -113,6 +113,7 @@ pub fn app(state: AppState) -> Router {
         .route("/api/findings/{id}", put(write_finding))
         .route("/api/media/{name}", get(media))
         .route("/api/cheatsheet", get(cheatsheet).put(write_cheatsheet))
+        .route("/api/cheatsheet.md", get(cheatsheet_markdown))
         .method_not_allowed_fallback(method_not_allowed)
         .fallback(interface)
         .layer(middleware::from_fn_with_state(state.clone(), auth::guard))
@@ -1286,6 +1287,41 @@ async fn cheatsheet(State(state): State<AppState>) -> Result<Json<Cheatsheet>, A
     drop(course);
 
     Ok(Json(sheet))
+}
+
+/// The cheatsheet as Markdown, as a file to save: the export for a wiki
+/// (section 9 of the design).
+///
+/// Before the write, a 404: the page asks only from its button, which shows
+/// once the cheatsheet is written, and the agent learns which command
+/// writes it.
+async fn cheatsheet_markdown(State(state): State<AppState>) -> Result<Response, ApiError> {
+    use axum::http::header;
+
+    // Held while the files are read, so a read never sees a write halfway
+    // through.
+    let course = state.course.read().await;
+    let text = crate::cheatsheet::markdown(&state.store, &course, || {
+        state.store.load_points(&course.slug)
+    })?
+    .ok_or_else(|| ApiError::not_found(crate::cheatsheet::NOT_WRITTEN.to_owned()))?;
+    // A slug holds lowercase letters, digits and hyphens only, so the name
+    // needs no quoting rule.
+    let name = format!("attachment; filename=\"{}-cheatsheet.md\"", course.slug);
+    drop(course);
+
+    Ok((
+        [
+            (
+                header::CONTENT_TYPE,
+                "text/markdown; charset=utf-8".to_owned(),
+            ),
+            (header::X_CONTENT_TYPE_OPTIONS, "nosniff".to_owned()),
+            (header::CONTENT_DISPOSITION, name),
+        ],
+        text,
+    )
+        .into_response())
 }
 
 /// Write the cheatsheet, in place of the one before. The body is the
@@ -6019,6 +6055,50 @@ mod tests {
         answer_quiz(&state, 1).await;
         let (_, read) = json(app(state), get_with_cookie("/api/cheatsheet", TOKEN)).await;
         assert_eq!(lines(&read)[1]["text"], "    return base + rand() % base;");
+    }
+
+    /// The Markdown of the cheatsheet comes as a file to save, under the
+    /// token. Before the write, a 404 names the command that writes it.
+    #[tokio::test]
+    async fn the_markdown_route_answers_the_cheatsheet_as_a_file() {
+        let uri = "/api/cheatsheet.md";
+        let (dir, state) = with_quiz(EXCERPT, QUIZ_TWO_POINTS).await;
+        let stored = files(dir.path());
+        let (before, missing) = json(app(state.clone()), get_with_cookie(uri, TOKEN)).await;
+        assert_eq!(files(dir.path()), stored, "a read writes nothing");
+        // Line 4 shows here, and page 1 hides it until its quiz is answered.
+        let source = "# Raft\n\n```excerpt\npath: src/raft.c\nlines: 3-4\n```\n";
+        let (status, written) = write_sheet(&state, source).await;
+        assert_eq!(status, StatusCode::OK, "{written}");
+        let untouched = outside(dir.path());
+        let stored = files(dir.path());
+
+        let (status, headers, body) = bytes(app(state.clone()), get_with_cookie(uri, TOKEN)).await;
+
+        let text = String::from_utf8(body).unwrap();
+        assert!(text.starts_with("# Raft\n"), "{text}");
+        assert!(text.contains(crate::cheatsheet::markdown::HIDDEN), "{text}");
+        assert!(!text.contains("return base"), "{text}");
+        assert!(text.contains("\n## Map of the code\n"), "{text}");
+        assert!(
+            text.ends_with("## To revisit\n\nNothing to revisit.\n"),
+            "{text}"
+        );
+        assert_eq!(files(dir.path()), stored, "a read writes nothing");
+        assert_eq!(outside(dir.path()), untouched, "a write outside .learn/");
+        let header = |name: header::HeaderName| headers[name].to_str().unwrap().to_owned();
+        let (unauthorized, refused) = json(app(state), get(uri)).await;
+        let shape = serde_json::json!({
+            "before": { "status": before.as_u16(), "body": missing },
+            "written": {
+                "status": status.as_u16(),
+                "contentType": header(header::CONTENT_TYPE),
+                "contentDisposition": header(header::CONTENT_DISPOSITION),
+                "contentTypeOptions": header(header::X_CONTENT_TYPE_OPTIONS),
+            },
+            "withoutToken": { "status": unauthorized.as_u16(), "body": refused },
+        });
+        insta::assert_json_snapshot!("cheatsheet_markdown", shape);
     }
 
     /// A trace goes into a log or a bug report. The token must not.

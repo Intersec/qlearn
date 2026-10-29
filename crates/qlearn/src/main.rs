@@ -24,7 +24,7 @@ use qlearn::agent::{self, Claim, Home, socket};
 use qlearn::api::{self, AppState, auth};
 use qlearn::events::Events;
 use qlearn::git::exec::Git;
-use qlearn::model::{CourseChange, CourseStatus, Export, QuizMode};
+use qlearn::model::{Course, CourseChange, CourseStatus, Export, Point, QuizMode};
 use qlearn::status::{self, Agent, Snapshot, Terminal};
 use qlearn::store::{self, Store};
 use qlearn::trace;
@@ -63,7 +63,13 @@ async fn main() -> Result<()> {
             print!("{}", store.listing()?);
             return Ok(());
         }
-        Some(cli::Command::Export { json }) => return export(&store, &home, *json).await,
+        Some(cli::Command::Export {
+            what: Some(cli::ExportWhat::Cheatsheet),
+            ..
+        }) => return export_cheatsheet(&store, &home).await,
+        Some(cli::Command::Export { json, what: None }) => {
+            return export(&store, &home, *json).await;
+        }
         Some(cli::Command::Delete { slug, yes }) => {
             let code = delete(&store, &home, slug, *yes).await?;
             std::process::exit(code);
@@ -285,17 +291,26 @@ async fn agent_command(cli: &cli::Cli, home: &Home) -> Result<Option<i32>> {
     Ok(Some(0))
 }
 
-/// Print the course: as a summary for the learner, or whole as JSON for an
-/// agent that resumes it.
-///
-/// The server of the worktree answers when one runs. With no server, the
-/// course is read in the store, as `qlearn` with no slug finds it. The
-/// claim on the worktree is held meanwhile: a server writes the store as
-/// it starts, before it answers, and none can start while the claim is
-/// held.
-async fn export(store: &Store, home: &Home, json: bool) -> Result<()> {
-    let export: Export = match agent::claim(home)? {
-        Some(_claim) => {
+/// Where an export reads the course.
+enum Reader {
+    /// The server of the worktree.
+    Server(Client),
+    /// The store, with no server, as a server would show it after its
+    /// start. The claim keeps a server from starting meanwhile.
+    Store {
+        course: Course,
+        points: Vec<Point>,
+        _claim: Claim,
+    },
+}
+
+/// The server of the worktree when one runs. With no server, the course
+/// is read in the store, as `qlearn` with no slug finds it. The claim on
+/// the worktree is held meanwhile: a server writes the store as it starts,
+/// before it answers, and none can start while the claim is held.
+async fn reader(store: &Store, home: &Home) -> Result<Reader> {
+    match agent::claim(home)? {
+        Some(claim) => {
             let course = store.only().context(
                 "no qlearn server runs on this worktree, so qlearn export reads the only \
                  course of .learn/. Open the course to export with `qlearn <slug>`, then \
@@ -303,24 +318,53 @@ async fn export(store: &Store, home: &Home, json: bool) -> Result<()> {
             )?;
             let points = store.load_points(&course.slug)?;
             let (course, points) = api::settled(store, &course, points)?;
-            let current = store.current(&course)?;
-            qlearn::export::build(store, &course, current, points)?
+            Ok(Reader::Store {
+                course,
+                points,
+                _claim: claim,
+            })
         }
         None => {
             let Some((probe, _)) = agent::running_soon(home).await else {
                 bail!(NOT_ANSWERING);
             };
             // The probe gives up in seconds, and a long course takes longer.
-            let client = Client::new(probe.address().clone());
-            serde_json::from_value(agent::export(&client).await?)
-                .context("the server sent no course")?
+            Ok(Reader::Server(Client::new(probe.address().clone())))
         }
+    }
+}
+
+/// Print the course: as a summary for the learner, or whole as JSON for an
+/// agent that resumes it.
+async fn export(store: &Store, home: &Home, json: bool) -> Result<()> {
+    let export: Export = match reader(store, home).await? {
+        Reader::Store { course, points, .. } => {
+            let current = store.current(&course)?;
+            qlearn::export::build(store, &course, current, points)?
+        }
+        Reader::Server(client) => serde_json::from_value(agent::export(&client).await?)
+            .context("the server sent no course")?,
     };
 
     match json {
         true => println!("{}", serde_json::to_string_pretty(&export)?),
         false => print!("{}", qlearn::report::summary(&export)),
     }
+    Ok(())
+}
+
+/// Print the cheatsheet as Markdown, for a wiki. The server answers when
+/// one runs, and the store with no server, as for `qlearn export`.
+async fn export_cheatsheet(store: &Store, home: &Home) -> Result<()> {
+    let text = match reader(store, home).await? {
+        Reader::Store { course, points, .. } => {
+            qlearn::cheatsheet::markdown(store, &course, || Ok(points))?
+                .context(qlearn::cheatsheet::NOT_WRITTEN)?
+        }
+        Reader::Server(client) => agent::cheatsheet_markdown(&client).await?,
+    };
+
+    print!("{text}");
     Ok(())
 }
 

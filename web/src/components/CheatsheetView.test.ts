@@ -160,6 +160,7 @@ describe('CheatsheetView', () => {
     expect(note).toContain('.learn/raft/');
     expect(note).toContain('Deleting the course deletes it');
     expect(note).toContain('Save as PDF');
+    expect(note).toContain('Markdown');
   });
 
   it('promises no fix of a diagram that Mermaid refuses: no request reaches the agent', async () => {
@@ -192,6 +193,15 @@ describe('CheatsheetView', () => {
       'Parse error on line 2',
       'Parse error on line 2',
     ]);
+  });
+
+  it('saves the Markdown that the server writes, under the name of the course', () => {
+    const wrapper = mount(CheatsheetView, { props: { cheatsheet: sheet(), course: course() } });
+
+    const link = wrapper.get('a.cheatsheet-markdown');
+    expect(link.text()).toBe('Save as Markdown');
+    expect(link.attributes('href')).toBe('/api/cheatsheet.md');
+    expect(link.attributes('download')).toBe('raft-cheatsheet.md');
   });
 
   it('prints with the print dialog of the browser', async () => {

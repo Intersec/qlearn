@@ -1110,6 +1110,106 @@ one fragment and gives Back and a reload for free.
 - **The print colors said again for print.** A third copy of the light
   tokens, where `@media screen` on the dark ones gives the same result.
 
+## 2026-10-29 — Holes found by the Markdown export
+
+Sections 8, 9 and 11 give the route, the command and the outline of the
+Markdown export of the cheatsheet. The code needed more answers.
+
+**Decisions.**
+
+- **One function renders the Markdown**, `cheatsheet::markdown`. The
+  route `GET /api/cheatsheet.md` and `qlearn export cheatsheet` with no
+  server both call it. It renders the cheatsheet as the page gets it:
+  the stored blocks, with each line that a page still hides as `null`,
+  then Map of the code and To revisit, built at the read.
+- **The Markdown of a text, a callout and a step body comes from
+  `cheatsheet.md`.** The blocks hold them as HTML only. The server splits
+  the source and finds each block by its id, as a thread finds the source
+  of its block. The split reads no repository, so no `rev` moves: the
+  excerpts, the charts and the images come from the blocks. A block that
+  the source does not hold fails the export, and the error says to write
+  the cheatsheet again. So does a missing `cheatsheet.md`.
+- **A text block** is its source, as the agent wrote it, tables and fences
+  of code included. Raw HTML stays as written: the page never renders the
+  file, and a wiki applies its own rules. The source of a block starts at
+  the start of its first line, where the parser starts it after the
+  indent: an indented code block stays code.
+- **A link reference definition** gives no event, so a definition outside
+  every block, such as one at the end of the file, belongs to no block. The
+  export writes these definitions after the last block, in their order in
+  the source, so a reference link of a text or a callout still resolves.
+- **A callout** is its quote, with the marker replaced by a bold label of
+  the page, such as `**🧠 Hook.**`. Every wiki draws a quote. The alerts of
+  GitHub have five types of their own, few wikis draw them, and a wiki
+  that does not shows `[!NOTE]` as text.
+- **An excerpt** is a line `` `path:from-to` at `<commit>` ``, with the 7
+  characters of the commit that the page shows. A file of a submodule
+  adds `` in submodule `<repo>` ``. A fence in the language of the
+  excerpt follows. A hidden line shows `▒▒▒ hidden line ▒▒▒`, which gives
+  no length away. A fence has no marks, so the head line names the marked
+  lines: `, lines 3-4 marked`.
+- **A diagram** is a `mermaid` fence of its source.
+- **A chart** is its title in bold, a line `Values: <y label>, in
+  <unit>.`, and a table: the x values as rows, a column for each series,
+  the numbers aligned to the right. A gap is an empty cell. The kind, bar
+  or line, is lost: a table has none.
+- **Steps** are the title in bold, then a numbered list. Each item holds
+  the label in bold and the body, then the table of its rows, or a
+  `mermaid` fence of its diagram. A full table per step keeps every state
+  readable alone. The page marks the changed cells, and the Markdown does
+  not.
+- **An image** is a line `` **Image**: <alt> (`path` at `<commit>`) ``. A wiki
+  cannot load a media file of the server, and the path names the file in
+  the repository.
+- **The two sections** are the headings `## Map of the code` and `## To
+  revisit`. A range is a list item with its place and each page that
+  showed it, as `(The timer, page 1; The vote, page 2)`. A point is
+  `- **Missed**: <label> (<title>, page <id>)`, with no title when the
+  syllabus does not hold the page. An empty section says what the page
+  says: "The course showed no code." and "Nothing to revisit.".
+- **Plain text is escaped.** A title, a label, a cell, an alt and a page
+  title are text in the page, never Markdown, so their Markdown signs get
+  a backslash. A fence and a code span take more backticks than their
+  text holds. A `|` in a cell is escaped. A code span never goes in a
+  cell, and outside a table a backslash shows in a code span, so a code
+  span keeps its `|`.
+- **Before the write, the route answers 404**, with `notFound` and a
+  message that names `qlearn cheatsheet`. The page asks only from its
+  button, which shows once the cheatsheet is written, so its console
+  stays clean. `qlearn export cheatsheet` fails with the same message,
+  through the server or with none.
+- **The answer** has `Content-Type: text/markdown; charset=utf-8`,
+  `X-Content-Type-Options: nosniff`, and `Content-Disposition: attachment;
+  filename="<slug>-cheatsheet.md"`. A slug holds no quote, so the name
+  needs no escape. The token guard checks it, as every route.
+- **`qlearn export cheatsheet`** is a subcommand of `export`, and it
+  conflicts with `--json`. It reads as `qlearn export` reads: the server
+  of the worktree, or with no server the only course of `.learn/`,
+  settled in memory under the claim. It writes nothing, and prints the
+  Markdown on standard output.
+- **The page** puts a link **Save as Markdown** beside **Print or save as
+  PDF**. A link of the same origin carries the cookie, and its `download`
+  attribute names the file. Print hides it with the bar.
+
+**Why.** The source holds the Markdown that the agent wrote, and the HTML
+of the server cannot become Markdown again without loss. The blocks hold
+what the server read in the repository at the write. A quote and a table
+render on every wiki. A file that a wiki stores must not point to the
+server of one session.
+
+**Rejected:**
+
+- **Markdown written back from the HTML of the blocks.** It loses the
+  Markdown of the agent, and needs a converter.
+- **A new parse of `cheatsheet.md`.** It resolves `rev` again, and an
+  excerpt would move to another commit.
+- **The alerts of GitHub for a callout.** They have no hook, teaser or
+  pitfall, and render as text on most wikis.
+- **A comment in the code for a marked line.** Its syntax depends on the
+  language, and it changes the code.
+- **An empty answer before the write.** A saved file with no content
+  would look like a cheatsheet.
+
 ## Open questions
 
 - **The URL of the repository.** The host is decided: a public repository

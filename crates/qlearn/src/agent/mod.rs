@@ -336,6 +336,11 @@ pub async fn export(client: &Client) -> Result<Value> {
     client.get("/api/export").await
 }
 
+/// The cheatsheet as Markdown, for a wiki.
+pub async fn cheatsheet_markdown(client: &Client) -> Result<String> {
+    client.get_text("/api/cheatsheet.md").await
+}
+
 /// The errors of a debrief in the terms of the command. The options come
 /// first: the file of the agent may start with `points.` too.
 fn debrief_errors(errors: &str, file: &str) -> String {

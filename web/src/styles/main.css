@@ -2061,7 +2061,8 @@ a.syllabus-entry:focus-visible {
   gap: 8px;
   margin-left: auto;
 }
-.cheatsheet-print {
+.cheatsheet-print,
+.cheatsheet-markdown {
   padding: 4px 14px;
   border: 1px solid var(--edge);
   border-radius: 4px;
@@ -2069,10 +2070,15 @@ a.syllabus-entry:focus-visible {
   font-size: 13px;
   font-weight: 600;
 }
-.cheatsheet-print:hover {
+.cheatsheet-markdown {
+  text-decoration: none;
+}
+.cheatsheet-print:hover,
+.cheatsheet-markdown:hover {
   background: var(--edge-soft);
 }
-.cheatsheet-print:focus-visible {
+.cheatsheet-print:focus-visible,
+.cheatsheet-markdown:focus-visible {
   outline: 2px solid var(--action);
   outline-offset: 2px;
 }
