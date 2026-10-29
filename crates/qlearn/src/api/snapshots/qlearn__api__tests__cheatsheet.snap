@@ -1,0 +1,170 @@
+---
+source: crates/qlearn/src/api/mod.rs
+expression: read
+---
+{
+  "blocks": [
+    {
+      "html": "<h1>Raft in one page</h1>",
+      "id": "e667315bf17a",
+      "kind": "text"
+    },
+    {
+      "html": "<p>The first follower to wake up wins.</p>",
+      "id": "dce23793053e",
+      "kind": "callout",
+      "marker": "hook"
+    },
+    {
+      "html": "<table><thead><tr><th>Name</th><th>What</th></tr></thead><tbody><tr><td><code>election_timeout</code></td><td>the wait of a follower</td></tr></tbody></table>",
+      "id": "24015be095a6",
+      "kind": "text"
+    },
+    {
+      "excerpt": {
+        "commit": "5aba991acd07dbe98266c4898e6bc5950240d118",
+        "from": 2,
+        "lang": "c",
+        "lines": [
+          {
+            "spans": [
+              {
+                "cls": "tok-storage tok-type",
+                "end": 3,
+                "start": 0
+              },
+              {
+                "cls": "tok-entity tok-name",
+                "end": 20,
+                "start": 4
+              },
+              {
+                "cls": "tok-punctuation tok-section",
+                "end": 21,
+                "start": 20
+              },
+              {
+                "cls": "tok-storage tok-type",
+                "end": 24,
+                "start": 21
+              },
+              {
+                "cls": "tok-variable tok-parameter",
+                "end": 29,
+                "start": 25
+              },
+              {
+                "cls": "tok-punctuation tok-section",
+                "end": 30,
+                "start": 29
+              }
+            ],
+            "text": "int election_timeout(int base)"
+          },
+          {
+            "spans": [
+              {
+                "cls": "tok-punctuation tok-section",
+                "end": 1,
+                "start": 0
+              }
+            ],
+            "text": "{"
+          },
+          {
+            "spans": [
+              {
+                "cls": "tok-keyword tok-control",
+                "end": 10,
+                "start": 4
+              },
+              {
+                "cls": "tok-keyword tok-operator",
+                "end": 17,
+                "start": 16
+              },
+              {
+                "cls": "tok-support tok-function",
+                "end": 22,
+                "start": 18
+              },
+              {
+                "cls": "tok-punctuation tok-section",
+                "end": 24,
+                "start": 22
+              },
+              {
+                "cls": "tok-keyword tok-operator",
+                "end": 26,
+                "start": 25
+              },
+              {
+                "cls": "tok-punctuation tok-terminator",
+                "end": 32,
+                "start": 31
+              }
+            ],
+            "text": "    return base + rand() % base;"
+          }
+        ],
+        "marked": [
+          4
+        ],
+        "path": "src/raft.c",
+        "repo": "",
+        "to": 4
+      },
+      "id": "c31dff75e8eb",
+      "kind": "excerpt"
+    }
+  ],
+  "map": [
+    {
+      "commit": "5aba991acd07dbe98266c4898e6bc5950240d118",
+      "from": 1,
+      "lessons": [
+        {
+          "id": "1",
+          "title": "Two leaders, one term"
+        },
+        {
+          "id": "2",
+          "title": "The end"
+        }
+      ],
+      "path": "src/raft.c",
+      "repo": "",
+      "to": 5
+    },
+    {
+      "commit": "626028cfef5dbc10089f5eb5466c8c74204e9b2a",
+      "from": 1,
+      "lessons": [
+        {
+          "id": "3",
+          "title": "Faster"
+        }
+      ],
+      "path": "src/raft.c",
+      "repo": "",
+      "to": 1
+    }
+  ],
+  "revisit": [
+    {
+      "label": "How a split vote ends",
+      "lesson": "1",
+      "point": "split-vote",
+      "result": "missed",
+      "title": "Two leaders, one term"
+    },
+    {
+      "label": "How many votes make a leader",
+      "lesson": "1",
+      "point": "majority",
+      "result": "partial",
+      "title": "Two leaders, one term"
+    }
+  ],
+  "written": true
+}

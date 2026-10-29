@@ -1400,6 +1400,55 @@ pub struct ExportThread {
     pub comments: Vec<Comment>,
 }
 
+/// What `GET /api/cheatsheet` and `PUT /api/cheatsheet` answer: the source
+/// of the agent as blocks, and the two sections that the server builds
+/// from the store. See section 9 of the design.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct Cheatsheet {
+    /// The agent wrote it. Until then, every list is empty.
+    pub written: bool,
+    /// A line that a page still hides is None here too.
+    pub blocks: Vec<Block>,
+    /// Map of the code: by path, then by commit, then by line.
+    pub map: Vec<CodeRange>,
+    /// To revisit: in the order of section 5.3 of the design.
+    pub revisit: Vec<Revisit>,
+}
+
+/// Lines of the repository that the course showed, with the pages that
+/// showed them. Excerpts of one file at one commit that overlap or touch
+/// make one range.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct CodeRange {
+    /// From the top level directory of the worktree.
+    pub path: String,
+    /// "" for the main repository, or the path of the submodule.
+    pub repo: String,
+    /// The full hash, in the repository that holds the file.
+    pub commit: String,
+    pub from: u32,
+    pub to: u32,
+    /// In the order of the syllabus, each once.
+    pub lessons: Vec<PageName>,
+}
+
+/// A point whose last result is missed or partial.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct Revisit {
+    /// The id of the point.
+    pub point: String,
+    pub label: String,
+    pub result: Grade,
+    /// The page that taught the point.
+    pub lesson: String,
+    /// The title of that page in the syllabus, or None when the syllabus
+    /// does not hold it.
+    pub title: Option<String>,
+}
+
 /// A time as the store writes it: RFC 3339.
 pub fn stamp(time: OffsetDateTime) -> String {
     // Only a year outside 0..=9999 fails, which no clock gives.

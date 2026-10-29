@@ -650,8 +650,8 @@ writer, and grants no permission.
 The address bar says where the learner is: `#page=<id>`, and
 `&block=<id>` when the learner opened a thread. A question about the whole
 page writes `&block=page`. A block id is 12 hex digits, so it never reads
-`page`. Back and forward walk the pages that the learner read. A reload
-comes back to the same place.
+`page`. The cheatsheet writes `#cheatsheet`. Back and forward walk the
+pages that the learner read. A reload comes back to the same place.
 
 ### 8.2 Status
 
@@ -822,7 +822,8 @@ saves an export first.
       3.md                  the source of the page, as pushed
       3.json                the blocks, the quizzes and their answers, the threads
     choices.json
-    cheatsheet.md
+    cheatsheet.md           the source of the cheatsheet, as written
+    cheatsheet.json         its blocks
     media/
       <sha256>.<ext>        the images, by the hash of their content
     notes/                  the research notes of the agent

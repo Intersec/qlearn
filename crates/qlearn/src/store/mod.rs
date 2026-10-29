@@ -15,6 +15,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
+use crate::cheatsheet::CheatsheetFile;
 use crate::choice::StoredChoosing;
 use crate::git::exec::Git;
 use crate::model::{self, Block, Course, ImageType, Line, Page, PageKind, Point};
@@ -23,6 +24,14 @@ use crate::thread::StoredThread;
 
 /// The name of the store, in the worktree and in `.git/info/exclude`.
 const DIR: &str = ".learn";
+
+/// The source of the cheatsheet, as the agent wrote it.
+pub const CHEATSHEET: &str = "cheatsheet.md";
+
+/// The blocks of the cheatsheet, as the parser wrote them. The excerpts keep
+/// the commit that the write read them at, so the source is not parsed
+/// again at a read.
+const CHEATSHEET_BLOCKS: &str = "cheatsheet.json";
 
 pub struct Store {
     dir: PathBuf,
@@ -339,8 +348,9 @@ impl PageFile {
     /// A debrief shows once its own quiz is answered, while another quiz of
     /// the page may still wait, and a quiz pushed later makes the page wait
     /// again. Its excerpts may show the hidden line, at its place or at
-    /// another one, so the text decides.
-    fn hide_in(&self, blocks: &mut [Block]) {
+    /// another one, so the text decides. The cheatsheet goes through here
+    /// for each page that waits for an answer.
+    pub fn hide_in(&self, blocks: &mut [Block]) {
         let hidden: Vec<&str> = self.hidden.values().map(|line| line.text.trim()).collect();
         for block in blocks {
             let Block::Excerpt { excerpt, .. } = block else {
@@ -654,6 +664,60 @@ impl Store {
         })
     }
 
+    /// Write the cheatsheet: its source as the agent wrote it, then its
+    /// blocks. The blocks go last, so a cheatsheet with no blocks file is
+    /// one whose write failed, and reads as not written.
+    ///
+    /// The answer puts the files back as they were, for a write that fails
+    /// after this one. A write that fails here puts them back itself.
+    pub fn save_cheatsheet(
+        &self,
+        slug: &str,
+        source: &str,
+        sheet: &CheatsheetFile,
+    ) -> Result<Undo> {
+        let dir = self.course_dir(slug);
+        let mut text = serde_json::to_string_pretty(sheet)?;
+        text.push('\n');
+
+        let source_path = dir.join(CHEATSHEET);
+        let blocks_path = dir.join(CHEATSHEET_BLOCKS);
+        let undo = Undo {
+            files: vec![
+                (source_path.clone(), read_if_any(&source_path)?),
+                (blocks_path.clone(), read_if_any(&blocks_path)?),
+            ],
+        };
+
+        let written = write_atomic(&source_path, source.as_bytes())
+            .and_then(|()| write_atomic(&blocks_path, text.as_bytes()));
+        match written {
+            Ok(()) => Ok(undo),
+            Err(error) => Err(undo.after(error)),
+        }
+    }
+
+    /// The blocks of the cheatsheet. None until the agent writes it.
+    ///
+    /// The file holds nothing of the learner, so a file that cannot be read
+    /// is an error that a new write of the agent repairs.
+    pub fn load_cheatsheet(&self, slug: &str) -> Result<Option<CheatsheetFile>> {
+        let path = self.course_dir(slug).join(CHEATSHEET_BLOCKS);
+        let text = match fs::read_to_string(&path) {
+            Ok(text) => text,
+            Err(e) if e.kind() == ErrorKind::NotFound => return Ok(None),
+            Err(e) => return Err(e).with_context(|| format!("cannot read {}", path.display())),
+        };
+
+        serde_json::from_str(&text).map(Some).with_context(|| {
+            format!(
+                "{} is not readable. Ask the agent to write the cheatsheet again with \
+                 `qlearn cheatsheet`",
+                path.display()
+            )
+        })
+    }
+
     /// The source of a page, as the agent pushed it. None when the agent
     /// has not pushed it.
     pub fn load_source(&self, slug: &str, id: &str) -> Result<Option<String>> {
@@ -807,7 +871,8 @@ impl Store {
             slug: slug.to_owned(),
             title,
             pages,
-            cheatsheet: dir.join("cheatsheet.md").exists(),
+            // The blocks file, as a read: a source alone is a write that failed.
+            cheatsheet: dir.join(CHEATSHEET_BLOCKS).exists(),
             notes: self.notes(slug)?.len(),
             dir,
         })
@@ -1738,6 +1803,51 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn the_cheatsheet_is_written_read_back_and_put_back() {
+        let repo = repo().await;
+        let store = Store::at(repo.path());
+        store.open(Some("raft"), at_new_year()).unwrap();
+        let sheet = CheatsheetFile {
+            blocks: text_page("<p>One.</p>").blocks,
+        };
+        assert_eq!(store.load_cheatsheet("raft").unwrap(), None);
+
+        store.save_cheatsheet("raft", "One.\n", &sheet).unwrap();
+        let undo = store
+            .save_cheatsheet("raft", "Two.\n", &CheatsheetFile::default())
+            .unwrap();
+        undo.undo().unwrap();
+
+        assert_eq!(store.load_cheatsheet("raft").unwrap(), Some(sheet));
+        assert_eq!(
+            fs::read_to_string(repo.path().join(".learn/raft/cheatsheet.md")).unwrap(),
+            "One.\n"
+        );
+        assert_eq!(
+            files(repo.path()),
+            [
+                ".learn/raft/cheatsheet.json",
+                ".learn/raft/cheatsheet.md",
+                ".learn/raft/course.json",
+                "a.txt"
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_corrupt_cheatsheet_is_an_error_and_stays_on_disk() {
+        let repo = repo().await;
+        let store = Store::at(repo.path());
+        let path = repo.path().join(".learn/raft/cheatsheet.json");
+        write(&path, "{ not json");
+
+        let error = store.load_cheatsheet("raft").unwrap_err().to_string();
+
+        assert!(error.contains("qlearn cheatsheet"), "{error}");
+        assert_eq!(fs::read_to_string(&path).unwrap(), "{ not json");
+    }
+
+    #[tokio::test]
     async fn a_link_in_place_of_the_pages_is_refused_and_left_alone() {
         let repo = repo().await;
         let store = Store::at(repo.path());
@@ -1880,7 +1990,10 @@ mod tests {
         store.save_page("raft", "1", "One.\n", &page).unwrap();
         store.save_page("raft", "c1", "Check.\n", &page).unwrap();
         let dir = repo.path().join(".learn/raft");
+        // A source with no blocks is a write that failed: no cheatsheet.
         write(&dir.join("cheatsheet.md"), "# Raft\n");
+        assert!(!store.removal("raft").unwrap().cheatsheet);
+        write(&dir.join("cheatsheet.json"), "{}\n");
         write(&dir.join("notes/plan.md"), "The plan.\n");
         // A link inside the course leads out of the store, and stays a link.
         let elsewhere = tempfile::tempdir().unwrap();

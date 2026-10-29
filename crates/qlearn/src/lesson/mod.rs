@@ -39,12 +39,13 @@ pub struct Parsed {
     pub media: BTreeMap<String, Vec<u8>>,
 }
 
-/// Where a source shows: the lesson of a page, or the debrief of its quiz
-/// `n`, from 1.
+/// Where a source shows: the lesson of a page, the debrief of its quiz
+/// `n`, from 1, or the cheatsheet of the course.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Within {
     Lesson,
     Debrief(usize),
+    Cheatsheet,
 }
 
 /// One error of a source, at its line.
@@ -108,6 +109,18 @@ pub async fn parse_debrief(
     parse_with(source, Within::Debrief(n), git, highlighter).await
 }
 
+/// Parse the source of the cheatsheet, as a page (section 9 of the design).
+///
+/// A cheatsheet hides no line: the learner keeps it to read, and it has no
+/// quiz to answer for the line.
+pub async fn parse_cheatsheet(
+    source: &str,
+    git: &Git,
+    highlighter: &Highlighter,
+) -> Result<Parsed, Vec<Fault>> {
+    parse_with(source, Within::Cheatsheet, git, highlighter).await
+}
+
 async fn parse_with(
     source: &str,
     within: Within,
@@ -140,13 +153,21 @@ async fn parse_with(
                 Err(fault) => faults.push(fault),
             },
             Piece::Excerpt(id, spec) => {
-                if let Some(line) = spec.hides_at().filter(|_| within != Within::Lesson) {
+                let refusal = match within {
+                    Within::Lesson => None,
+                    Within::Debrief(_) => {
+                        Some("a debrief hides no line: its quiz is answered already. Take hide out")
+                    }
+                    Within::Cheatsheet => Some(
+                        "a cheatsheet hides no line: the learner keeps it to read, and answers \
+                         no quiz on it. Take hide out",
+                    ),
+                };
+                if let (Some(line), Some(message)) = (spec.hides_at(), refusal) {
                     faults.push(Fault {
                         line,
                         kind: "excerpt",
-                        message: "a debrief hides no line: its quiz is answered already. \
-                                  Take hide out"
-                            .to_owned(),
+                        message: message.to_owned(),
                     });
                 }
                 match excerpt::read(&spec, git, highlighter, &mut revs).await {
@@ -448,6 +469,8 @@ fn block_name(event: &Event) -> &'static str {
 /// the same block hashes its rank too, so two copies never share threads.
 /// A block of a debrief hashes the number of its quiz too: the page places
 /// a thread by the id of its block, and a debrief may repeat the lesson.
+/// A block of the cheatsheet hashes its place too, as it may repeat a
+/// lesson.
 pub fn block_id(kind: &str, source: &str, rank: usize, within: Within) -> String {
     let mut hasher = Sha256::new();
     hasher.update(kind.as_bytes());
@@ -456,8 +479,10 @@ pub fn block_id(kind: &str, source: &str, rank: usize, within: Within) -> String
     if rank > 1 {
         hasher.update(format!("\n{rank}").as_bytes());
     }
-    if let Within::Debrief(n) = within {
-        hasher.update(format!("\ndebrief {n}").as_bytes());
+    match within {
+        Within::Lesson => {}
+        Within::Debrief(n) => hasher.update(format!("\ndebrief {n}").as_bytes()),
+        Within::Cheatsheet => hasher.update(b"\ncheatsheet"),
     }
 
     hex::encode(&hasher.finalize()[..6])
@@ -1967,5 +1992,45 @@ bool grant_vote(struct server *s, int term, int candidate)
         );
         let faults = shown.unwrap_err();
         assert_eq!(faults.len(), 1, "{faults:?}");
+    }
+
+    /// The learner keeps the cheatsheet to read, and answers no quiz on
+    /// it: a hidden line is refused, with the other faults. Its blocks take
+    /// ids of their own, as a cheatsheet may repeat a lesson.
+    #[tokio::test]
+    async fn a_cheatsheet_hides_no_line() {
+        let corpus = corpus().await;
+        let source = "# Raft\n\n```excerpt\npath: src/raft.c\nlines: 12-14\nhide: 13\n```\n\n\
+                      > [!tip]\n> A typo.\n";
+
+        let faults = parse_cheatsheet(source, &corpus.git, Highlighter::shared())
+            .await
+            .unwrap_err();
+        let parsed = parse_cheatsheet("# Raft\n", &corpus.git, Highlighter::shared())
+            .await
+            .unwrap();
+
+        let lines: Vec<_> = faults
+            .iter()
+            .map(|fault| fault.display("cheatsheet.md"))
+            .collect();
+        assert_eq!(lines.len(), 2, "{lines:?}");
+        assert_eq!(
+            lines[0],
+            "cheatsheet.md:6: excerpt: a cheatsheet hides no line: the learner keeps it to \
+             read, and answers no quiz on it. Take hide out"
+        );
+        assert!(
+            lines[1].starts_with("cheatsheet.md:9: callout: "),
+            "{lines:?}"
+        );
+        assert_eq!(
+            parsed.blocks[0].id(),
+            block_id("text", "# Raft", 1, Within::Cheatsheet)
+        );
+        assert_ne!(
+            block_id("text", "# Raft", 1, Within::Cheatsheet),
+            block_id("text", "# Raft", 1, Within::Lesson)
+        );
     }
 }

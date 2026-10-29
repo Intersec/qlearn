@@ -16,15 +16,12 @@ never ask the learner whether they want the page. Another skill may load
 this procedure and add sources and rules of its own, such as tickets or
 internal docs. If it does, follow those rules too.
 
-This release has no cheatsheet yet. The parts of this procedure that
-need it say what to do instead.
-
 This procedure comes in four parts:
 
 1. "Rules that matter most", "The page replaces the terminal", "Start"
    and "Resume a course".
 2. The teaching, from "Know the learner" to "The end".
-3. The formats, from "The syllabus" to "Choices".
+3. The formats, from "The syllabus" to "The cheatsheet".
 4. The loop, and the answer to each request of the learner.
 
 ## Rules that matter most
@@ -459,7 +456,10 @@ When the learner says that the course is over:
    and the findings. Name each finding that is still to check, so the
    learner takes it to the team. In their terminal, `qlearn export`
    prints the points to revisit.
-2. This release has no cheatsheet yet: skip it.
+2. Write the cheatsheet with `qlearn cheatsheet` (see "The
+   cheatsheet"): one page that the learner keeps. Tell the learner that it
+   is in the syllabus column, and that this release saves it with the
+   print dialog of the browser: **Save as PDF**.
 3. Offer, with a choice, to write or update the developer doc of the
    subject: the concepts, the map of the code, the pitfalls, the
    incidents. You write it, not the learner. Write it only if the learner
@@ -487,8 +487,9 @@ When the learner says that the course is over:
    follow-up quiz needs the course.
 
 The course stays in `.learn/<slug>/`, and `qlearn <slug>` opens it again.
-Deleting it removes its pages and the answers of the learner, and nothing
-brings them back. Delete it only when the learner agrees.
+Deleting it removes its pages, the answers of the learner and the
+cheatsheet, and nothing brings them back. Delete it only when the learner
+agrees and, if the course has a cheatsheet, has saved it as a PDF.
 
 `qlearn delete` refuses a course that a server serves:
 
@@ -978,6 +979,54 @@ the server refuses the choice, it stores nothing, exits with 1, and prints
 every error on standard error, one per line, with its place in the JSON.
 Fix every error, then run the command again. Then wait for the answer (see
 "The choice of the learner").
+
+## The cheatsheet
+
+At the end of the course, write the cheatsheet: one page that the learner
+keeps, to read again in a month. The page lays it out in two columns, on
+one A4 sheet, so keep it short. Write it in the format of a page:
+
+````sh
+qlearn cheatsheet --file - <<'EOF'
+# Raft: the leader election
+
+> [!hook]
+> The first follower to wake up wins: the random timeout breaks the tie.
+
+| Name | What it is |
+|---|---|
+| `election_timeout()` | The wait of a follower: a base and a random part |
+| `current_term` | The term that a server knows; it only grows |
+
+> [!pitfall]
+> A `base` of 0 makes `rand() % base` divide by zero.
+
+```excerpt
+path: src/raft.c
+lines: 120-127
+mark: 124
+```
+EOF
+````
+
+- Put in it, in this order: the hook of each lesson, the key tables and
+  diagrams, a glossary of the names of the code, and the pitfalls.
+- Take the tables, the diagrams and the excerpts of the lessons that the
+  learner will look for again: the page drew them already. A diagram that
+  the page cannot draw in the cheatsheet shows its error, and you get no
+  request for it. Do not copy whole lessons.
+- A cheatsheet hides no line: the server refuses `hide` in it.
+- Do not write the map of the code or the points to revisit. The server
+  adds them from the course: every excerpt of the pages and their
+  debriefs, merged by file, and every point whose last result is `missed`
+  or `partial`.
+- To change the cheatsheet, write it again with the same command. The new
+  one replaces the old one.
+
+The command prints the cheatsheet as JSON, with the two sections of the
+server. If the server refuses it, it stores nothing, exits with 1, and
+prints every error on standard error, one per line, with its line. Fix
+every error, then run the command again.
 
 ## The loop
 

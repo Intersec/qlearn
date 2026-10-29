@@ -3,23 +3,27 @@
 // The page learns of each write of the agent through the events route
 // (section 8.3 of the design). It reads again only what a write touches.
 // The place of the learner rides in the fragment of the address (section
-// 8.1), so this store writes the history of the browser too.
+// 8.1), so this store writes the history of the browser too. The
+// cheatsheet takes the place of the page when the learner opens it
+// (section 9).
 
 import { defineStore } from 'pinia';
 import { computed, ref, toRaw } from 'vue';
 import { ApiError, api, serverGone } from '@/api/client';
 import type {
+  Cheatsheet,
   ChosenAnswer,
   Choosing,
   Course,
   Event,
   EventBatch,
+  EventKind,
   Page,
   PageRef,
   QuizAnswer,
   Thread,
 } from '@/api/types';
-import { format, parse } from '@/place';
+import { CHEATSHEET, format, parse } from '@/place';
 
 /** The agent, as the top bar names it. The states of the terminal line. */
 export type Presence = 'absent' | 'connected' | 'working' | 'left';
@@ -38,6 +42,20 @@ type Move = 'push' | 'replace';
 /** How a move ends. A newer move replaced a `superseded` one. */
 type Shown = 'shown' | 'failed' | 'superseded';
 
+/**
+ * The writes that change the cheatsheet: an excerpt, a result, the title
+ * of a page, or a quiz, which hides the hidden line of its page again.
+ */
+const RECORDS = new Set<EventKind>([
+  'page',
+  'debrief',
+  'answered',
+  'answer',
+  'syllabus',
+  'course',
+  'quiz',
+]);
+
 export const useCourse = defineStore('course', () => {
   const course = ref<Course | null>(null);
   /** The version of the server, as `qlearn --version` says. */
@@ -52,6 +70,10 @@ export const useCourse = defineStore('course', () => {
   const page = ref<Page | null>(null);
   /** The block whose thread the learner opened, as the address names it. */
   const focus = ref<string | null>(null);
+  /** The cheatsheet, or null before the first read. */
+  const cheatsheet = ref<Cheatsheet | null>(null);
+  /** The cheatsheet is on the screen, in the place of the page. */
+  const sheetShown = ref(false);
   /** A page that the agent pushed while the learner read another one. */
   const ready = ref<string | null>(null);
   /**
@@ -308,6 +330,7 @@ export const useCourse = defineStore('course', () => {
 
     page.value = read;
     focus.value = block;
+    sheetShown.value = false;
     error.value = null;
     if (ready.value === id) {
       ready.value = null;
@@ -339,14 +362,17 @@ export const useCourse = defineStore('course', () => {
   }
 
   function write(id: string, move: Move) {
-    const fragment = format({ page: id, block: focus.value ?? undefined });
+    writeFragment(format({ page: id, block: focus.value ?? undefined }), move);
+  }
+
+  function writeFragment(fragment: string, move: Move) {
     if (location.hash === fragment) {
       return;
     }
 
     // The first place of a visit takes the address that the browser
     // opened, so Back from it leaves the course, not lands on a bare one.
-    if (move === 'push' && parse(location.hash) !== null) {
+    if (move === 'push' && (parse(location.hash) !== null || location.hash === CHEATSHEET)) {
       history.pushState(null, '', fragment);
     } else {
       history.replaceState(null, '', fragment);
@@ -367,6 +393,21 @@ export const useCourse = defineStore('course', () => {
    * place, with the reason.
    */
   async function openAddress(move: Move | 'none') {
+    if (location.hash === CHEATSHEET) {
+      const at = moves;
+      if (cheatsheet.value === null) {
+        await readCheatsheet();
+      }
+      // A move of the learner during the read wins.
+      if (at !== moves) {
+        return;
+      }
+      if (openSheet(move)) {
+        return;
+      }
+      // No cheatsheet yet: the current page takes the address.
+      move = 'replace';
+    }
     const place = parse(location.hash);
     const named = place?.page;
     const id = named ?? current.value;
@@ -391,6 +432,7 @@ export const useCourse = defineStore('course', () => {
   async function reload() {
     const before = current.value;
     await readSession();
+    await readCheatsheet();
     const shown = page.value?.id;
     if (!shown) {
       await openAddress('replace');
@@ -412,6 +454,46 @@ export const useCourse = defineStore('course', () => {
     version.value = session.version;
     choices.value = session.choices;
     choicesError.value = session.choicesError;
+  }
+
+  /**
+   * Read the cheatsheet. A failure says why, and leaves the course as it
+   * is: the learner still reads the pages.
+   */
+  async function readCheatsheet() {
+    try {
+      cheatsheet.value = await api.cheatsheet();
+    } catch (e) {
+      fail(e);
+    }
+  }
+
+  /**
+   * Show the cheatsheet in the place of the page, once the agent wrote it.
+   * Answers whether it shows.
+   */
+  function openSheet(move: Move | 'none'): boolean {
+    if (!cheatsheet.value?.written) {
+      return false;
+    }
+    // A page that loads meanwhile must not land over the cheatsheet.
+    moves += 1;
+    sheetShown.value = true;
+    focus.value = null;
+    if (move !== 'none') {
+      writeFragment(CHEATSHEET, move);
+    }
+    return true;
+  }
+
+  /** The learner opens the cheatsheet: the syllabus column, or the note of the end. */
+  async function openCheatsheet() {
+    const at = moves;
+    await readCheatsheet();
+    // A page that the learner opened during the read wins.
+    if (at === moves) {
+      openSheet('push');
+    }
   }
 
   /** The learner opens a page: a link, or Next on a page that exists. */
@@ -482,8 +564,12 @@ export const useCourse = defineStore('course', () => {
     let again = false;
     let first: string | null = null;
     let fresh: string | null = null;
+    let sheet = false;
+    let records = false;
 
     for (const event of events) {
+      sheet ||= event.kind === 'cheatsheet';
+      records ||= RECORDS.has(event.kind);
       // A part of a quiz sent in another tab shows here too, and the
       // quiz moves to its next step.
       if (event.kind === 'answered' && event.page) {
@@ -553,7 +639,7 @@ export const useCourse = defineStore('course', () => {
       }
       if (event.page === page.value?.id) {
         again = true;
-      } else if (!page.value) {
+      } else if (!page.value && !sheetShown.value) {
         first = event.page;
       } else {
         fresh = event.page;
@@ -563,6 +649,9 @@ export const useCourse = defineStore('course', () => {
     // The note of a ready page names it by its title, which the course holds.
     if (session) {
       await readSession();
+    }
+    if (sheet || (records && cheatsheet.value?.written)) {
+      await readCheatsheet();
     }
     if (fresh) {
       ready.value = fresh;
@@ -654,6 +743,8 @@ export const useCourse = defineStore('course', () => {
     choosing,
     page,
     focus,
+    cheatsheet,
+    sheetShown,
     ready,
     asked,
     agent,
@@ -667,6 +758,7 @@ export const useCourse = defineStore('course', () => {
     ending,
     titleOf,
     open,
+    openCheatsheet,
     follow,
     next,
     answer,

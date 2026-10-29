@@ -159,4 +159,32 @@ describe('SyllabusView', () => {
     const nav = wrapper.get('nav').element;
     expect(nav.lastElementChild?.className).toBe('findings');
   });
+
+  it('ends the pages with the cheatsheet, which opens once the agent wrote it', async () => {
+    const parts = [{ title: '', pages: [ref('1')] }];
+    const early = mount(SyllabusView, { props: { parts, shown: '1', current: '1' } });
+
+    const waiting = early.get('.syllabus-sheet');
+    expect(waiting.text()).toContain('Cheatsheet');
+    expect(waiting.find('a').exists()).toBe(false);
+    expect(waiting.get('[aria-disabled="true"]').attributes('title')).toBe(
+      'The agent writes it at the end of the course',
+    );
+
+    const wrapper = mount(SyllabusView, {
+      props: { parts, shown: null, current: '1', cheatsheet: true, sheetShown: true },
+    });
+    const link = wrapper.get('.syllabus-sheet a');
+    expect(link.attributes('href')).toBe('#cheatsheet');
+    expect(link.attributes('aria-current')).toBe('page');
+    expect(wrapper.find('[data-page="1"] a').attributes('aria-current')).toBeUndefined();
+    await link.trigger('click');
+    expect(wrapper.emitted('cheatsheet')).toHaveLength(1);
+  });
+
+  it('shows no cheatsheet before the syllabus', () => {
+    const wrapper = mount(SyllabusView, { props: { parts: [], shown: null, current: null } });
+
+    expect(wrapper.find('.syllabus-sheet').exists()).toBe(false);
+  });
 });

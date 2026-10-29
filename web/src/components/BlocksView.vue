@@ -17,7 +17,14 @@ import ImageView from './ImageView.vue';
 import StepsView from './StepsView.vue';
 import ThreadView from './ThreadView.vue';
 
-const props = defineProps<{ blocks: Block[] }>();
+const props = withDefaults(
+  defineProps<{
+    blocks: Block[];
+    /** A broken block reaches the agent: false in the cheatsheet. */
+    reported?: boolean;
+  }>(),
+  { reported: true },
+);
 
 const emit = defineEmits<{
   /** A block that the page cannot draw. */
@@ -92,11 +99,16 @@ async function send(block: string, quote: string | null, body: string): Promise<
       <StepsView
         :id="block.id"
         :steps="block.steps"
+        :reported="reported"
         @broken="(id, error) => emit('broken', id, error)"
       />
     </section>
     <section v-else class="block" :data-block="block.id">
-      <DiagramView :block="block" @broken="(id, error) => emit('broken', id, error)" />
+      <DiagramView
+        :block="block"
+        :reported="reported"
+        @broken="(id, error) => emit('broken', id, error)"
+      />
     </section>
 
     <template v-if="threads">

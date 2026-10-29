@@ -26,7 +26,7 @@ function load(): Promise<Mermaid> {
 }
 
 /** Whether the page shows its dark theme, by the rules of main.css. */
-function dark(): boolean {
+export function dark(): boolean {
   const asked = document.documentElement.dataset.theme;
   if (asked === 'light' || asked === 'dark') {
     return asked === 'dark';

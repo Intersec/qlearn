@@ -2,12 +2,13 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 import AgentPresence from './components/AgentPresence.vue';
+import CheatsheetView from './components/CheatsheetView.vue';
 import ChoiceView from './components/ChoiceView.vue';
 import FindingsView from './components/FindingsView.vue';
 import PageView from './components/PageView.vue';
 import SyllabusView from './components/SyllabusView.vue';
 import type { QuizAnswer } from './api/types';
-import { format } from './place';
+import { CHEATSHEET, format } from './place';
 import { useCourse } from './stores/course';
 
 const store = useCourse();
@@ -16,6 +17,8 @@ const {
   current,
   page,
   focus,
+  cheatsheet,
+  sheetShown,
   ready,
   presence,
   status,
@@ -35,17 +38,18 @@ const syllabusOpen = ref(false);
 /** The column of the page, which scrolls alone. */
 const pane = ref<HTMLElement | null>(null);
 
-// Another page opens at its top, or at the thread that the address names.
-// A refresh keeps the id, and the place.
+// Another page, or the cheatsheet, opens at its top, and a page at the
+// thread that the address names. A refresh keeps the id, and the place.
+// The page under the cheatsheet keeps its id, so the sheet is watched too.
 watch(
-  () => page.value?.id,
-  () => {
+  [() => page.value?.id, sheetShown],
+  ([, shown]) => {
     if (!pane.value) {
       return;
     }
     pane.value.scrollTop = 0;
     const block = focus.value;
-    if (block) {
+    if (!shown && block) {
       pane.value
         .querySelector(`[data-anchor="${CSS.escape(block)}"]`)
         ?.scrollIntoView({ block: 'start' });
@@ -58,6 +62,17 @@ function openPage(id: string) {
   syllabusOpen.value = false;
   void store.open(id);
 }
+
+function openCheatsheet() {
+  syllabusOpen.value = false;
+  void store.openCheatsheet();
+}
+
+/** The course is over and its cheatsheet waits for the learner. */
+const sheetReady = computed(
+  () =>
+    course.value?.status === 'finished' && cheatsheet.value?.written === true && !sheetShown.value,
+);
 
 /** The note of a page that the agent pushed while the learner read another. */
 const readyNote = computed(() => {
@@ -144,6 +159,10 @@ onBeforeUnmount(() => {
       {{ readyNote }}
       <a :href="format({ page: ready })" @click.prevent="openReady">Read it</a>
     </p>
+    <p v-if="sheetReady" role="status" class="ready sheet-ready">
+      Cheatsheet ready: the course on one sheet, to keep.
+      <a :href="CHEATSHEET" @click.prevent="openCheatsheet">Open it</a>
+    </p>
     <p v-if="error" role="alert" class="error">{{ error }}</p>
     <p v-if="choicesError" role="alert" class="error">
       The choices of the agent cannot show. {{ choicesError }}
@@ -155,9 +174,12 @@ onBeforeUnmount(() => {
         id="syllabus"
         :data-open="syllabusOpen"
         :parts="course.parts"
-        :shown="page?.id ?? null"
+        :shown="sheetShown ? null : (page?.id ?? null)"
         :current="current"
+        :cheatsheet="cheatsheet?.written ?? false"
+        :sheet-shown="sheetShown"
         @open="openPage"
+        @cheatsheet="openCheatsheet"
       >
         <!-- The open ones first: an answer stays below, read only. -->
         <ChoiceView
@@ -174,7 +196,13 @@ onBeforeUnmount(() => {
         </template>
       </SyllabusView>
       <main ref="pane" class="course">
-        <template v-if="page">
+        <CheatsheetView
+          v-if="sheetShown && cheatsheet && course"
+          :cheatsheet="cheatsheet"
+          :course="course"
+          @open="openPage"
+        />
+        <template v-else-if="page">
           <PageView
             :page="page"
             :send="sendAnswer"

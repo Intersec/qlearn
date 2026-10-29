@@ -1025,6 +1025,91 @@ in the column needs no new place in the address of section 8.1.
 - **The findings in the summary of `qlearn export`.** Section 11 says what
   the summary prints. The page and the JSON export hold the findings.
 
+## 2026-10-29 — Holes found by the cheatsheet
+
+Sections 8, 9, 10 and 11 give the routes of the cheatsheet, its two
+sections, its file and its command. The code needed more answers.
+
+**Decisions.**
+
+- **The source is a page source** with its own place in the parser. It
+  takes every block of a page, images included. A `hide` is refused, with
+  the other errors: the learner keeps the sheet to read, and answers no
+  quiz on it. Its block ids hash the word `cheatsheet` too, as those of a
+  debrief hash their quiz. `PUT /api/cheatsheet` takes the source as its
+  body, as a push of a page does, replaces the cheatsheet before it, and
+  pushes a `cheatsheet` event of the agent with no page and no id. A
+  refused source gets `invalidCheatsheet`, one line per error with the
+  file `cheatsheet.md`, and stores nothing.
+- **The blocks are stored in `cheatsheet.json`**, beside `cheatsheet.md`,
+  as `pages/<id>.json` sits beside its source. A read never parses the
+  source again: a parse resolves `rev` again, and an excerpt would move to
+  another commit. The blocks file is written last, so a cheatsheet with
+  no blocks file reads as not written. Its corrupt file is an error that a
+  new write repairs: it holds nothing of the learner. The file is new, and
+  an earlier release ignores it, so `version` stays 1. Section 10 names it.
+- **The two sections of the server are built at each read**, from the
+  page files and `points.json`. A result that the learner gets after the
+  write shows at the next read.
+- **Map of the code** takes every excerpt of the lessons and of their
+  debriefs, never those of the cheatsheet. Excerpts of one path at one
+  commit that overlap or touch merge into one range, which names each page
+  that showed a part of it, once, in the order of the syllabus. One path
+  at two commits gives a range for each commit: the same line numbers may
+  name other lines. The ranges come by path, then by commit in the order
+  that the course first showed it, then by line.
+- **To revisit** holds every point whose last result is `missed` or
+  `partial`, in the order of section 5.3, with its id, its label, its
+  result, its lesson, and the title of that lesson. The title is `null`
+  when the syllabus does not hold the lesson.
+- **`GET /api/cheatsheet` answers `{ written, blocks, map, revisit }`.**
+  Before the write, `written` is `false` and every list is empty, with no
+  other read of the store. The page asks at each load, and a 404 would be
+  an error in its console. `PUT` answers the same shape.
+- **A line that a page still hides stays hidden in the cheatsheet**, as
+  in a debrief: the server puts `null` in place of each line of an excerpt
+  whose text is the hidden line of a page with a quiz to answer.
+- **The page** puts an entry "Cheatsheet" at the end of the syllabus, under
+  the pages. It is quiet and opens nothing until the agent writes the
+  cheatsheet. A course that is finished shows the note "Cheatsheet ready"
+  under the bar. The cheatsheet takes the place of the page, and the
+  address says `#cheatsheet` (section 8.1), so Back and a reload find it.
+  It lays the blocks of the agent, then Map of the code, then To revisit,
+  in two columns on the width of an A4 sheet, with no Ask button: it is no
+  page of the course. Each lesson that it names opens. A course that is
+  finished shows the note that deleting `.learn/<slug>/` deletes the
+  cheatsheet, and a button that opens the print dialog. The exports of
+  step 4.6 join that button.
+- **Print** shows the page alone: no bar, no column, no note, no button,
+  and no thread. It sets A4 with margins of 12 mm, keeps a block in one
+  column, and keeps a heading with the block under it. The dark tokens
+  hold on the screen only, so print is dark ink on white in both themes.
+  Mermaid writes its colors into the SVG, so print inverts a diagram that
+  it drew in the dark theme.
+- **A diagram of the cheatsheet that Mermaid refuses** shows its error in
+  place, with no promise of a fix, and sends no `broken` request: that
+  request names a page, and section 8 has no route for the cheatsheet.
+  The procedure tells the agent to take the diagrams of the lessons, which
+  drew already.
+
+**Why.** The cheatsheet is a page source, so the agent writes one format
+and the server checks it with the same code. Stored blocks keep the
+excerpts at the commit that the agent saw. The records are true at each
+read because they are built at each read. A place in the address costs
+one fragment and gives Back and a reload for free.
+
+**Rejected:**
+
+- **The rendered form built at each read from the source.** A `rev` such
+  as `HEAD` would name another commit after a new commit.
+- **The two sections written into `cheatsheet.json`.** They would drift
+  from the store with each answer after the write.
+- **One range for one path at two commits.** It would name lines that one
+  of the commits does not hold.
+- **A 404 before the write.** The page would log an error at each load.
+- **The print colors said again for print.** A third copy of the light
+  tokens, where `@media screen` on the dark ones gives the same result.
+
 ## Open questions
 
 - **The URL of the repository.** The host is decided: a public repository

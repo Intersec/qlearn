@@ -296,6 +296,44 @@ sequenceDiagram
 \`\`\`
 `;
 
+/**
+ * The cheatsheet of the course: a hook, a glossary, a pitfall, a diagram
+ * and an excerpt.
+ */
+export const SHEET = `# Raft elections on one page
+
+> [!hook]
+> A random wait breaks the tie: the first follower to wake up wins.
+
+## Glossary
+
+| Name | What it is |
+|---|---|
+| \`election_timeout()\` | The wait of a follower: a base and a random part |
+| term | A number that only grows; one leader at most per term |
+| split vote | No candidate gets a majority; the term ends with no leader |
+
+> [!pitfall]
+> A \`base\` of 0 makes \`rand() % base\` divide by zero.
+
+## The states
+
+\`\`\`mermaid
+flowchart LR
+  F[Follower] -- times out --> C[Candidate]
+  C -- wins the vote --> L[Leader]
+  C -- hears a leader --> F
+\`\`\`
+
+## The timer
+
+\`\`\`excerpt
+path: src/election.c
+lines: 1-6
+mark: 3
+\`\`\`
+`;
+
 /** The level at the start, asked at the top of the syllabus column. */
 export const CHOICE_LEVEL = {
   questions: [
@@ -448,6 +486,18 @@ export class Agent {
   async finding(id: string, title: string, body: string, checked = false) {
     const flag = checked ? ['--checked'] : [];
     await this.run(['finding', id, '--title', title, '--body', body, ...flag]);
+  }
+
+  /** Write the cheatsheet from a file, as the procedure says. */
+  async cheatsheet(source: string) {
+    const path = join(this.fixture.work, 'cheatsheet.md');
+    writeFileSync(path, source);
+    await this.run(['cheatsheet', '--file', path]);
+  }
+
+  /** Mark the course finished, as the end of the procedure does. */
+  async finish() {
+    await this.run(['course', '--status', 'finished']);
   }
 
   /** Write in a thread, as the procedure says. */

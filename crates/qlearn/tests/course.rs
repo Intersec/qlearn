@@ -241,7 +241,9 @@ async fn a_course_deleted_with_yes_is_gone_and_the_others_stay() {
     let mut server = qlearn(root, &["paxos", "--no-open"]).spawn().unwrap();
     read_url(&mut server).await;
     assert!(interrupt(server).await.success());
+    // As the server writes it: the source, then the blocks.
     std::fs::write(root.join(".learn/raft/cheatsheet.md"), "# Raft\n").unwrap();
+    std::fs::write(root.join(".learn/raft/cheatsheet.json"), "{}\n").unwrap();
 
     let out = run(root, &["delete", "raft", "--yes"], None).await;
 

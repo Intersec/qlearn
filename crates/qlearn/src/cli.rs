@@ -188,6 +188,16 @@ pub enum Command {
     /// first, then the others by the date of their last result.
     Points,
 
+    /// Write the cheatsheet of the course, as the agent, in place of the
+    /// one before. The server adds the map of the code and the points to
+    /// revisit. A refused cheatsheet prints every error, each with its
+    /// line, and exits 1.
+    Cheatsheet {
+        /// The Markdown source. `-` reads it from standard input.
+        #[arg(long, value_name = "PATH")]
+        file: String,
+    },
+
     /// Say in the page what the agent does, until its next wait. An empty
     /// text clears it.
     Status {

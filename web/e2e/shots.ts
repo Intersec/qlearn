@@ -20,6 +20,7 @@ import {
   PAGE_STEPS,
   QUIZ_1,
   QUIZ_2,
+  SHEET,
   SYLLABUS,
 } from './agent.ts';
 import { start } from './server.ts';
@@ -325,6 +326,28 @@ for (const scheme of ['light', 'dark'] as const) {
     await page.getByRole('button', { name: 'Syllabus' }).click();
     await page.getByRole('navigation', { name: 'Syllabus' }).waitFor();
     await page.screenshot({ path: join(OUT, `${scheme}-narrow-syllabus.png`) });
+
+    // The end of the course: the agent writes the cheatsheet and finishes
+    // the course. The note opens the sheet, then print lays it on A4.
+    await page.setViewportSize({ width: 1600, height: 1000 });
+    await agent.cheatsheet(SHEET);
+    await agent.finish();
+    const note = page.locator('.sheet-ready');
+    await note.waitFor();
+    await page.screenshot({ path: join(OUT, `${scheme}-cheatsheet-ready.png`) });
+    await note.getByRole('link', { name: 'Open it' }).click();
+    const sheet = page.locator('.cheatsheet');
+    await sheet.locator('.diagram-svg svg').waitFor();
+    await page.screenshot({ path: join(OUT, `${scheme}-cheatsheet.png`) });
+    await sheet.locator('.cheatsheet-section').last().scrollIntoViewIfNeeded();
+    await page.screenshot({ path: join(OUT, `${scheme}-cheatsheet-end.png`) });
+    // The width of A4 at 96 dpi, as the print dialog lays it out.
+    await page.setViewportSize({ width: 794, height: 1123 });
+    await page.emulateMedia({ media: 'print' });
+    await page.screenshot({ path: join(OUT, `${scheme}-cheatsheet-print.png`), fullPage: true });
+    await page.emulateMedia({ media: 'screen' });
+    await page.setViewportSize({ width: 420, height: 860 });
+    await page.screenshot({ path: join(OUT, `${scheme}-narrow-cheatsheet.png`) });
   } finally {
     if (complaints.length) {
       console.log(`${scheme}: the page complained\n  ${complaints.join('\n  ')}`);

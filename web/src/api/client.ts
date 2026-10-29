@@ -2,6 +2,7 @@
 // page load left behind, so nothing here carries it.
 
 import type {
+  Cheatsheet,
   ChosenAnswer,
   Choosing,
   ErrorBody,
@@ -52,6 +53,9 @@ export const api = {
   session: () => call<Session>('/api/session'),
 
   page: (id: string) => call<Page>(`/api/pages/${encodeURIComponent(id)}`),
+
+  /** The cheatsheet, with the sections that the server builds. */
+  cheatsheet: () => call<Cheatsheet>('/api/cheatsheet'),
 
   /** Ask the agent for the page after this one. Answers the request. */
   next: (id: string) =>

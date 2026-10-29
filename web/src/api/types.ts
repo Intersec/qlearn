@@ -366,6 +366,56 @@ export interface Pick {
   other: string | null;
 }
 
+/** A page as the course names it to the learner. */
+export interface PageName {
+  id: string;
+  title: string;
+}
+
+/**
+ * What `GET /api/cheatsheet` answers: the source of the agent as blocks,
+ * and the two sections that the server builds from the store (section 9
+ * of the design).
+ */
+export interface Cheatsheet {
+  /** The agent wrote it. Until then, every list is empty. */
+  written: boolean;
+  /** A line that a page still hides is null here too. */
+  blocks: Block[];
+  /** Map of the code: by path, then by commit, then by line. */
+  map: CodeRange[];
+  /** To revisit: the missed points first, then by the date of their last result. */
+  revisit: Revisit[];
+}
+
+/**
+ * Lines of the repository that the course showed. Excerpts of one file at
+ * one commit that overlap or touch make one range.
+ */
+export interface CodeRange {
+  path: string;
+  /** "" for the main repository, or the path of the submodule. */
+  repo: string;
+  /** The full hash, in the repository that holds the file. */
+  commit: string;
+  from: number;
+  to: number;
+  /** The pages that showed a part of it, in the order of the syllabus. */
+  lessons: PageName[];
+}
+
+/** A point whose last result is missed or partial. */
+export interface Revisit {
+  /** The id of the point. */
+  point: string;
+  label: string;
+  result: Grade;
+  /** The page that taught the point. */
+  lesson: string;
+  /** The title of that page, or null when the syllabus does not hold it. */
+  title: string | null;
+}
+
 /** A part of the answer to a quiz: the open answer, or the choices. */
 export type QuizAnswer = { open: string } | { choices: Pick[] };
 

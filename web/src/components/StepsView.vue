@@ -15,7 +15,15 @@ import { clean } from '@/html';
 import { changes } from '@/steps';
 import DiagramView from './DiagramView.vue';
 
-const props = defineProps<{ id: string; steps: Steps }>();
+const props = withDefaults(
+  defineProps<{
+    id: string;
+    steps: Steps;
+    /** A refused step diagram reaches the agent. */
+    reported?: boolean;
+  }>(),
+  { reported: true },
+);
 
 const emit = defineEmits<{
   /** Mermaid refused a step diagram. The error names the step. */
@@ -69,14 +77,14 @@ const where = (n: number) => `steps[${n}].diagram`;
 
 // The agent hears of a broken step once: the server passes on one report
 // per block for each push.
-let reported = false;
+let sent = false;
 let mounted = true;
 
 function report(error: string) {
-  if (reported || !mounted) {
+  if (sent || !mounted) {
     return;
   }
-  reported = true;
+  sent = true;
   emit('broken', props.id, error);
 }
 
@@ -113,7 +121,7 @@ async function checkAll() {
 let checking: Promise<void> = Promise.resolve();
 
 function start() {
-  reported = false;
+  sent = false;
   checking = props.steps.steps.some((one) => one.diagram !== null) ? checkAll() : Promise.resolve();
 }
 
@@ -204,6 +212,11 @@ onBeforeUnmount(() => {
     <p v-if="changed" class="steps-legend" aria-hidden="true">
       <span class="steps-dot">●</span><strong>Bold</strong>: changed since the previous step
     </p>
-    <DiagramView v-if="diagram" :block="diagram" @broken="(_, error) => refused(error)" />
+    <DiagramView
+      v-if="diagram"
+      :block="diagram"
+      :reported="props.reported"
+      @broken="(_, error) => refused(error)"
+    />
   </figure>
 </template>

@@ -2,22 +2,30 @@
 // The syllabus in the left column: the parts and their pages, each with
 // its state and its score (section 3 of the design). A planned page has no
 // content yet, so it is shown but cannot be opened. The choices that name
-// no page come first, in the slot (section 7). The findings come last, in
-// the slot `end`.
+// no page come first, in the slot (section 7). The cheatsheet follows the
+// pages, and opens once the agent wrote it (section 9). The findings come
+// last, in the slot `end`.
 
 import { computed } from 'vue';
 import type { PageRef, PageState, Part, Score } from '@/api/types';
-import { format } from '@/place';
+import { CHEATSHEET, format } from '@/place';
 
-const props = defineProps<{
-  parts: Part[];
-  /** The page on the screen. */
-  shown: string | null;
-  /** The page that the agent pushed last. */
-  current: string | null;
-}>();
+const props = withDefaults(
+  defineProps<{
+    parts: Part[];
+    /** The page on the screen. */
+    shown: string | null;
+    /** The page that the agent pushed last. */
+    current: string | null;
+    /** The agent wrote the cheatsheet. */
+    cheatsheet?: boolean;
+    /** The cheatsheet is on the screen. */
+    sheetShown?: boolean;
+  }>(),
+  { cheatsheet: false, sheetShown: false },
+);
 
-const emit = defineEmits<{ open: [id: string] }>();
+const emit = defineEmits<{ open: [id: string]; cheatsheet: [] }>();
 
 /** One part with no title is the implicit part of a course: a flat list. */
 const flat = computed(() => props.parts.length === 1 && props.parts[0].title === '');
@@ -38,12 +46,24 @@ function scoreOf(score: Score): string {
 }
 
 /** A click with a modifier, or with another button, opens a new tab. */
-function onClick(e: MouseEvent, id: string) {
+function plain(e: MouseEvent): boolean {
   if (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey || e.button !== 0) {
-    return;
+    return false;
   }
   e.preventDefault();
-  emit('open', id);
+  return true;
+}
+
+function onClick(e: MouseEvent, id: string) {
+  if (plain(e)) {
+    emit('open', id);
+  }
+}
+
+function onSheet(e: MouseEvent) {
+  if (plain(e)) {
+    emit('cheatsheet');
+  }
 }
 
 function hint(page: PageRef): string {
@@ -101,6 +121,34 @@ function hint(page: PageRef): string {
         </li>
       </ol>
     </section>
+    <div
+      v-if="!empty"
+      class="syllabus-sheet"
+      :data-shown="sheetShown || undefined"
+      :data-written="cheatsheet"
+    >
+      <a
+        v-if="cheatsheet"
+        class="syllabus-entry"
+        :href="CHEATSHEET"
+        :aria-current="sheetShown ? 'page' : undefined"
+        title="The page that you keep: the course on one sheet"
+        @click="onSheet($event)"
+      >
+        <span class="syllabus-sheet-mark" aria-hidden="true" />
+        <span class="syllabus-sheet-title">Cheatsheet</span>
+      </a>
+      <span
+        v-else
+        class="syllabus-entry"
+        aria-disabled="true"
+        title="The agent writes it at the end of the course"
+      >
+        <span class="syllabus-sheet-mark" aria-hidden="true" />
+        <span class="syllabus-sheet-title">Cheatsheet</span>
+        <span class="sr-only">(the agent writes it at the end of the course)</span>
+      </span>
+    </div>
     <slot name="end" />
   </nav>
 </template>

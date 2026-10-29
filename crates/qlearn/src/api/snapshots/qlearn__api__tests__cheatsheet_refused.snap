@@ -1,0 +1,10 @@
+---
+source: crates/qlearn/src/api/mod.rs
+expression: body
+---
+{
+  "error": {
+    "code": "invalidCheatsheet",
+    "message": "cheatsheet.md:6: excerpt: a cheatsheet hides no line: the learner keeps it to read, and answers no quiz on it. Take hide out\ncheatsheet.md:11: excerpt: src/raft.c has 5 lines at HEAD, the excerpt asks for 90"
+  }
+}

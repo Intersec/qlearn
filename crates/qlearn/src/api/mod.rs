@@ -25,7 +25,7 @@ use crate::git::exec::Git;
 use crate::highlight::Highlighter;
 use crate::lesson::{self, Fault};
 use crate::model::{
-    self, AgentStatus, Author, Batch, Block, BlockSource, Broken, ChoiceId, ChoiceSent,
+    self, AgentStatus, Author, Batch, Block, BlockSource, Broken, Cheatsheet, ChoiceId, ChoiceSent,
     ChoicesSent, Choosing, Course, CourseChange, Detail, Event, EventKind, Export, Finding, Graded,
     GradedPoint, OpenSent, Page, PageKind, Point, PointResult, QuizNumber, ReplySent, Session,
     StatusText, Thread, ThreadOpened,
@@ -112,6 +112,7 @@ pub fn app(state: AppState) -> Router {
         .route("/api/findings/", put(write_unnamed_finding))
         .route("/api/findings/{id}", put(write_finding))
         .route("/api/media/{name}", get(media))
+        .route("/api/cheatsheet", get(cheatsheet).put(write_cheatsheet))
         .method_not_allowed_fallback(method_not_allowed)
         .fallback(interface)
         .layer(middleware::from_fn_with_state(state.clone(), auth::guard))
@@ -1273,6 +1274,61 @@ async fn write_finding(
     Ok(Json(finding))
 }
 
+/// The cheatsheet, with Map of the code and To revisit. Before the agent
+/// writes it, `written` is false and every list is empty: the page asks at
+/// each load, and an answer of 404 would be an error in its console.
+async fn cheatsheet(State(state): State<AppState>) -> Result<Json<Cheatsheet>, ApiError> {
+    // Held while the files are read, so a read never sees a write halfway
+    // through.
+    let course = state.course.read().await;
+    let sheet = state.store.load_cheatsheet(&course.slug)?;
+    let sheet = crate::cheatsheet::build(&state.store, &course, sheet)?;
+    drop(course);
+
+    Ok(Json(sheet))
+}
+
+/// Write the cheatsheet, in place of the one before. The body is the
+/// source. Answers the cheatsheet, as the page gets it.
+///
+/// The whole source is checked before anything is stored, and a refused
+/// source gets every error at once, so the agent fixes them in one pass.
+async fn write_cheatsheet(
+    State(state): State<AppState>,
+    body: Result<String, StringRejection>,
+) -> Result<Json<Cheatsheet>, ApiError> {
+    let source = body.map_err(|rejection| ApiError {
+        status: rejection.status(),
+        code: "badRequest",
+        message: rejection.body_text(),
+    })?;
+    let parsed = lesson::parse_cheatsheet(&source, &state.git, Highlighter::shared())
+        .await
+        .map_err(|faults| ApiError::invalid_cheatsheet(&faults))?;
+
+    // The write lock keeps the store to one writer.
+    let course = state.course.write().await;
+    let file = crate::cheatsheet::CheatsheetFile {
+        blocks: parsed.blocks,
+    };
+    // Built before the write: a store that cannot be read refuses the
+    // cheatsheet, rather than store one that no read can show.
+    let sheet = crate::cheatsheet::build(&state.store, &course, Some(file.clone()))?;
+    // The images first: a cheatsheet never names an image that is not
+    // there.
+    let media = state.store.save_media(&course.slug, &parsed.media)?;
+    if let Err(error) = state.store.save_cheatsheet(&course.slug, &source, &file) {
+        return Err(media.after(error).into());
+    }
+    // Under the lock, so the events come in the order of the writes.
+    state
+        .events
+        .push(EventKind::Cheatsheet, Author::Agent, None, None);
+    drop(course);
+
+    Ok(Json(sheet))
+}
+
 /// An empty id matches no `{id}`, and owes the refusal of a bad id, not
 /// a route that names nothing.
 async fn write_unnamed_finding(
@@ -1402,6 +1458,22 @@ impl ApiError {
         Self {
             status: StatusCode::BAD_REQUEST,
             code: "invalidPage",
+            message: lines.join("\n"),
+        }
+    }
+
+    /// A cheatsheet that fails a check. The message holds one line per
+    /// error, in the format of section 4.7 of the design, with the file of
+    /// the store.
+    fn invalid_cheatsheet(faults: &[Fault]) -> Self {
+        let lines: Vec<String> = faults
+            .iter()
+            .map(|fault| fault.display(store::CHEATSHEET))
+            .collect();
+
+        Self {
+            status: StatusCode::BAD_REQUEST,
+            code: "invalidCheatsheet",
             message: lines.join("\n"),
         }
     }
@@ -5815,6 +5887,138 @@ mod tests {
         // The writes of the test stamp the course with the clock.
         body["course"]["updated"] = "[updated]".into();
         insta::assert_json_snapshot!("export", at_redacted(body));
+    }
+
+    /// The cheatsheet of the agent: a hook, a table and an excerpt.
+    const SHEET: &str = "# Raft in one page\n\n\
+                         > [!hook]\n> The first follower to wake up wins.\n\n\
+                         | Name | What |\n|---|---|\n\
+                         | `election_timeout` | the wait of a follower |\n\n\
+                         ```excerpt\npath: src/raft.c\nlines: 2-4\nmark: 4\n```\n";
+
+    async fn write_sheet(state: &AppState, source: &str) -> (StatusCode, serde_json::Value) {
+        json(
+            app(state.clone()),
+            put("/api/cheatsheet", source.to_owned()),
+        )
+        .await
+    }
+
+    #[tokio::test]
+    async fn the_cheatsheet_route_answers_an_empty_cheatsheet_before_the_write() {
+        let dir = repo().await;
+        let state = state_in(dir.path());
+
+        let (status, body) = json(app(state), get_with_cookie("/api/cheatsheet", TOKEN)).await;
+
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(
+            body,
+            serde_json::json!({ "written": false, "blocks": [], "map": [], "revisit": [] })
+        );
+        assert!(files(dir.path()).is_empty(), "a read writes nothing");
+    }
+
+    /// The agent writes the source. The server adds the excerpts of the
+    /// lessons and of their debriefs, merged, and the points whose last
+    /// result is missed or partial. A later page shows in the next read.
+    #[tokio::test]
+    async fn the_cheatsheet_route_stores_the_source_and_adds_the_map_and_the_points() {
+        let lesson = "# The timer\n\n```excerpt\npath: src/raft.c\nlines: 1-2\n```\n";
+        let (dir, state) = with_quiz(lesson, QUIZ_TWO_POINTS).await;
+        answer_quiz(&state, 1).await;
+        let body = debrief_body(
+            DEBRIEF,
+            serde_json::json!({ "random-timeout": "ok", "majority": "partial" }),
+        );
+        assert_eq!(write_debrief(&state, 1, &body).await.0, StatusCode::OK);
+        let end = "# The end\n\n```excerpt\npath: src/raft.c\nlines: 5\n```\n";
+        assert_eq!(
+            json(app(state.clone()), put("/api/pages/2", end)).await.0,
+            StatusCode::OK
+        );
+        let untouched = outside(dir.path());
+        let after = state.events.after(None, events::HOLD).await.next;
+
+        let (status, written) = write_sheet(&state, SHEET).await;
+
+        assert_eq!(status, StatusCode::OK, "{written}");
+        insta::assert_json_snapshot!("cheatsheet_write", written);
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join(".learn/raft/cheatsheet.md")).unwrap(),
+            SHEET,
+            "the source is kept as written"
+        );
+        assert!(dir.path().join(".learn/raft/cheatsheet.json").is_file());
+        let batch = state.events.after(Some(after), events::HOLD).await;
+        let events: Vec<_> = batch
+            .events
+            .iter()
+            .map(|event| {
+                (
+                    event.kind,
+                    event.author,
+                    event.page.clone(),
+                    event.id.clone(),
+                )
+            })
+            .collect();
+        assert_eq!(events, [(EventKind::Cheatsheet, Author::Agent, None, None)]);
+        assert_eq!(outside(dir.path()), untouched, "a write outside .learn/");
+
+        // The code changes, and a new page shows it: the map gives the file
+        // at each commit, and the cheatsheet keeps the commit of its write.
+        // The store stays out of the commit, so its hash is the same on
+        // every run.
+        std::fs::write(dir.path().join(".git/info/exclude"), ".learn/\n").unwrap();
+        dir.commit(&commit("faster").file("src/raft.c", "int election_timeout;\n"))
+            .await;
+        let faster = "# Faster\n\n```excerpt\npath: src/raft.c\nlines: 1\n```\n";
+        assert_eq!(
+            json(app(state.clone()), put("/api/pages/3", faster))
+                .await
+                .0,
+            StatusCode::OK
+        );
+        let (status, read) = json(app(state), get_with_cookie("/api/cheatsheet", TOKEN)).await;
+
+        assert_eq!(status, StatusCode::OK, "{read}");
+        assert_eq!(read["blocks"], written["blocks"]);
+        insta::assert_json_snapshot!("cheatsheet", read);
+    }
+
+    #[tokio::test]
+    async fn a_refused_cheatsheet_gets_every_error_and_stores_nothing() {
+        let dir = repo().await;
+        let state = state_in(dir.path());
+        let after = state.events.after(None, events::HOLD).await.next;
+        let source = "# Raft\n\n```excerpt\npath: src/raft.c\nlines: 2-4\nhide: 4\n```\n\n\
+                      ```excerpt\npath: src/raft.c\nlines: 90\n```\n";
+
+        let (status, body) = write_sheet(&state, source).await;
+
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+        insta::assert_json_snapshot!("cheatsheet_refused", body);
+        assert!(files(dir.path()).is_empty(), "{:?}", files(dir.path()));
+        assert_eq!(state.events.after(None, events::HOLD).await.next, after);
+    }
+
+    /// The cheatsheet may show a line that a page hides: it stays hidden
+    /// there until the learner answers every quiz of that page.
+    #[tokio::test]
+    async fn the_cheatsheet_hides_a_line_that_a_page_still_hides() {
+        let (_dir, state) = with_quiz(EXCERPT, QUIZ_TWO_POINTS).await;
+        let source = "# Raft\n\n```excerpt\npath: src/raft.c\nlines: 3-4\n```\n";
+        let (status, written) = write_sheet(&state, source).await;
+        assert_eq!(status, StatusCode::OK, "{written}");
+        let lines = |sheet: &serde_json::Value| sheet["blocks"][1]["excerpt"]["lines"].clone();
+
+        assert_eq!(lines(&written)[1], serde_json::Value::Null);
+        assert_eq!(lines(&written)[0]["text"], "{");
+
+        answer_quiz(&state, 1).await;
+        let (_, read) = json(app(state), get_with_cookie("/api/cheatsheet", TOKEN)).await;
+        assert_eq!(lines(&read)[1]["text"], "    return base + rand() % base;");
     }
 
     /// A trace goes into a log or a bug report. The token must not.

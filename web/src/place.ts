@@ -18,6 +18,12 @@ export interface Place {
  */
 export const WHOLE_PAGE = 'page';
 
+/**
+ * The fragment of the cheatsheet. It holds no `page`, so `parse` finds no
+ * place in it.
+ */
+export const CHEATSHEET = '#cheatsheet';
+
 /** The fragment of a place, `#page=7a&block=3f9c2e81d0b4`. */
 export function format(place: Place): string {
   const parts = [`page=${encodeURIComponent(place.page)}`];

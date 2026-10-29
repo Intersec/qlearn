@@ -82,8 +82,11 @@
  * The first block follows the system, unless the learner asked for light.
  * The second is the learner asking for dark outright. A single block
  * cannot do both: CSS cannot join a media condition and a selector with OR.
+ *
+ * Both hold on the screen only: print takes the light tokens, so a printed
+ * cheatsheet is dark ink on white paper in either theme.
  */
-@media (prefers-color-scheme: dark) {
+@media screen and (prefers-color-scheme: dark) {
   :root:not([data-theme='light']) {
     --page: #131416;
     --pane: #1a1c1e;
@@ -141,60 +144,62 @@
   }
 }
 
-:root[data-theme='dark'] {
-  --page: #131416;
-  --pane: #1a1c1e;
-  --ink: #e8eaed;
-  --ink-quiet: #9aa0a6;
-  --ink-faint: #6f7479;
-  --edge: #2f3134;
-  --edge-soft: #26282b;
-  --action: #8ab4f8;
-  --action-ink: #131416;
-  --agent: #17202e;
-  --agent-edge: #2d3f5c;
-  --waiting: #3a1715;
-  --waiting-edge: #f28b82;
-  --waiting-ink: #f28b82;
-  --online: #81c995;
-  --error: #320f10;
-  --error-ink: #f28b82;
+@media screen {
+  :root[data-theme='dark'] {
+    --page: #131416;
+    --pane: #1a1c1e;
+    --ink: #e8eaed;
+    --ink-quiet: #9aa0a6;
+    --ink-faint: #6f7479;
+    --edge: #2f3134;
+    --edge-soft: #26282b;
+    --action: #8ab4f8;
+    --action-ink: #131416;
+    --agent: #17202e;
+    --agent-edge: #2d3f5c;
+    --waiting: #3a1715;
+    --waiting-edge: #f28b82;
+    --waiting-ink: #f28b82;
+    --online: #81c995;
+    --error: #320f10;
+    --error-ink: #f28b82;
 
-  --tok-keyword: #c678dd;
-  --tok-string: #98c379;
-  --tok-comment: #7f848e;
-  --tok-constant: #d19a66;
-  --tok-entity: #61afef;
-  --tok-support: #56b6c2;
-  --tok-variable: #e06c75;
-  --tok-invalid: #f28b82;
-  --tok-invalid-ink: #131416;
-  --marked: #2e2a1a;
-  --marked-edge: #fdd663;
+    --tok-keyword: #c678dd;
+    --tok-string: #98c379;
+    --tok-comment: #7f848e;
+    --tok-constant: #d19a66;
+    --tok-entity: #61afef;
+    --tok-support: #56b6c2;
+    --tok-variable: #e06c75;
+    --tok-invalid: #f28b82;
+    --tok-invalid-ink: #131416;
+    --marked: #2e2a1a;
+    --marked-edge: #fdd663;
 
-  --hook: #231a30;
-  --hook-edge: #c58af9;
-  --teaser: #102a2e;
-  --teaser-edge: #78d9ec;
-  --pitfall: #2e1f12;
-  --pitfall-edge: #fcad70;
-  --note: #1f2124;
-  --note-edge: #9aa0a6;
+    --hook: #231a30;
+    --hook-edge: #c58af9;
+    --teaser: #102a2e;
+    --teaser-edge: #78d9ec;
+    --pitfall: #2e1f12;
+    --pitfall-edge: #fcad70;
+    --note: #1f2124;
+    --note-edge: #9aa0a6;
 
-  --right: #12291b;
-  --right-edge: #81c995;
-  --wrong: #3a1715;
-  --wrong-edge: #f28b82;
+    --right: #12291b;
+    --right-edge: #81c995;
+    --wrong: #3a1715;
+    --wrong-edge: #f28b82;
 
-  --series-1: #3987e5;
-  --series-2: #d95926;
-  --series-3: #199e70;
-  --series-4: #c98500;
-  --series-5: #d55181;
-  --series-6: #008300;
-  --series-7: #9085e9;
-  --series-8: #e66767;
-  --image-ground: #ffffff;
+    --series-1: #3987e5;
+    --series-2: #d95926;
+    --series-3: #199e70;
+    --series-4: #c98500;
+    --series-5: #d55181;
+    --series-6: #008300;
+    --series-7: #9085e9;
+    --series-8: #e66767;
+    --image-ground: #ffffff;
+  }
 }
 
 html,
@@ -1984,4 +1989,267 @@ a.syllabus-entry:focus-visible {
 .comment-cancel:focus-visible {
   outline: 2px solid var(--action);
   outline-offset: 1px;
+}
+
+/* -------------------------------------------------------- the cheatsheet */
+
+/* The entry of the cheatsheet follows the pages of the syllabus. */
+.syllabus-sheet {
+  margin-top: 14px;
+  padding-top: 6px;
+  border-top: 1px solid var(--edge);
+}
+.syllabus-sheet:not([data-written='true']) .syllabus-entry {
+  color: var(--ink-faint);
+  cursor: default;
+}
+.syllabus-sheet[data-shown] .syllabus-entry {
+  border-left-color: var(--action);
+  background: var(--agent);
+  font-weight: 600;
+}
+.syllabus-sheet-title {
+  flex: 1;
+}
+/* A sheet with a folded corner. */
+.syllabus-sheet-mark {
+  flex: none;
+  align-self: center;
+  width: 9px;
+  height: 11px;
+  border: 1.5px solid var(--ink-faint);
+  border-radius: 1px 4px 1px 1px;
+}
+.syllabus-sheet[data-written='true'] .syllabus-sheet-mark {
+  border-color: var(--online);
+  background: var(--right);
+}
+
+/*
+ * The sheet: one A4 page wide, in two columns. A block never splits
+ * between two columns. The type is smaller than in a lesson, so the course
+ * fits on one sheet.
+ */
+.cheatsheet {
+  max-width: 210mm;
+  margin: 0 auto;
+  padding: 16px 24px 48px;
+}
+.cheatsheet-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  margin-bottom: 14px;
+}
+.cheatsheet-keep {
+  flex: 1 1 24rem;
+  margin: 0;
+  padding: 8px 12px;
+  border: 1px solid var(--marked-edge);
+  border-radius: 4px;
+  background: var(--marked);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.cheatsheet-keep code {
+  font-family: var(--code-font);
+  font-size: 12px;
+}
+.cheatsheet-exports {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+.cheatsheet-print {
+  padding: 4px 14px;
+  border: 1px solid var(--edge);
+  border-radius: 4px;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+}
+.cheatsheet-print:hover {
+  background: var(--edge-soft);
+}
+.cheatsheet-print:focus-visible {
+  outline: 2px solid var(--action);
+  outline-offset: 2px;
+}
+.cheatsheet-sheet {
+  column-count: 2;
+  column-gap: 8mm;
+  --code-size: 11px;
+}
+.cheatsheet-sheet > .thread-anchor,
+.cheatsheet-section,
+.cheatsheet-list > li {
+  break-inside: avoid;
+}
+/* A block that ends with a heading stays with the block that it heads. */
+.cheatsheet-sheet > .thread-anchor:has(> .md-doc > :last-child:is(h1, h2, h3, h4, h5, h6)) {
+  break-after: avoid;
+}
+/* The title of the sheet spans both columns. */
+.cheatsheet-sheet > .thread-anchor:first-child:has(> .md-doc > h1:first-child) {
+  column-span: all;
+}
+.cheatsheet .md-doc {
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+.cheatsheet .md-doc h1 {
+  margin-top: 0;
+  font-size: 1.6em;
+}
+/* No Ask button sits over the first line of a block. */
+.cheatsheet .thread-anchor > .md-doc.block > :first-child,
+.cheatsheet .thread-anchor > .block .excerpt-head,
+.cheatsheet .thread-anchor > .block .image-head {
+  padding-right: 0;
+}
+.cheatsheet-head {
+  margin: 0.6em 0 0.4em;
+  padding-bottom: 0.2em;
+  border-bottom: 1px solid var(--edge);
+  font-size: 15px;
+  font-weight: 600;
+}
+.cheatsheet-none {
+  margin: 0 0 0.9em;
+  color: var(--ink-quiet);
+  font-size: 12.5px;
+}
+.cheatsheet-list {
+  margin: 0 0 0.9em;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.cheatsheet-list > li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 6px;
+  padding: 3px 0;
+  border-bottom: 1px solid var(--edge-soft);
+}
+.cheatsheet-where {
+  font-family: var(--code-font);
+  font-size: 11.5px;
+  overflow-wrap: anywhere;
+}
+.cheatsheet-repo,
+.cheatsheet-commit {
+  color: var(--ink-quiet);
+  font-size: 11px;
+}
+.cheatsheet-commit {
+  font-family: var(--code-font);
+}
+.cheatsheet-lessons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+  width: 100%;
+}
+.cheatsheet-lesson {
+  color: var(--ink-quiet);
+}
+a.cheatsheet-lesson:hover {
+  color: var(--action);
+  text-decoration: underline;
+}
+.cheatsheet-id {
+  font-family: var(--code-font);
+  font-size: 11px;
+}
+.cheatsheet-result {
+  flex: none;
+  padding: 0 6px;
+  border: 1px solid var(--wrong-edge);
+  border-radius: 999px;
+  background: var(--wrong);
+  font-size: 10.5px;
+}
+.cheatsheet-point[data-result='partial'] .cheatsheet-result {
+  border-color: var(--marked-edge);
+  background: var(--marked);
+}
+.cheatsheet-label {
+  flex: 1 1 10em;
+}
+@media (max-width: 700px) {
+  .cheatsheet {
+    padding: 12px 14px 32px;
+  }
+  .cheatsheet-sheet {
+    column-count: 1;
+  }
+}
+
+/*
+ * Print: the cheatsheet alone, or the page alone, on A4. No column of the
+ * syllabus, no bar, no note and no button. The tokens are the light ones
+ * (see the top of this file), and a diagram that Mermaid drew dark is
+ * turned light, since its colors are in the SVG.
+ */
+@media print {
+  @page {
+    size: A4;
+    margin: 12mm;
+  }
+  html,
+  body {
+    background: #ffffff;
+  }
+  .shell {
+    display: block;
+    height: auto;
+  }
+  .columns,
+  .course {
+    display: block;
+    overflow: visible;
+  }
+  .top-bar,
+  .syllabus,
+  .stopped,
+  .agent-left,
+  .ready,
+  .error,
+  .page-end,
+  .cheatsheet-bar,
+  .threads,
+  button {
+    display: none !important;
+  }
+  .cheatsheet {
+    max-width: none;
+    padding: 0;
+  }
+  .cheatsheet-sheet {
+    column-count: 2;
+  }
+  .thread-anchor,
+  .callout,
+  .excerpt,
+  .diagram,
+  .chart,
+  table {
+    break-inside: avoid;
+  }
+  .excerpt-body {
+    overflow: visible;
+  }
+  .excerpt-text {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  .diagram[data-scheme='dark'] .diagram-svg {
+    filter: invert(1) hue-rotate(180deg);
+  }
+  .cheatsheet-lesson {
+    color: var(--ink-quiet);
+    text-decoration: none;
+  }
 }

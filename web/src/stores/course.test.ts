@@ -3,7 +3,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
 import { ApiError, api } from '@/api/client';
-import type { Choosing, Course, Event, EventBatch, Page, PageRef, Thread } from '@/api/types';
+import type {
+  Cheatsheet,
+  Choosing,
+  Course,
+  Event,
+  EventBatch,
+  Page,
+  PageRef,
+  Thread,
+} from '@/api/types';
 import { useCourse } from './course';
 
 /** The HTML of the first block, which these pages hold as text. */
@@ -80,6 +89,8 @@ class FakeServer {
   choicesError: string | null = null;
   /** The error that each read of the session gets, if any. */
   sessionFails: ApiError | null = null;
+  /** The cheatsheet, as its route answers it. */
+  sheet: Cheatsheet = { written: false, blocks: [], map: [], revisit: [] };
   /** The `after` of each wait, `undefined` for the one that starts. */
   waits: (number | undefined)[] = [];
   /** The pages that a Next was sent from. */
@@ -88,9 +99,11 @@ class FakeServer {
   broken: [string, string, string][] = [];
   /** The error that the next report gets, if any. */
   refuse: ApiError | null = null;
-  reads = { session: 0, page: [] as string[] };
+  reads = { session: 0, page: [] as string[], cheatsheet: 0 };
   /** Reads of a page that wait until the test lets them answer. */
   private gates = new Map<string, Promise<void>>();
+  /** Reads of the cheatsheet that wait until the test lets them answer. */
+  private sheetGate: Promise<void> | null = null;
   private queued: EventBatch[] = [];
   private held: ((batch: EventBatch) => void) | null = null;
 
@@ -110,6 +123,11 @@ class FakeServer {
         choicesError: this.choicesError,
         server: 'first',
       };
+    });
+    vi.spyOn(api, 'cheatsheet').mockImplementation(async () => {
+      this.reads.cheatsheet += 1;
+      await this.sheetGate;
+      return structuredClone(this.sheet);
     });
     vi.spyOn(api, 'page').mockImplementation(async (id) => {
       this.reads.page.push(id);
@@ -177,6 +195,18 @@ class FakeServer {
         };
       }),
     );
+    return release;
+  }
+
+  /** Hold the reads of the cheatsheet. Answers what lets them go. */
+  holdSheet(): () => void {
+    let release = () => {};
+    this.sheetGate = new Promise((resolve) => {
+      release = () => {
+        this.sheetGate = null;
+        resolve();
+      };
+    });
     return release;
   }
 
@@ -374,6 +404,178 @@ describe('the events', () => {
     server.send(batch({ next: 13, left: true }));
     await vi.waitFor(() => expect(store.presence).toBe('left'));
     expect(store.status).toBeNull();
+  });
+});
+
+/** The cheatsheet once the agent wrote it, with one range of code. */
+function written(): Cheatsheet {
+  return {
+    written: true,
+    blocks: [{ id: 'sheet', kind: 'text', html: '<h1>Raft</h1>' }],
+    map: [
+      {
+        path: 'src/raft.c',
+        repo: '',
+        commit: 'a'.repeat(40),
+        from: 1,
+        to: 6,
+        lessons: [{ id: '1', title: 'Page 1' }],
+      },
+    ],
+    revisit: [],
+  };
+}
+
+describe('the cheatsheet', () => {
+  it('is read at the start, and opens in the place of the page once written', async () => {
+    server.push('1', 1);
+    server.sheet = written();
+    const store = await started();
+    expect(store.cheatsheet?.written).toBe(true);
+    expect(store.sheetShown).toBe(false);
+
+    await store.openCheatsheet();
+
+    expect(store.sheetShown).toBe(true);
+    expect(location.hash).toBe('#cheatsheet');
+    await store.open('1');
+    expect(store.sheetShown).toBe(false);
+    expect(location.hash).toBe('#page=1');
+  });
+
+  it('loses to a page that the learner opens while it is read', async () => {
+    server.push('1', 1);
+    server.push('2', 2);
+    server.sheet = written();
+    const store = await started();
+    expect(store.page?.id).toBe('2');
+
+    const release = server.holdSheet();
+    const opening = store.openCheatsheet();
+    await store.open('1');
+    release();
+    await opening;
+
+    expect(store.sheetShown).toBe(false);
+    expect(store.page?.id).toBe('1');
+    expect(location.hash).toBe('#page=1');
+  });
+
+  it('loses to a page that the learner opens while Back reads it', async () => {
+    server.push('1', 1);
+    server.push('2', 2);
+    server.sheet = written();
+    // The first read fails, so Back to the cheatsheet reads it again.
+    vi.mocked(api.cheatsheet).mockRejectedValueOnce(new ApiError('internal', 'cannot read'));
+    const store = await started();
+    expect(store.cheatsheet).toBeNull();
+
+    const release = server.holdSheet();
+    history.pushState(null, '', '#cheatsheet');
+    const back = store.follow();
+    await store.open('1');
+    release();
+    await back;
+
+    expect(store.sheetShown).toBe(false);
+    expect(store.page?.id).toBe('1');
+    expect(location.hash).toBe('#page=1');
+  });
+
+  it('does not open before the agent writes it', async () => {
+    server.push('1', 1);
+    const store = await started();
+
+    await store.openCheatsheet();
+
+    expect(store.sheetShown).toBe(false);
+    expect(location.hash).toBe('#page=1');
+  });
+
+  it('opens from the address, or leaves it to the current page while not written', async () => {
+    server.push('1', 1);
+    history.replaceState(null, '', '/#cheatsheet');
+    const early = await started();
+    expect(early.sheetShown).toBe(false);
+    expect(early.page?.id).toBe('1');
+    expect(location.hash).toBe('#page=1');
+
+    setActivePinia(createPinia());
+    server = new FakeServer();
+    server.push('1', 1);
+    server.sheet = written();
+    history.replaceState(null, '', '/#cheatsheet');
+    const store = await started();
+    expect(store.sheetShown).toBe(true);
+    expect(location.hash).toBe('#cheatsheet');
+  });
+
+  it('is read again when the agent writes it, and when a page changes the record', async () => {
+    server.push('1', 1);
+    const store = await started();
+    const before = server.reads.cheatsheet;
+
+    server.sheet = written();
+    server.send(
+      batch({
+        next: 11,
+        events: [{ seq: 11, kind: 'cheatsheet', author: 'agent', page: null, id: null }],
+      }),
+    );
+    await vi.waitFor(() => expect(store.cheatsheet?.written).toBe(true));
+    expect(server.reads.cheatsheet).toBe(before + 1);
+
+    // A new page may show more code: the map follows it.
+    server.sheet.map[0].to = 9;
+    server.send(batch({ next: 12, events: [server.push('2', 12)] }));
+    await vi.waitFor(() => expect(store.cheatsheet?.map[0].to).toBe(9));
+  });
+
+  it('is read again when the agent adds a quiz, which may hide a line again', async () => {
+    server.push('1', 1);
+    server.sheet = written();
+    const store = await started();
+    expect(store.cheatsheet?.written).toBe(true);
+    const before = server.reads.cheatsheet;
+
+    server.sheet.map[0].to = 9;
+    server.send(
+      batch({
+        next: 11,
+        events: [{ seq: 11, kind: 'quiz', author: 'agent', page: '1', id: null }],
+      }),
+    );
+
+    await vi.waitFor(() => expect(store.cheatsheet?.map[0].to).toBe(9));
+    expect(server.reads.cheatsheet).toBe(before + 1);
+  });
+
+  it('comes back with Back from a page that it opened', async () => {
+    server.push('1', 1);
+    server.sheet = written();
+    history.replaceState(null, '', '/#cheatsheet');
+    const store = await started();
+    window.addEventListener('popstate', () => void store.follow(), { once: true });
+
+    await store.open('1');
+    expect(location.hash).toBe('#page=1');
+
+    history.back();
+    await vi.waitFor(() => expect(store.sheetShown).toBe(true));
+    expect(location.hash).toBe('#cheatsheet');
+  });
+
+  it('stays on the screen when the first page arrives', async () => {
+    server.sheet = written();
+    history.replaceState(null, '', '/#cheatsheet');
+    const store = await started();
+    expect(store.sheetShown).toBe(true);
+
+    server.send(batch({ next: 11, events: [server.push('1', 11)] }));
+
+    await vi.waitFor(() => expect(store.ready).toBe('1'));
+    expect(store.sheetShown).toBe(true);
+    expect(location.hash).toBe('#cheatsheet');
   });
 });
 

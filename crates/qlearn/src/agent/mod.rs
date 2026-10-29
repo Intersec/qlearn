@@ -307,6 +307,24 @@ pub async fn finding(
     client.put(&format!("/api/findings/{id}"), &body).await
 }
 
+/// Write the cheatsheet. Answers it, with the sections that the server
+/// builds.
+///
+/// The errors name the file of the agent: `shown`.
+pub async fn cheatsheet(client: &Client, source: &str, shown: &str) -> Result<Value> {
+    let written = client.put_text("/api/cheatsheet", source).await;
+
+    written.map_err(|error| match error.downcast::<Refusal>() {
+        Ok(refusal) if refusal.code == "invalidCheatsheet" => Refusal {
+            message: in_file(&refusal.message, crate::store::CHEATSHEET, shown),
+            ..refusal
+        }
+        .into(),
+        Ok(refusal) => refusal.into(),
+        Err(error) => error,
+    })
+}
+
 /// The points of the course, in the order in which the agent picks the
 /// point of a question on an earlier lesson.
 pub async fn points(client: &Client) -> Result<Value> {

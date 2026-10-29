@@ -526,6 +526,70 @@ async fn an_agent_writes_a_finding_and_marks_it_checked() {
     assert!(interrupt(server).await.success());
 }
 
+/// The agent writes the cheatsheet with `qlearn cheatsheet`, and the server
+/// adds the code that the pages showed. A refused one prints every error
+/// with the file of the agent, and stores nothing.
+#[tokio::test]
+async fn an_agent_writes_the_cheatsheet_and_reads_every_error_of_a_refused_one() {
+    let repo = build_repo();
+    let root = repo.path();
+    let mut server = qlearn(root, &["raft", "--no-open"]).spawn().unwrap();
+    read_url(&mut server).await;
+    let page = "# One\n\n```excerpt\npath: a.txt\nlines: 1\n```\n";
+    json_of(&run(root, &["page", "1", "--file", "-"], Some(page)).await);
+    let empty = page_of(root).get("/api/cheatsheet").await.unwrap();
+    assert_eq!(empty["written"], false, "{empty}");
+
+    let refused = run(
+        root,
+        &["cheatsheet", "--file", "-"],
+        Some("# Raft\n\n```excerpt\npath: a.txt\nlines: 1\nhide: 1\n```\n\n> [!tip]\n> x\n"),
+    )
+    .await;
+    assert_eq!(refused.status.code(), Some(1), "{refused:?}");
+    assert!(refused.stdout.is_empty(), "{refused:?}");
+    let errors = stderr(&refused);
+    let lines: Vec<_> = errors.lines().collect();
+    assert_eq!(lines.len(), 2, "{errors}");
+    assert!(
+        lines[0].starts_with("-:6: excerpt: a cheatsheet hides no line"),
+        "{errors}"
+    );
+    assert!(lines[1].starts_with("-:9: callout: "), "{errors}");
+    assert!(!root.join(".learn/raft/cheatsheet.md").exists());
+
+    std::fs::write(
+        root.join("sheet.md"),
+        "# Raft\n\n> [!pitfall]\n> A base of 0 divides by zero.\n",
+    )
+    .unwrap();
+    let written = json_of(&run(root, &["cheatsheet", "--file", "sheet.md"], None).await);
+    assert_eq!(written["written"], true);
+    assert_eq!(written["blocks"][1]["marker"], "pitfall");
+    assert_eq!(
+        written["map"],
+        json!([{ "path": "a.txt", "repo": "", "commit": written["map"][0]["commit"],
+                 "from": 1, "to": 1, "lessons": [{ "id": "1", "title": "One" }] }])
+    );
+    assert_eq!(written["revisit"], json!([]));
+    assert_eq!(page_of(root).get("/api/cheatsheet").await.unwrap(), written);
+    assert_eq!(
+        std::fs::read_to_string(root.join(".learn/raft/cheatsheet.md")).unwrap(),
+        "# Raft\n\n> [!pitfall]\n> A base of 0 divides by zero.\n"
+    );
+
+    // An error of the file names the file of the agent.
+    std::fs::write(root.join("sheet.md"), "> [!tip]\n> x\n").unwrap();
+    let refused = run(root, &["cheatsheet", "--file", "sheet.md"], None).await;
+    assert_eq!(refused.status.code(), Some(1), "{refused:?}");
+    assert!(
+        stderr(&refused).starts_with("sheet.md:1: callout: "),
+        "{}",
+        stderr(&refused)
+    );
+    assert!(interrupt(server).await.success());
+}
+
 /// The agent asks a choice with `qlearn choose`, the learner answers it in
 /// the page, and the wait of the agent gets the labels of the picks. A
 /// refused choice prints every fault.

@@ -247,6 +247,21 @@ async fn agent_command(cli: &cli::Cli, home: &Home) -> Result<Option<i32>> {
                 },
             }
         }
+        Some(cli::Command::Cheatsheet { file }) => {
+            let source = agent::read_file(file)?;
+            let client = agent::connect(home).await?;
+            match agent::cheatsheet(&client, &source, file).await {
+                Ok(sheet) => print(&sheet),
+                // One line per error, each with its line in the file.
+                Err(error) => match error.downcast_ref::<Refusal>() {
+                    Some(refusal) if refusal.code == "invalidCheatsheet" => {
+                        eprintln!("{}", refusal.message);
+                        return Ok(Some(1));
+                    }
+                    _ => return Err(error),
+                },
+            }
+        }
         Some(cli::Command::Points) => {
             let client = agent::connect(home).await?;
             print(&agent::points(&client).await?);
