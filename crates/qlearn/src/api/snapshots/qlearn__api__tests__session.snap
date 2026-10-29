@@ -3,6 +3,8 @@ source: crates/qlearn/src/api/mod.rs
 expression: body
 ---
 {
+  "choices": [],
+  "choicesError": null,
   "course": {
     "created": "2026-01-01T00:00:00Z",
     "findings": [],

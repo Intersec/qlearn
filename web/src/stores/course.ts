@@ -8,7 +8,17 @@
 import { defineStore } from 'pinia';
 import { computed, ref, toRaw } from 'vue';
 import { ApiError, api, serverGone } from '@/api/client';
-import type { Course, Event, EventBatch, Page, PageRef, QuizAnswer, Thread } from '@/api/types';
+import type {
+  ChosenAnswer,
+  Choosing,
+  Course,
+  Event,
+  EventBatch,
+  Page,
+  PageRef,
+  QuizAnswer,
+  Thread,
+} from '@/api/types';
 import { format, parse } from '@/place';
 
 /** The agent, as the top bar names it. The states of the terminal line. */
@@ -34,6 +44,10 @@ export const useCourse = defineStore('course', () => {
   const version = ref('');
   /** The page that the agent pushed last. */
   const current = ref<string | null>(null);
+  /** The choices that name no page: the top of the syllabus column. */
+  const choices = ref<Choosing[]>([]);
+  /** Why the server cannot read the choices. Only the learner can repair it. */
+  const choicesError = ref<string | null>(null);
   /** The page on the screen. */
   const page = ref<Page | null>(null);
   /** The block whose thread the learner opened, as the address names it. */
@@ -65,6 +79,9 @@ export const useCourse = defineStore('course', () => {
     }
     return left.value ? 'left' : 'absent';
   });
+
+  /** A choice of the column waits for the learner. */
+  const choosing = computed(() => choices.value.some((choice) => choice.answers === null));
 
   /** The pages of the syllabus, in the order of the course. */
   const pages = computed<PageRef[]>(() => course.value?.parts.flatMap((part) => part.pages) ?? []);
@@ -197,6 +214,39 @@ export const useCourse = defineStore('course', () => {
       return false;
     }
     error.value = null;
+    return true;
+  }
+
+  /**
+   * Answer a choice of the agent. Answers whether the server took it, so
+   * the box keeps what the learner picked when not.
+   */
+  async function choose(id: string, answers: ChosenAnswer[]): Promise<boolean> {
+    let read: Choosing;
+    try {
+      read = await api.choose(id, answers);
+    } catch (e) {
+      fail(e);
+      // Another tab answered it: show the answer that the server holds.
+      if (e instanceof ApiError && e.code === 'conflict') {
+        try {
+          await reload();
+        } catch (again) {
+          fail(again);
+        }
+      }
+      return false;
+    }
+    error.value = null;
+    if (read.page === null) {
+      choices.value = choices.value.map((held) => (held.id === read.id ? read : held));
+    } else if (page.value?.id === read.page) {
+      const shown = page.value;
+      page.value = {
+        ...shown,
+        choices: shown.choices.map((held) => (held.id === read.id ? read : held)),
+      };
+    }
     return true;
   }
 
@@ -358,6 +408,8 @@ export const useCourse = defineStore('course', () => {
     course.value = session.course;
     current.value = session.current;
     version.value = session.version;
+    choices.value = session.choices;
+    choicesError.value = session.choicesError;
   }
 
   /** The learner opens a page: a link, or Next on a page that exists. */
@@ -446,6 +498,16 @@ export const useCourse = defineStore('course', () => {
         again ||= event.page === page.value?.id;
         continue;
       }
+      // A choice of the agent, or an answer from another tab, shows at the
+      // end of its page, or in the column when it names no page.
+      if (event.kind === 'choose' || event.kind === 'chosen') {
+        if (event.page) {
+          again ||= event.page === page.value?.id;
+        } else {
+          session = true;
+        }
+        continue;
+      }
       if (event.author !== 'agent') {
         continue;
       }
@@ -519,6 +581,8 @@ export const useCourse = defineStore('course', () => {
     }
     listening = true;
     let stale = true;
+    /** The error of a server that answered, until the course reads again. */
+    let failed: string | null = null;
     for (;;) {
       try {
         const start = await api.events();
@@ -526,6 +590,10 @@ export const useCourse = defineStore('course', () => {
         if (stale) {
           await reload();
           stale = false;
+          if (failed !== null && error.value === failed) {
+            error.value = null;
+          }
+          failed = null;
         }
         let after = start.next;
         for (;;) {
@@ -543,6 +611,12 @@ export const useCourse = defineStore('course', () => {
         if (serverGone(e) && (await stillGone())) {
           stopped.value = true;
           return;
+        }
+        // A server that answers with an error, such as a file of `.learn/`
+        // that it cannot read, would leave the page blank with no word.
+        if (!serverGone(e)) {
+          fail(e);
+          failed = error.value;
         }
         await new Promise((resolve) => setTimeout(resolve, 5000));
       }
@@ -564,6 +638,9 @@ export const useCourse = defineStore('course', () => {
     course,
     version,
     current,
+    choices,
+    choicesError,
+    choosing,
     page,
     focus,
     ready,
@@ -584,6 +661,7 @@ export const useCourse = defineStore('course', () => {
     answer,
     ask,
     reply,
+    choose,
     openThread,
     broken,
     listen,

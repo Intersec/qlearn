@@ -15,6 +15,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
+use crate::choice::StoredChoosing;
 use crate::git::exec::Git;
 use crate::model::{self, Block, Course, Line, Page, PageKind, Point};
 use crate::quiz::StoredQuiz;
@@ -258,9 +259,10 @@ pub struct PageFile {
 }
 
 impl PageFile {
-    /// The page as the page of the learner may see it. Every route that
-    /// sends a page goes through here.
-    pub fn page(&self, id: &str) -> Page {
+    /// The page as the page of the learner may see it, with the choices of
+    /// the course at its end. Every route that sends a page goes through
+    /// here, so none of them drops an open choice.
+    pub fn page(&self, id: &str, choices: &[StoredChoosing]) -> Page {
         let mut quizzes: Vec<_> = self.quizzes.iter().map(StoredQuiz::view).collect();
         if !self.answered() {
             for debrief in quizzes.iter_mut().filter_map(|quiz| quiz.debrief.as_mut()) {
@@ -275,6 +277,11 @@ impl PageFile {
                 .threads()
                 .into_iter()
                 .map(|(thread, _)| thread.view(id, crate::lesson::markdown))
+                .collect(),
+            choices: choices
+                .iter()
+                .filter(|choice| choice.page.as_deref() == Some(id))
+                .map(StoredChoosing::view)
                 .collect(),
         }
     }
@@ -401,6 +408,14 @@ impl PageFile {
     }
 }
 
+/// What `choices.json` holds. See section 7 of the design.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", default)]
+struct ChoicesFile {
+    /// In the order that the agent asked them. A choice is never removed.
+    choices: Vec<StoredChoosing>,
+}
+
 /// What `points.json` holds. See section 5.3 of the design.
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", default)]
@@ -506,6 +521,39 @@ impl Store {
         };
         write_atomic(&path, text.as_bytes())?;
         Ok(undo)
+    }
+
+    /// The choices of a course. None of them before the first one.
+    ///
+    /// A file that cannot be read is an error, and is never written over:
+    /// it holds the answers of the learner.
+    pub fn load_choices(&self, slug: &str) -> Result<Vec<StoredChoosing>> {
+        let path = self.course_dir(slug).join("choices.json");
+        let text = match fs::read_to_string(&path) {
+            Ok(text) => text,
+            Err(e) if e.kind() == ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(e) => return Err(e).with_context(|| format!("cannot read {}", path.display())),
+        };
+
+        let file: ChoicesFile = serde_json::from_str(&text).with_context(|| {
+            format!(
+                "{} is not readable. It is left as it is: repair it by hand rather than \
+                 lose the answers of the learner",
+                path.display()
+            )
+        })?;
+        Ok(file.choices)
+    }
+
+    /// Write the choices of a course.
+    pub fn save_choices(&self, slug: &str, choices: &[StoredChoosing]) -> Result<()> {
+        let file = ChoicesFile {
+            choices: choices.to_vec(),
+        };
+        let mut text = serde_json::to_string_pretty(&file)?;
+        text.push('\n');
+
+        write_atomic(&self.course_dir(slug).join("choices.json"), text.as_bytes())
     }
 
     /// Read the blocks of a page. None when the agent has not pushed it.
@@ -1123,7 +1171,7 @@ mod tests {
         let mut quizzed = read.clone();
         quizzed.quizzes.push(quiz());
         assert_eq!(quizzed.shown(), page.blocks);
-        let sent = serde_json::to_string(&quizzed.page("1")).unwrap();
+        let sent = serde_json::to_string(&quizzed.page("1", &[])).unwrap();
         assert!(!sent.contains("int b;"), "{sent}");
 
         // The open answer alone leaves a part of the quiz to answer.
@@ -1252,6 +1300,48 @@ mod tests {
         write(&path, "{ not json");
 
         let error = store.load_points("raft").unwrap_err().to_string();
+
+        assert!(error.contains("repair it by hand"), "{error}");
+        assert_eq!(fs::read_to_string(&path).unwrap(), "{ not json");
+    }
+
+    #[tokio::test]
+    async fn the_choices_are_written_and_read_back() {
+        let repo = repo().await;
+        let store = Store::at(repo.path());
+        store.open(Some("raft"), at_new_year()).unwrap();
+        assert_eq!(store.load_choices("raft").unwrap(), []);
+        let choice = StoredChoosing {
+            id: "choice-1".to_owned(),
+            page: None,
+            questions: Vec::new(),
+            at: "2026-01-01T00:00:00Z".to_owned(),
+            answered: None,
+        };
+
+        store
+            .save_choices("raft", std::slice::from_ref(&choice))
+            .unwrap();
+
+        assert_eq!(store.load_choices("raft").unwrap(), [choice]);
+        assert_eq!(
+            files(repo.path()),
+            [
+                ".learn/raft/choices.json",
+                ".learn/raft/course.json",
+                "a.txt"
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn corrupt_choices_are_an_error_and_stay_on_disk() {
+        let repo = repo().await;
+        let store = Store::at(repo.path());
+        let path = repo.path().join(".learn/raft/choices.json");
+        write(&path, "{ not json");
+
+        let error = store.load_choices("raft").unwrap_err().to_string();
 
         assert!(error.contains("repair it by hand"), "{error}");
         assert_eq!(fs::read_to_string(&path).unwrap(), "{ not json");

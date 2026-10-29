@@ -1,0 +1,9 @@
+---
+source: crates/qlearn/src/choice/mod.rs
+description: "{\n  \"questions\": [\n    { \"header\": \"A\", \"prompt\": \"One?\", \"options\": [ { \"label\": \"1\" } ] },\n    { \"header\": \"B\", \"prompt\": \"Two?\", \"options\": [\n      { \"label\": \"1\" }, { \"label\": \"2\" }, { \"label\": \"3\" }, { \"label\": \"4\" }, { \"label\": \"5\" } ] },\n    { \"header\": \"C\", \"prompt\": \"Three?\", \"options\": [] },\n    { \"header\": \"D\", \"prompt\": \"Four?\", \"options\": [ { \"label\": \"1\" }, { \"label\": \"2\" } ] },\n    { \"header\": \"E\", \"prompt\": \"Five?\", \"options\": [ { \"label\": \"1\" }, { \"label\": \"2\" } ] }\n  ]\n}\n"
+---
+refused
+questions: holds 5 questions, and a choice asks 1 to 4
+questions[0].options: holds 1 option, and a question takes 2 to 4
+questions[1].options: holds 5 options, and a question takes 2 to 4
+questions[2].options: holds 0 options, and a question takes 2 to 4

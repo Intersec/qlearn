@@ -1,0 +1,104 @@
+---
+source: crates/qlearn/src/choice/mod.rs
+description: "{\n  \"questions\": [\n    { \"header\": \"A\", \"prompt\": \"One?\", \"multi\": true, \"options\": [\n      { \"label\": \"1\" }, { \"label\": \"2\" }, { \"label\": \"3\" }, { \"label\": \"4\" } ] },\n    { \"header\": \"B\", \"prompt\": \"Two?\", \"options\": [\n      { \"label\": \"1\" }, { \"label\": \"2\" }, { \"label\": \"3\" }, { \"label\": \"4\" } ] },\n    { \"header\": \"C\", \"prompt\": \"Three?\", \"options\": [\n      { \"label\": \"1\" }, { \"label\": \"2\" }, { \"label\": \"3\" }, { \"label\": \"4\" } ] },\n    { \"header\": \"D\", \"prompt\": \"Four?\", \"options\": [\n      { \"label\": \"1\" }, { \"label\": \"2\" }, { \"label\": \"3\" }, { \"label\": \"4\" } ] }\n  ]\n}\n"
+---
+the page gets:
+{
+  "id": "choice-1",
+  "page": null,
+  "questions": [
+    {
+      "header": "A",
+      "prompt": "One?",
+      "options": [
+        {
+          "label": "1",
+          "description": ""
+        },
+        {
+          "label": "2",
+          "description": ""
+        },
+        {
+          "label": "3",
+          "description": ""
+        },
+        {
+          "label": "4",
+          "description": ""
+        }
+      ],
+      "multi": true
+    },
+    {
+      "header": "B",
+      "prompt": "Two?",
+      "options": [
+        {
+          "label": "1",
+          "description": ""
+        },
+        {
+          "label": "2",
+          "description": ""
+        },
+        {
+          "label": "3",
+          "description": ""
+        },
+        {
+          "label": "4",
+          "description": ""
+        }
+      ],
+      "multi": false
+    },
+    {
+      "header": "C",
+      "prompt": "Three?",
+      "options": [
+        {
+          "label": "1",
+          "description": ""
+        },
+        {
+          "label": "2",
+          "description": ""
+        },
+        {
+          "label": "3",
+          "description": ""
+        },
+        {
+          "label": "4",
+          "description": ""
+        }
+      ],
+      "multi": false
+    },
+    {
+      "header": "D",
+      "prompt": "Four?",
+      "options": [
+        {
+          "label": "1",
+          "description": ""
+        },
+        {
+          "label": "2",
+          "description": ""
+        },
+        {
+          "label": "3",
+          "description": ""
+        },
+        {
+          "label": "4",
+          "description": ""
+        }
+      ],
+      "multi": false
+    }
+  ],
+  "answers": null
+}

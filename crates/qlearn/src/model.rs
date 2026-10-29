@@ -376,6 +376,16 @@ pub struct Session {
     pub current: Option<String>,
     /// The release and the commit under it, as `qlearn --version` says.
     pub version: String,
+    /// The choices that name no page, open or answered, in the order that
+    /// the agent asked them. The page shows them at the top of the syllabus
+    /// column, and finds an open one again after a reload.
+    // A server of an earlier release sends none.
+    #[serde(default)]
+    pub choices: Vec<Choosing>,
+    /// Why `choices.json` cannot be read, or None. The choices then show
+    /// nowhere, and only the routes of the choices refuse.
+    #[serde(default)]
+    pub choices_error: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -618,6 +628,85 @@ pub struct Page {
     /// In the order that they opened. A thread whose block a later push
     /// took away comes last.
     pub threads: Vec<Thread>,
+    /// The choices that the agent asked at the end of this page, open or
+    /// answered, in the order that it asked them.
+    pub choices: Vec<Choosing>,
+}
+
+/// A choice that the agent asks the learner, in place of a dialog of its
+/// terminal. See section 7 of the design. A choice is never graded.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct Choosing {
+    /// `choice-<n>`, such as `choice-2`.
+    pub id: String,
+    /// The page at whose end the choice shows, or None for the top of the
+    /// syllabus column.
+    pub page: Option<String>,
+    pub questions: Vec<ChoosingQuestion>,
+    /// None until the learner answers. Then one answer per question, in
+    /// order.
+    pub answers: Option<Vec<ChosenAnswer>>,
+}
+
+/// A question of a choice. Every text is plain text.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ChoosingQuestion {
+    /// A short name of the question.
+    pub header: String,
+    pub prompt: String,
+    pub options: Vec<ChoosingOption>,
+    /// The learner may pick several options.
+    pub multi: bool,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ChoosingOption {
+    pub label: String,
+    /// "" when the agent gave none.
+    pub description: String,
+}
+
+/// The answer of the learner to one question of a choice.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ChosenAnswer {
+    /// The options that the learner picked, from 0, in order. Empty when the
+    /// free text answers alone.
+    pub picked: Vec<usize>,
+    /// The free text. Empty or left out: none.
+    #[serde(default)]
+    pub other: Option<String>,
+}
+
+/// The body of `POST /api/choices/:id`: one answer per question of the
+/// choice, in order.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ChoiceSent {
+    pub answers: Vec<ChosenAnswer>,
+}
+
+/// What `POST /api/choices` answers.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ChoiceId {
+    pub id: String,
+}
+
+/// The answer to a question of a choice, as the agent reads it in the
+/// detail of `chosen`: the labels with the indices, so it needs no second
+/// command.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ChosenLabels {
+    pub header: String,
+    pub picked: Vec<usize>,
+    /// The label of each picked option, in the order of `picked`.
+    pub labels: Vec<String>,
+    pub other: Option<String>,
 }
 
 /// A question of the learner, or a word of the agent, and the comments
@@ -923,6 +1012,13 @@ pub enum Detail {
         block: Option<BlockSource>,
         /// The block is gone: a later push of the page took it away.
         earlier: bool,
+    },
+    /// `chosen`: a choice that the learner answered, with its questions as
+    /// the agent wrote them. The event names the page and the choice.
+    Chosen {
+        questions: Vec<ChoosingQuestion>,
+        /// One per question, in order.
+        answers: Vec<ChosenLabels>,
     },
 }
 
@@ -1568,6 +1664,33 @@ mod tests {
                 },
                 block: None,
                 earlier: false,
+            },
+            Detail::Chosen {
+                questions: vec![ChoosingQuestion {
+                    header: "Next step".to_owned(),
+                    prompt: "Part 1 is done. What next?".to_owned(),
+                    options: vec![
+                        ChoosingOption {
+                            label: "Part 2".to_owned(),
+                            description: "The code tour".to_owned(),
+                        },
+                        ChoosingOption {
+                            label: "A break".to_owned(),
+                            description: String::new(),
+                        },
+                    ],
+                    multi: false,
+                }],
+                answers: vec![ChosenLabels {
+                    header: "Next step".to_owned(),
+                    picked: vec![1],
+                    labels: vec!["A break".to_owned()],
+                    other: None,
+                }],
+            },
+            Detail::Chosen {
+                questions: Vec::new(),
+                answers: Vec::new(),
             },
         ];
 

@@ -220,6 +220,47 @@ sequenceDiagram
 \`\`\`
 `;
 
+/** The level at the start, asked at the top of the syllabus column. */
+export const CHOICE_LEVEL = {
+  questions: [
+    {
+      header: 'Level',
+      prompt: 'How well do you know Raft?',
+      options: [
+        { label: 'New to it', description: 'I start from the paper' },
+        { label: 'Read the paper', description: 'I know the terms, not the code' },
+        { label: 'Wrote one', description: 'I want the details of this code base' },
+      ],
+    },
+  ],
+};
+
+/** The next step, asked at the end of the first page. */
+export const CHOICE_NEXT = {
+  page: '1',
+  questions: [
+    {
+      header: 'Next step',
+      prompt: 'The timer is done. What next?',
+      options: [
+        { label: 'The vote', description: 'How a candidate gets a majority' },
+        { label: 'A break', description: 'The course waits here' },
+      ],
+      multi: false,
+    },
+    {
+      header: 'Topics',
+      prompt: 'What should the follow-up quiz cover?',
+      options: [
+        { label: 'The timer', description: '' },
+        { label: 'The vote', description: '' },
+        { label: 'The log', description: 'Not taught yet' },
+      ],
+      multi: true,
+    },
+  ],
+};
+
 /** A part of the syllabus, as the agent writes it. */
 export interface PlannedPart {
   title: string;
@@ -315,6 +356,16 @@ export class Agent {
    */
   async comment(target: string, body: string): Promise<{ id: string }> {
     return JSON.parse(await this.run(['comment', target, '--body', body])) as { id: string };
+  }
+
+  /**
+   * Ask the learner to choose from a file, as the procedure says. Answers
+   * the id of the choice.
+   */
+  async choose(choice: object): Promise<{ id: string }> {
+    const path = join(this.fixture.work, 'choice.json');
+    writeFileSync(path, JSON.stringify(choice, null, 2));
+    return JSON.parse(await this.run(['choose', '--file', path])) as { id: string };
   }
 
   /** Write in a thread, as the procedure says. */

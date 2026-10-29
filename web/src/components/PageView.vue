@@ -1,13 +1,15 @@
 <script setup lang="ts">
 // The blocks of a page, in the order the agent wrote them, then its
-// quizzes, each with its debrief. Each block takes questions, and its
-// threads show under it. The threads about the whole page come at the end,
-// then those whose block a later push took away (section 6 of the design).
+// quizzes, each with its debrief, then the choices that the agent asked
+// there. Each block takes questions, and its threads show under it. The
+// threads about the whole page come at the end, then those whose block a
+// later push took away (section 6 of the design).
 
 import { computed, provide, ref, watch } from 'vue';
-import type { Page, QuizAnswer } from '@/api/types';
+import type { ChosenAnswer, Page, QuizAnswer } from '@/api/types';
 import { THREADS, place, type Asking } from '@/threads';
 import BlocksView from './BlocksView.vue';
+import ChoiceView from './ChoiceView.vue';
 import QuizView from './QuizView.vue';
 import ThreadView from './ThreadView.vue';
 
@@ -22,12 +24,15 @@ const props = withDefaults(
     ask?: (block: string, quote: string | null, body: string) => Promise<boolean>;
     /** Write in a thread. Answers whether the server took it. */
     reply?: (thread: string, body: string) => Promise<boolean>;
+    /** Answer a choice. Answers whether the server took it. */
+    choose?: (choice: string, answers: ChosenAnswer[]) => Promise<boolean>;
   }>(),
   {
     send: async () => false,
     focus: null,
     ask: async () => false,
     reply: async () => false,
+    choose: async () => false,
   },
 );
 
@@ -103,6 +108,12 @@ watch(
       :n="at + 1"
       :send="(answer) => send(at + 1, answer)"
       @broken="(id, error) => emit('broken', page.id, id, error)"
+    />
+    <ChoiceView
+      v-for="choice in page.choices"
+      :key="choice.id"
+      :choice="choice"
+      :send="(answers) => choose(choice.id, answers)"
     />
     <section v-if="placed.whole.length" class="threads threads-page" aria-label="About this page">
       <p class="threads-head">About this page</p>

@@ -1,0 +1,91 @@
+---
+source: crates/qlearn/src/api/mod.rs
+expression: agent
+---
+{
+  "agent": true,
+  "events": [
+    {
+      "author": "learner",
+      "detail": {
+        "answers": [
+          {
+            "header": "Next step",
+            "labels": [
+              "A break"
+            ],
+            "other": null,
+            "picked": [
+              1
+            ]
+          },
+          {
+            "header": "Topics",
+            "labels": [
+              "The timer",
+              "The log"
+            ],
+            "other": "and the restart",
+            "picked": [
+              0,
+              2
+            ]
+          }
+        ],
+        "questions": [
+          {
+            "header": "Next step",
+            "multi": false,
+            "options": [
+              {
+                "description": "The code tour of the election",
+                "label": "Part 2"
+              },
+              {
+                "description": "The course waits here",
+                "label": "A break"
+              }
+            ],
+            "prompt": "Part 1 is done. What next?"
+          },
+          {
+            "header": "Topics",
+            "multi": true,
+            "options": [
+              {
+                "description": "",
+                "label": "The timer"
+              },
+              {
+                "description": "",
+                "label": "The vote"
+              },
+              {
+                "description": "",
+                "label": "The log"
+              }
+            ],
+            "prompt": "What should the next part show?"
+          }
+        ]
+      },
+      "id": "choice-1",
+      "kind": "chosen",
+      "page": "1",
+      "seq": 5
+    },
+    {
+      "author": "agent",
+      "id": null,
+      "kind": "idle",
+      "page": null,
+      "seq": 6
+    }
+  ],
+  "left": false,
+  "next": 6,
+  "preparing": false,
+  "reset": false,
+  "status": null,
+  "working": false
+}

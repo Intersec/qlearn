@@ -1,0 +1,7 @@
+{
+  "page": "7",
+  "questions": [
+    { "header": "Next step", "prompt": "What next?",
+      "options": [ { "label": "Part 2" }, { "label": "A break" } ] }
+  ]
+}

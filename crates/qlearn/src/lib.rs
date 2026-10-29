@@ -7,6 +7,7 @@
 pub mod agent;
 pub mod api;
 pub mod assets;
+pub mod choice;
 pub mod events;
 pub mod git;
 pub mod highlight;

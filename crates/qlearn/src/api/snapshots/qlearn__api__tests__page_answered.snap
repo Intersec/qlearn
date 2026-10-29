@@ -15,6 +15,7 @@ expression: page
       "kind": "text"
     }
   ],
+  "choices": [],
   "id": "1",
   "quizzes": [
     {

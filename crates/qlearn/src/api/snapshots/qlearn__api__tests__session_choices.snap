@@ -1,0 +1,28 @@
+---
+source: crates/qlearn/src/api/mod.rs
+expression: "session[\"choices\"]"
+---
+[
+  {
+    "answers": null,
+    "id": "choice-2",
+    "page": null,
+    "questions": [
+      {
+        "header": "Level",
+        "multi": false,
+        "options": [
+          {
+            "description": "",
+            "label": "New to it"
+          },
+          {
+            "description": "",
+            "label": "Read the paper"
+          }
+        ],
+        "prompt": "How well do you know Raft?"
+      }
+    ]
+  }
+]

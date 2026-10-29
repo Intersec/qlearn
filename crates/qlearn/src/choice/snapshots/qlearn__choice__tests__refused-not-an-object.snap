@@ -1,0 +1,6 @@
+---
+source: crates/qlearn/src/choice/mod.rs
+description: "[{ \"header\": \"Next step\" }]\n"
+---
+refused
+the choice: takes an object, not an array

@@ -1,0 +1,10 @@
+---
+source: crates/qlearn/src/choice/mod.rs
+description: "{\n  \"page\": \"2\",\n  \"questions\": [\n    { \"header\": \"Next step\", \"prompt\": \"What next?\", \"multi\": 1,\n      \"options\": [ { \"label\": \"Part 2\" } ] },\n    { \"header\": \"\", \"prompt\": \"And then?\",\n      \"options\": [ { \"label\": \"A break\" }, { \"label\": \"A break\" } ] }\n  ]\n}\n"
+---
+refused
+page: page 2 has no content yet, so the learner cannot open it. Push it first with `qlearn page 2`, or leave page out
+questions[0].multi: takes true or false, not a number
+questions[0].options: holds 1 option, and a question takes 2 to 4
+questions[1].header: empty
+questions[1].options[1].label: "A break" comes twice in the question

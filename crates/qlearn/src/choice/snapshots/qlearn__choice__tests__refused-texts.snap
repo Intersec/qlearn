@@ -1,0 +1,11 @@
+---
+source: crates/qlearn/src/choice/mod.rs
+description: "{\n  \"questions\": [\n    {\n      \"header\": \"Next\\nstep\",\n      \"prompt\": \"   \",\n      \"options\": [\n        { \"label\": \"\" },\n        { \"label\": \"Part 2\\nThe code tour\" }\n      ]\n    },\n    {\n      \"header\": \"\",\n      \"prompt\": \"What next?\",\n      \"options\": [ { \"label\": \"  \" }, { \"label\": \"A break\" } ]\n    }\n  ]\n}\n"
+---
+refused
+questions[0].header: holds a line break. Keep it on one line, and put the rest in the prompt or the description
+questions[0].prompt: empty
+questions[0].options[0].label: empty
+questions[0].options[1].label: holds a line break. Keep it on one line, and put the rest in the prompt or the description
+questions[1].header: empty
+questions[1].options[0].label: empty

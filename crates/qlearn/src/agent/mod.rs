@@ -233,6 +233,22 @@ pub async fn quiz(client: &Client, id: &str, text: &str, shown: &str) -> Result<
         .await
 }
 
+/// Ask the learner to choose, at the end of a page or at the top of the
+/// syllabus column. Answers the id of the choice.
+///
+/// The text is read as JSON here, so a file that is not JSON names the
+/// file that the agent gave: `shown`.
+pub async fn choose(client: &Client, text: &str, shown: &str) -> Result<Value> {
+    let mut body: Value = serde_json::from_str(text)
+        .with_context(|| format!("{shown} is not JSON. Fix it, then run the command again"))?;
+    // Any other shape gets its fault from the server, with the others.
+    if let Some(fields) = body.as_object_mut() {
+        fields.insert("author".to_owned(), json!("agent"));
+    }
+
+    client.post("/api/choices", &body).await
+}
+
 /// Write the debrief of the quiz `n` of a page, with the grade of each
 /// point of its open question. Answers the page.
 ///

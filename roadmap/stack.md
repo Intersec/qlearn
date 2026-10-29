@@ -458,6 +458,95 @@ that a push took away, and the page no longer holds its source.
   quiz `n`. It changes a type of section 6, where an id that differs says
   the same thing.
 
+## 2026-10-29 — Holes found by the choices
+
+The choices, sections 7, 8, 8.3, 10 and 11, left ten questions that the
+design did not answer.
+
+**Decisions.**
+
+- **The limits** are those of a dialog of a terminal. A choice holds 1 to
+  4 questions. A question holds a `header`, a `prompt`, and 2 to 4
+  options. An option holds a `label` and a `description`. The header, the
+  prompt and the label are not empty, and the header and the label hold
+  one line. Two labels of one question differ. The description may be
+  left out, and reads as `""`. `multi` may be left out, and reads as
+  `false`. Every text is plain text. A refused choice gets every fault at
+  once, each with its place in the JSON, with the code `invalidChoice`.
+- **The page of a choice** is a page with content. A page that the
+  syllabus does not hold is refused, and so is a planned page: the learner
+  cannot open it, so the choice would never show.
+- **The id of a choice** is `choice-<n>`, such as `choice-2`: its rank in
+  the course, from 1. A choice may name no page, so its id names none.
+  Choices are never removed, so the id stays unique in the course.
+- **`POST /api/choices`** answers `{ id }`. The agent writes a `choose`
+  event, with the page or `null`, and the id.
+- **The answer.** `POST /api/choices/:id` takes
+  `{ answers: [{ picked, other }] }`, one per question, in order. `picked`
+  holds the indices of the options, one at most when `multi` is false.
+  `other` is the free text, and empty reads as none. A question with no
+  pick takes a free text that is not empty. An unknown choice gets 404. A
+  pick out of range, two picks on a question that takes one, one option
+  picked twice, a missing or an extra answer, and an empty answer get
+  400. A choice answered already gets 409 with the code `conflict`. A
+  refusal stores nothing. The route answers the choice as the page sees
+  it.
+- **The detail of `chosen`** is `{ questions, answers }`: the questions as
+  the agent wrote them, and for each answer its `header`, its `picked`
+  indices, the `labels` of those options, and `other`. The event names
+  the page and the choice.
+- **The page finds a choice after a reload.** The wire type is
+  `Choosing`: `{ id, page, questions, answers }`, with `answers` `null`
+  until the learner sends them. `GET /api/pages/:id`, and every route
+  that answers a page, carries `choices`: the choices of that page.
+  `GET /api/session` carries `choices`: the choices that name no page.
+  Both lists hold the open and the answered choices, in the order that
+  the agent asked them.
+- **`choices.json`** holds `{ choices: [...] }`. Each choice keeps its id,
+  its page, its questions, the stamp of the question in `at`, and, once
+  answered, `answered: { answers, at }`. A file that cannot be read is an
+  error, and is never written over. The file is new, and a course with no
+  such file has no choice, so the format keeps version 1.
+- **An unreadable `choices.json` refuses only the choices.** The two
+  routes of the choices refuse with the error of the file. The session,
+  the pages, a push, a quiz answer and a debrief go on with no choices.
+  `GET /api/session` carries `choicesError`: the error of the file, or
+  `null`. The page shows it above the course.
+- **The page shows** a choice at the end of its page, after the quizzes,
+  and a choice with no page at the top of the syllabus column, the open
+  ones first. On a narrow screen, the button of the column shows a dot
+  while a choice there waits.
+
+**Why.** The agent asks through the page what it asked in its terminal, so
+the limits of that dialog are enough, and a terminal dialog the agent
+already knows maps one to one. A choice on a page that the learner cannot
+open would wait forever. An id with no page fits a choice of the column,
+and a rank keeps it short for the agent to read. The agent acts on the
+answer as soon as it comes, so a second answer would come too late. The
+labels in the detail save the agent a second command, as the detail of
+every request does. A reload must show an open choice again, and the page
+already reads the page and the session. Every command of the agent
+probes the session to find the server, and a quiz holds answers of the
+learner, so a broken file of the choices must not hide the server or
+refuse a quiz.
+
+**Rejected:**
+
+- **A choice on a planned page, shown once the page has content.** The
+  agent would wait for an answer that the learner cannot give.
+- **A route `GET /api/choices`.** The page reads the page and the session
+  already, and a third read on each event adds a request for a list that
+  holds a few entries.
+- **Indices alone in the detail.** The agent would read its own file again
+  to know what the learner picked.
+- **Accept a second answer and keep the last one.** The agent may have
+  acted on the first one.
+- **Markdown in a label.** A label is a short name, and the agent reads it
+  back in the detail as it wrote it.
+- **Refuse the session and the pages over an unreadable `choices.json`.**
+  The agent would read that no server runs, and the page would stay
+  blank.
+
 ## Open questions
 
 - **The URL of the repository.** The host is decided: a public repository

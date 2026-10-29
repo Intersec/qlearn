@@ -1,0 +1,17 @@
+{
+  "questions": [
+    {
+      "header": "Next\nstep",
+      "prompt": "   ",
+      "options": [
+        { "label": "" },
+        { "label": "Part 2\nThe code tour" }
+      ]
+    },
+    {
+      "header": "",
+      "prompt": "What next?",
+      "options": [ { "label": "  " }, { "label": "A break" } ]
+    }
+  ]
+}

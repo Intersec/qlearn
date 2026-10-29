@@ -425,6 +425,106 @@ async fn an_agent_answers_a_question_and_opens_a_thread() {
     assert!(interrupt(server).await.success());
 }
 
+/// The agent asks a choice with `qlearn choose`, the learner answers it in
+/// the page, and the wait of the agent gets the labels of the picks. A
+/// refused choice prints every fault.
+#[tokio::test]
+async fn an_agent_asks_a_choice_and_the_wait_gets_the_labels() {
+    let repo = build_repo();
+    let root = repo.path();
+    let mut server = qlearn(root, &["raft", "--no-open"]).spawn().unwrap();
+    read_url(&mut server).await;
+    let choice = json!({
+        "questions": [{
+            "header": "Level",
+            "prompt": "How well do you know Raft?",
+            "options": [
+                { "label": "New to it", "description": "I start from the paper" },
+                { "label": "Read the paper" }
+            ]
+        }]
+    });
+    std::fs::write(root.join("choice.json"), choice.to_string()).unwrap();
+
+    let asked = json_of(&run(root, &["choose", "--file", "choice.json"], None).await);
+    assert_eq!(asked, json!({ "id": "choice-1" }));
+    let client = page_of(root);
+    let session = client.get("/api/session").await.unwrap();
+    assert_eq!(session["choices"][0]["id"], "choice-1");
+    assert_eq!(session["choices"][0]["answers"], Value::Null);
+
+    let waiting = tokio::spawn({
+        let root = root.to_owned();
+        async move { run(&root, &["wait", "--after", "0", "--timeout", "20"], None).await }
+    });
+    until_the_agent_waits(&client).await;
+    client
+        .post(
+            "/api/choices/choice-1",
+            &json!({ "answers": [{ "picked": [1], "other": "Twice" }] }),
+        )
+        .await
+        .unwrap();
+
+    let batch = json_of(&waiting.await.unwrap());
+    let events = batch["events"].as_array().unwrap();
+    assert_eq!(events.len(), 1, "{batch}");
+    assert_eq!(events[0]["kind"], "chosen");
+    assert_eq!(events[0]["id"], "choice-1");
+    assert_eq!(events[0]["page"], Value::Null);
+    assert_eq!(
+        events[0]["detail"]["answers"],
+        json!([{ "header": "Level", "picked": [1], "labels": ["Read the paper"],
+                 "other": "Twice" }])
+    );
+
+    // Every fault at once, each with its place in the JSON.
+    let wrong = r#"{ "page": "3", "questions": [{ "header": "", "prompt": "Why?",
+                     "options": [{ "label": "One" }] }] }"#;
+    let refused = run(root, &["choose", "--file", "-"], Some(wrong)).await;
+    assert_eq!(refused.status.code(), Some(1), "{refused:?}");
+    assert!(refused.stdout.is_empty(), "{refused:?}");
+    let lines: Vec<String> = stderr(&refused).lines().map(str::to_owned).collect();
+    assert_eq!(lines.len(), 3, "{lines:?}");
+    assert!(
+        lines[0].starts_with("page: the syllabus holds no page 3"),
+        "{lines:?}"
+    );
+    assert_eq!(lines[1], "questions[0].header: empty");
+    let refused = run(root, &["choose", "--file", "-"], Some("{ not json")).await;
+    assert_eq!(refused.status.code(), Some(1), "{refused:?}");
+    assert!(
+        stderr(&refused).contains("- is not JSON"),
+        "{}",
+        stderr(&refused)
+    );
+    assert!(interrupt(server).await.success());
+}
+
+/// A corrupt choices.json leaves the server reachable: the agent reads the
+/// error of the file, not that no server runs.
+#[tokio::test]
+async fn a_corrupt_choices_file_reaches_the_agent_as_its_error() {
+    let repo = build_repo();
+    let root = repo.path();
+    let mut server = qlearn(root, &["raft", "--no-open"]).spawn().unwrap();
+    read_url(&mut server).await;
+    std::fs::write(root.join(".learn/raft/choices.json"), "{ not json").unwrap();
+
+    let status = run(root, &["status", "Reading"], None).await;
+    assert!(status.status.success(), "{status:?}");
+    let choice = r#"{ "questions": [{ "header": "Level", "prompt": "Your level?",
+                      "options": [{ "label": "New" }, { "label": "Old" }] }] }"#;
+    let refused = run(root, &["choose", "--file", "-"], Some(choice)).await;
+    assert_eq!(refused.status.code(), Some(1), "{refused:?}");
+    assert!(
+        stderr(&refused).contains("repair it by hand"),
+        "{}",
+        stderr(&refused)
+    );
+    assert!(interrupt(server).await.success());
+}
+
 /// The agent writes the debrief of an answered quiz with a grade for each
 /// point of the open question, and reads the points in the order that it
 /// picks them for a later question.

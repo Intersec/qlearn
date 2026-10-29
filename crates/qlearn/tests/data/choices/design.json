@@ -1,0 +1,14 @@
+{
+  "page": "c1",
+  "questions": [
+    {
+      "header": "Next step",
+      "prompt": "Part 1 is done. What next?",
+      "options": [
+        { "label": "Part 2", "description": "The code tour of the election" },
+        { "label": "A break", "description": "The course waits here" }
+      ],
+      "multi": false
+    }
+  ]
+}

@@ -204,6 +204,21 @@ async fn agent_command(cli: &cli::Cli, home: &Home) -> Result<Option<i32>> {
             let client = agent::connect(home).await?;
             print(&agent::reply(&client, thread, &body).await?);
         }
+        Some(cli::Command::Choose { file }) => {
+            let text = agent::read_file(file)?;
+            let client = agent::connect(home).await?;
+            match agent::choose(&client, &text, file).await {
+                Ok(id) => print(&id),
+                // One line per error, each with its place in the JSON.
+                Err(error) => match error.downcast_ref::<Refusal>() {
+                    Some(refusal) if refusal.code == "invalidChoice" => {
+                        eprintln!("{}", refusal.message);
+                        return Ok(Some(1));
+                    }
+                    _ => return Err(error),
+                },
+            }
+        }
         Some(cli::Command::Points) => {
             let client = agent::connect(home).await?;
             print(&agent::points(&client).await?);

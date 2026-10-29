@@ -23,6 +23,7 @@ function view(...html: string[]) {
     id: '1',
     blocks: html.map((text, at) => ({ id: `block${at}`, kind: 'text', html: text })),
     threads: [],
+    choices: [],
     quizzes: [],
   };
   return mount(PageView, { props: { page } });
@@ -65,6 +66,7 @@ describe('PageView', () => {
         { id: 'c', kind: 'text', html: '<p>After.</p>' },
       ],
       threads: [],
+      choices: [],
       quizzes: [],
     };
     const wrapper = mount(PageView, { props: { page } });
@@ -97,6 +99,7 @@ describe('PageView', () => {
         { id: 'c', kind: 'text', html: '<p>After.</p>' },
       ],
       threads: [],
+      choices: [],
       quizzes: [],
     };
     const wrapper = mount(PageView, { props: { page } });
@@ -116,6 +119,7 @@ describe('PageView', () => {
         { id: 'c', kind: 'text', html: '<p>After.</p>' },
       ],
       threads: [],
+      choices: [],
       quizzes: [],
     };
     const wrapper = mount(PageView, { props: { page } });
@@ -132,6 +136,7 @@ describe('PageView', () => {
       id: '1',
       blocks: [{ id: 'a', kind: 'text', html: '<p>The lesson.</p>' }],
       threads: [],
+      choices: [],
       quizzes: [
         { open: { prompt: 'Why?', sent: null }, choices: [], debrief: null },
         {
@@ -156,6 +161,7 @@ describe('PageView', () => {
       id: '1',
       blocks: [],
       threads: [],
+      choices: [],
       quizzes: [
         { open: { prompt: 'Why?', sent: null }, choices: [], debrief: null },
         { open: { prompt: 'How?', sent: null }, choices: [], debrief: null },
@@ -175,6 +181,7 @@ describe('PageView', () => {
       id,
       blocks: [{ id: `text${id}`, kind: 'text', html: '<p>The lesson.</p>' }],
       threads: [],
+      choices: [],
       quizzes: [
         { open: { prompt, sent: null }, choices: [], debrief: null },
         {
@@ -204,6 +211,7 @@ describe('PageView', () => {
       id: '3',
       blocks: [{ id: 'a', kind: 'text', html: '<p>The lesson.</p>' }],
       threads: [],
+      choices: [],
       quizzes: [
         {
           open: { prompt: 'Why?', sent: 'Because.' },
@@ -230,6 +238,7 @@ describe('PageView', () => {
       id: '7a',
       blocks: [{ id: 'b', kind: 'diagram', source: 'graph LR\n  A -->\n' }],
       threads: [],
+      choices: [],
       quizzes: [],
     };
     const wrapper = mount(PageView, { props: { page } });

@@ -1161,6 +1161,205 @@ a.syllabus-entry:focus-visible {
   line-height: 1.5;
 }
 
+/* ---------------------------------------------------------- the choices */
+
+/* A choice of the agent: a pane of the agent, not a quiz, since nothing in
+   it is graded. Once answered, it goes quiet. */
+.choice {
+  margin: 1.5em 0 0.9em;
+  padding: 10px 16px 12px;
+  border: 1px solid var(--agent-edge);
+  border-left: 3px solid var(--action);
+  border-radius: 4px;
+  background: var(--agent);
+  font-size: 15px;
+}
+.choice[data-answered='true'] {
+  border-color: var(--edge);
+  border-left-color: var(--online);
+  background: var(--pane);
+}
+.choice-head {
+  margin: 0 0 8px;
+  color: var(--action);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.choice[data-answered='true'] .choice-head {
+  color: var(--ink-quiet);
+}
+.choice-question {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.choice-question + .choice-question {
+  margin-top: 14px;
+}
+.choice-legend {
+  margin: 0 0 6px;
+  padding: 0;
+}
+.choice-header {
+  display: inline-block;
+  margin: 0 0 4px;
+  padding: 0 6px;
+  border-radius: 3px;
+  background: var(--page);
+  color: var(--ink-quiet);
+  font-size: 12px;
+  font-weight: 600;
+}
+.choice-prompt {
+  display: block;
+  font-weight: 600;
+  line-height: 1.5;
+  white-space: pre-line;
+}
+.choice-option {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.choice-option:hover {
+  background: var(--page);
+}
+.choice-option input {
+  flex: none;
+  accent-color: var(--action);
+}
+.choice-option-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.4;
+}
+.choice-description {
+  color: var(--ink-quiet);
+  font-size: 13px;
+}
+.choice-other {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 4px 0 0;
+  padding: 0 8px;
+}
+.choice-other-label {
+  flex: none;
+  color: var(--ink-quiet);
+  font-size: 13px;
+}
+.choice-other-text {
+  flex: 1;
+  min-width: 0;
+  padding: 3px 8px;
+  border: 1px solid var(--edge);
+  border-radius: 4px;
+  background: var(--page);
+  color: var(--ink);
+  font: inherit;
+  font-size: 14px;
+}
+.choice-other-text:focus-visible,
+.choice-send:focus-visible {
+  outline: 2px solid var(--action);
+  outline-offset: 1px;
+}
+.choice-end {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: 10px 0 0;
+}
+.choice-send {
+  padding: 5px 18px;
+  border-radius: 4px;
+  background: var(--action);
+  color: var(--action-ink);
+  font-size: 14px;
+  font-weight: 600;
+}
+.choice-send:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+.choice-note {
+  color: var(--ink-quiet);
+  font-size: 13px;
+}
+.choice-picked {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.choice-pick {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 2px 8px;
+}
+.choice-sign {
+  flex: none;
+  width: 1em;
+  color: var(--online);
+  font-weight: 700;
+  text-align: center;
+}
+.choice-other-sent {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 2px 0 0;
+  padding: 0 8px;
+  overflow-wrap: anywhere;
+}
+
+/* In the syllabus column, which is narrow: the free text goes under its
+   label, and the box takes less room. */
+.choice[data-compact] {
+  margin: 0 10px 12px;
+  padding: 8px 10px 10px;
+  font-size: 13px;
+}
+.choice[data-compact] .choice-option {
+  padding: 3px 4px;
+}
+.choice[data-compact] .choice-other {
+  flex-direction: column;
+  gap: 2px;
+  padding: 0 4px;
+}
+.choice[data-compact] .choice-other-text {
+  width: 100%;
+  font-size: 13px;
+}
+.choice[data-compact] .choice-send {
+  padding: 4px 14px;
+  font-size: 13px;
+}
+.choice[data-compact] .choice-description,
+.choice[data-compact] .choice-note {
+  font-size: 12px;
+}
+.choice[data-compact] .choice-pick,
+.choice[data-compact] .choice-other-sent {
+  padding: 1px 4px;
+}
+
+/* A choice of the column waits, and the column hides behind its button. */
+.syllabus-toggle-asks {
+  margin-left: 4px;
+  color: var(--action);
+  font-weight: 700;
+}
+
 /* ---------------------------------------------------------- the threads */
 
 /* A block and what hangs under it. The Ask button sits at the top right

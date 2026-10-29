@@ -1,0 +1,46 @@
+---
+source: crates/qlearn/src/choice/mod.rs
+description: "{\n  \"questions\": [\n    {\n      \"header\": \"Level\",\n      \"prompt\": \"How well do you know Raft?\",\n      \"options\": [\n        { \"label\": \"New to it\", \"description\": \"I start from the paper\" },\n        { \"label\": \"Read the paper\", \"description\": \"I know the terms, not the code\" },\n        { \"label\": \"Wrote one\", \"description\": \"I want the details of this code base\" }\n      ]\n    },\n    {\n      \"header\": \"Quiz mode\",\n      \"prompt\": \"Should a quiz also ask about earlier lessons?\",\n      \"options\": [\n        { \"label\": \"mixed\", \"description\": \"Yes, a question on an earlier lesson in each quiz\" },\n        { \"label\": \"current\", \"description\": \"No, only the lesson of the page\" }\n      ]\n    }\n  ],\n  \"page\": null,\n  \"author\": \"agent\"\n}\n"
+---
+the page gets:
+{
+  "id": "choice-1",
+  "page": null,
+  "questions": [
+    {
+      "header": "Level",
+      "prompt": "How well do you know Raft?",
+      "options": [
+        {
+          "label": "New to it",
+          "description": "I start from the paper"
+        },
+        {
+          "label": "Read the paper",
+          "description": "I know the terms, not the code"
+        },
+        {
+          "label": "Wrote one",
+          "description": "I want the details of this code base"
+        }
+      ],
+      "multi": false
+    },
+    {
+      "header": "Quiz mode",
+      "prompt": "Should a quiz also ask about earlier lessons?",
+      "options": [
+        {
+          "label": "mixed",
+          "description": "Yes, a question on an earlier lesson in each quiz"
+        },
+        {
+          "label": "current",
+          "description": "No, only the lesson of the page"
+        }
+      ],
+      "multi": false
+    }
+  ],
+  "answers": null
+}

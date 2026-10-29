@@ -18,14 +18,16 @@ use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 use tokio::sync::RwLock;
 
+use crate::choice::{self, StoredChoosing};
 use crate::events::{self, Events};
 use crate::git::exec::Git;
 use crate::highlight::Highlighter;
 use crate::lesson::{self, Fault};
 use crate::model::{
-    self, AgentStatus, Author, Batch, Block, BlockSource, Broken, ChoicesSent, Course,
-    CourseChange, Detail, Event, EventKind, Graded, GradedPoint, OpenSent, Page, PageKind, Point,
-    PointResult, QuizNumber, ReplySent, Session, StatusText, Thread, ThreadOpened,
+    self, AgentStatus, Author, Batch, Block, BlockSource, Broken, ChoiceId, ChoiceSent,
+    ChoicesSent, Choosing, Course, CourseChange, Detail, Event, EventKind, Graded, GradedPoint,
+    OpenSent, Page, PageKind, Point, PointResult, QuizNumber, ReplySent, Session, StatusText,
+    Thread, ThreadOpened,
 };
 use crate::quiz::{Refusal, StoredDebrief};
 use crate::store::{self, PageFile, Store};
@@ -103,6 +105,8 @@ pub fn app(state: AppState) -> Router {
         .route("/api/pages/{id}/broken", post(broken))
         .route("/api/pages/{id}/threads", post(open_thread))
         .route("/api/threads/{id}", post(reply))
+        .route("/api/choices", post(choose))
+        .route("/api/choices/{id}", post(answer_choice))
         .method_not_allowed_fallback(method_not_allowed)
         .fallback(interface)
         .layer(middleware::from_fn_with_state(state.clone(), auth::guard))
@@ -177,12 +181,32 @@ async fn method_not_allowed(method: axum::http::Method, uri: axum::http::Uri) ->
 
 async fn session(State(state): State<AppState>) -> Json<Session> {
     let course = state.course.read().await;
+    let (choices, choices_error) = match state.store.load_choices(&course.slug) {
+        Ok(choices) => (choices, None),
+        Err(error) => (Vec::new(), Some(format!("{error:#}"))),
+    };
+    // A choice on a page comes with its page.
+    let choices = choices
+        .iter()
+        .filter(|choice| choice.page.is_none())
+        .map(StoredChoosing::view)
+        .collect();
 
     Json(Session {
         course: course.clone(),
         current: state.current(),
         version: crate::version::LONG.to_owned(),
+        choices,
+        choices_error,
     })
+}
+
+/// The choices to show with a page. Every command of the agent probes the
+/// session, and a quiz holds answers of the learner, so an unreadable
+/// `choices.json` refuses only the routes of the choices. The session says
+/// why.
+fn shown_choices(state: &AppState, slug: &str) -> Vec<StoredChoosing> {
+    state.store.load_choices(slug).unwrap_or_default()
 }
 
 /// The blocks of a page. A page with no content yet names nothing.
@@ -207,8 +231,9 @@ async fn page(
     let Some(file) = state.store.load_page(&course.slug, &id)? else {
         return Err(no_content());
     };
+    let choices = shown_choices(&state, &course.slug);
 
-    Ok(Json(file.page(&id)))
+    Ok(Json(file.page(&id, &choices)))
 }
 
 /// Push the blocks of a page. The body is the source.
@@ -256,6 +281,7 @@ async fn push_page(
         false => None,
     }
     .unwrap_or_default();
+    let choices = shown_choices(&state, &changed.slug);
     let file = PageFile {
         blocks: parsed.blocks,
         hidden: parsed.hidden,
@@ -280,7 +306,7 @@ async fn push_page(
         .push(EventKind::Page, Author::Agent, Some(&id), None);
     drop(course);
 
-    Ok(Json(file.page(&id)))
+    Ok(Json(file.page(&id, &choices)))
 }
 
 /// Add a quiz to a page with content. Answers its number in the page.
@@ -398,6 +424,7 @@ async fn send(state: &AppState, id: &str, n: &str, part: Part) -> Result<Json<Pa
         .load_page(&course.slug, id)?
         .ok_or_else(no_content)?;
     let at = quiz_number(&file, id, n)?;
+    let choices = shown_choices(state, &course.slug);
     let quiz = &mut file.quizzes[at - 1];
 
     let now = OffsetDateTime::now_utc();
@@ -446,7 +473,7 @@ async fn send(state: &AppState, id: &str, n: &str, part: Part) -> Result<Json<Pa
     }
     drop(course);
 
-    Ok(Json(file.page(id)))
+    Ok(Json(file.page(id, &choices)))
 }
 
 /// The number of the quiz `n` of a page, from 1, as the address gives it.
@@ -533,6 +560,7 @@ async fn write_debrief(
     // still hold, and this reads the file that the write starts from.
     let (mut file, at) = answered_quiz(&state.store, &course, &id, &n)?;
     let mut points = state.store.load_points(&course.slug)?;
+    let choices = shown_choices(&state, &course.slug);
     let mut graded = Vec::new();
     for (point, result) in read.grades {
         let label = crate::quiz::point_of(&mut points, &point)?.label.clone();
@@ -603,7 +631,7 @@ async fn write_debrief(
     );
     drop(course);
 
-    Ok(Json(file.page(&id)))
+    Ok(Json(file.page(&id, &choices)))
 }
 
 /// The points of the course, in the order of section 5.3 of the design:
@@ -1035,6 +1063,83 @@ fn block_source(
         }))
 }
 
+/// Ask the learner to choose, at the end of a page or at the top of the
+/// syllabus column. Answers the id of the choice.
+///
+/// A refused choice gets every fault at once, so the agent fixes them in
+/// one pass.
+async fn choose(
+    State(state): State<AppState>,
+    body: Result<Json<serde_json::Value>, JsonRejection>,
+) -> Result<Json<ChoiceId>, ApiError> {
+    let Json(body) = body.map_err(bad_json)?;
+
+    // Held for the whole change, so two choices never take one id, and the
+    // page that a choice names keeps its content under the check.
+    let course = state.course.write().await;
+    let parsed =
+        choice::parse(&body, &course).map_err(|faults| ApiError::invalid_choice(&faults))?;
+    let mut choices = state.store.load_choices(&course.slug)?;
+    let id = choice::next_id(&choices);
+    choices.push(StoredChoosing {
+        id: id.clone(),
+        page: parsed.page.clone(),
+        questions: parsed.questions,
+        at: model::stamp(OffsetDateTime::now_utc()),
+        answered: None,
+    });
+    state.store.save_choices(&course.slug, &choices)?;
+    // Under the lock, so the events come in the order of the writes.
+    state.events.push(
+        EventKind::Choose,
+        Author::Agent,
+        parsed.page.as_deref(),
+        Some(&id),
+    );
+    drop(course);
+
+    Ok(Json(ChoiceId { id }))
+}
+
+/// The learner answers a choice. Answers the choice as the page sees it.
+///
+/// The agent gets a `chosen` request, with the labels of the picks, so it
+/// needs no second command.
+async fn answer_choice(
+    State(state): State<AppState>,
+    path: Result<Path<String>, PathRejection>,
+    body: Result<Json<ChoiceSent>, JsonRejection>,
+) -> Result<Json<Choosing>, ApiError> {
+    let Path(id) = path.map_err(bad_path)?;
+    let Json(body) = body.map_err(bad_json)?;
+
+    let unknown = || ApiError::not_found(format!("the course holds no choice {id:?}"));
+    choice::rank_of(&id).ok_or_else(unknown)?;
+    // Held for the whole change, so two tabs cannot answer one choice twice.
+    let course = state.course.write().await;
+    let mut choices = state.store.load_choices(&course.slug)?;
+    let at = choices
+        .iter()
+        .position(|stored| stored.id == id)
+        .ok_or_else(unknown)?;
+    let stored = &mut choices[at];
+    stored
+        .answer(&body.answers, &model::stamp(OffsetDateTime::now_utc()))
+        .map_err(refused)?;
+    let stored = stored.clone();
+    state.store.save_choices(&course.slug, &choices)?;
+    // Under the lock, so the events come in the order of the writes.
+    state.events.request(
+        EventKind::Chosen,
+        stored.page.as_deref(),
+        Some(&stored.id),
+        stored.detail(),
+    );
+    drop(course);
+
+    Ok(Json(stored.view()))
+}
+
 /// An answer that the quiz does not take.
 fn refused(refusal: Refusal) -> ApiError {
     match refusal {
@@ -1176,6 +1281,16 @@ impl ApiError {
         Self {
             status: StatusCode::BAD_REQUEST,
             code: "invalidDebrief",
+            message: faults.join("\n"),
+        }
+    }
+
+    /// A choice that fails a check. The message holds one line per fault,
+    /// each with its place in the body.
+    fn invalid_choice(faults: &[String]) -> Self {
+        Self {
+            status: StatusCode::BAD_REQUEST,
+            code: "invalidChoice",
             message: faults.join("\n"),
         }
     }
@@ -4536,6 +4651,436 @@ mod tests {
             debrief.iter().all(|id| !lesson.contains(id)),
             "{lesson:?} {debrief:?}"
         );
+    }
+
+    /// The next step at the end of page 1, as `qlearn choose` sends it.
+    const CHOICE: &str = r#"{
+        "page": "1",
+        "questions": [
+            {
+                "header": "Next step",
+                "prompt": "Part 1 is done. What next?",
+                "options": [
+                    { "label": "Part 2", "description": "The code tour of the election" },
+                    { "label": "A break", "description": "The course waits here" }
+                ],
+                "multi": false
+            },
+            {
+                "header": "Topics",
+                "prompt": "What should the next part show?",
+                "options": [
+                    { "label": "The timer" },
+                    { "label": "The vote" },
+                    { "label": "The log" }
+                ],
+                "multi": true
+            }
+        ],
+        "author": "agent"
+    }"#;
+
+    /// The level at the start, with no page: the top of the syllabus column.
+    const LEVEL: &str = r#"{
+        "questions": [
+            {
+                "header": "Level",
+                "prompt": "How well do you know Raft?",
+                "options": [ { "label": "New to it" }, { "label": "Read the paper" } ]
+            }
+        ],
+        "author": "agent"
+    }"#;
+
+    async fn choose(state: &AppState, body: &str) -> (StatusCode, serde_json::Value) {
+        json(app(state.clone()), send_json("POST", "/api/choices", body)).await
+    }
+
+    async fn answer_choice(
+        state: &AppState,
+        id: &str,
+        body: serde_json::Value,
+    ) -> (StatusCode, serde_json::Value) {
+        let uri = format!("/api/choices/{id}");
+        json(
+            app(state.clone()),
+            send_json("POST", &uri, &body.to_string()),
+        )
+        .await
+    }
+
+    /// The agent asks a choice at the end of a page and one in the column,
+    /// the page finds both, the learner answers, and the agent gets the
+    /// labels of the picks.
+    #[tokio::test]
+    async fn the_choice_routes_ask_a_choice_and_answer_it() {
+        let (dir, state) = with_lesson().await;
+        let untouched = outside(dir.path());
+        let after = agent_waits(&state, 0).await["next"].as_u64().unwrap();
+
+        let (status, asked) = choose(&state, CHOICE).await;
+        assert_eq!(status, StatusCode::OK, "{asked}");
+        insta::assert_json_snapshot!("choose", asked);
+        let (status, level) = choose(&state, LEVEL).await;
+        assert_eq!(status, StatusCode::OK, "{level}");
+        assert_eq!(level, serde_json::json!({ "id": "choice-2" }));
+        // A question of the agent is no request.
+        let batch = state.events.after(Some(after), events::HOLD).await;
+        let seen: Vec<_> = batch
+            .events
+            .iter()
+            .map(|event| {
+                (
+                    event.kind,
+                    event.author,
+                    event.page.as_deref(),
+                    event.id.as_deref(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            seen,
+            [
+                (
+                    EventKind::Choose,
+                    Author::Agent,
+                    Some("1"),
+                    Some("choice-1")
+                ),
+                (EventKind::Choose, Author::Agent, None, Some("choice-2")),
+            ]
+        );
+        assert!(seen.iter().all(|(kind, ..)| !kind.is_request()));
+
+        // The page finds a choice on a page with the page, and one with no
+        // page with the session, so a reload shows both.
+        let (_, page) = json(app(state.clone()), get_with_cookie("/api/pages/1", TOKEN)).await;
+        insta::assert_json_snapshot!("page_choices", page["choices"]);
+        let (_, mut session) =
+            json(app(state.clone()), get_with_cookie("/api/session", TOKEN)).await;
+        session["version"] = "[version]".into();
+        insta::assert_json_snapshot!("session_choices", session["choices"]);
+        assert_eq!(session["choices"][0]["id"], "choice-2");
+        assert_eq!(session["choices"].as_array().unwrap().len(), 1);
+
+        // The learner picks one option of the first question, and answers
+        // the second one with two options and words of their own.
+        let (status, chosen) = answer_choice(
+            &state,
+            "choice-1",
+            serde_json::json!({ "answers": [
+                { "picked": [1] },
+                { "picked": [2, 0], "other": "  and the restart  " },
+            ] }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{chosen}");
+        insta::assert_json_snapshot!("chosen", chosen);
+        let agent = agent_waits(&state, batch.next).await;
+        insta::assert_json_snapshot!("events_chosen", agent);
+        assert!(
+            state.events.agent_works(),
+            "the wait handed the choice over"
+        );
+
+        // The answer stays on the page, and a push of the page keeps it.
+        let (_, pushed) = json(app(state.clone()), put("/api/pages/1", LESSON)).await;
+        assert_eq!(pushed["choices"], serde_json::json!([chosen]));
+
+        // A choice of the column is answered by free text alone.
+        let (status, typed) = answer_choice(
+            &state,
+            "choice-2",
+            serde_json::json!({ "answers": [ { "picked": [], "other": "I read half of it" } ] }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{typed}");
+        let agent = agent_waits(&state, agent["next"].as_u64().unwrap()).await;
+        // The push of the page comes first in the batch.
+        let event = agent["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|event| event["kind"] == "chosen")
+            .unwrap();
+        assert_eq!(
+            (&event["kind"], &event["page"], &event["id"]),
+            (
+                &"chosen".into(),
+                &serde_json::Value::Null,
+                &"choice-2".into()
+            )
+        );
+        assert_eq!(
+            event["detail"]["answers"],
+            serde_json::json!([{ "header": "Level", "picked": [], "labels": [],
+                                 "other": "I read half of it" }])
+        );
+
+        let stored: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(dir.path().join(".learn/raft/choices.json")).unwrap(),
+        )
+        .unwrap();
+        insta::assert_json_snapshot!("choices_json", at_redacted(stored));
+        assert_eq!(
+            files(dir.path()),
+            [
+                ".learn/raft/choices.json",
+                ".learn/raft/course.json",
+                ".learn/raft/pages/1.json",
+                ".learn/raft/pages/1.md"
+            ]
+        );
+        assert_eq!(outside(dir.path()), untouched, "a write outside .learn/");
+    }
+
+    #[tokio::test]
+    async fn a_refused_choice_gets_every_fault_and_stores_nothing() {
+        let (dir, state) = with_lesson().await;
+        // Page 2 is in the syllabus, with no content yet.
+        state.course.write().await.parts[0].pages.push(PageRef {
+            id: "2".to_owned(),
+            kind: PageKind::Lesson,
+            title: "The vote".to_owned(),
+            state: PageState::Planned,
+            score: None,
+        });
+        let after = state.events.after(None, events::HOLD).await.next;
+
+        let (status, body) = choose(
+            &state,
+            r#"{ "page": "2", "questions": [
+                   { "header": "", "prompt": "What next?", "options": [ { "label": "Part 2" } ] }
+               ], "multi": true }"#,
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+        insta::assert_json_snapshot!("choose_refused", body);
+
+        let one = r#"[ { "header": "Next", "prompt": "What next?",
+                         "options": [ { "label": "Part 2" }, { "label": "A break" } ] } ]"#;
+        for body in [
+            format!(r#"{{ "page": "7", "questions": {one} }}"#),
+            format!(r#"{{ "page": "2", "questions": {one} }}"#),
+            format!(r#"{{ "page": "../1", "questions": {one} }}"#),
+            format!(r#"{{ "questions": {one}, "author": "learner" }}"#),
+            r#"{ "questions": [] }"#.to_owned(),
+            "[]".to_owned(),
+        ] {
+            let (status, answer) = choose(&state, &body).await;
+
+            assert_eq!(status, StatusCode::BAD_REQUEST, "{body}: {answer}");
+            assert_eq!(answer["error"]["code"], "invalidChoice", "{body}");
+        }
+        let (status, answer) = choose(&state, "{ not json").await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{answer}");
+        assert_eq!(answer["error"]["code"], "badRequest");
+
+        assert!(!dir.path().join(".learn/raft/choices.json").exists());
+        assert_eq!(state.events.after(None, events::HOLD).await.next, after);
+    }
+
+    #[tokio::test]
+    async fn an_answer_that_the_choice_does_not_take_is_refused_and_stores_nothing() {
+        let (dir, state) = with_lesson().await;
+        let (status, _) = choose(&state, CHOICE).await;
+        assert_eq!(status, StatusCode::OK);
+        let path = dir.path().join(".learn/raft/choices.json");
+        let before = std::fs::read(&path).unwrap();
+        let after = state.events.after(None, events::HOLD).await.next;
+
+        let two = |first: serde_json::Value, second: serde_json::Value| serde_json::json!({ "answers": [first, second] });
+        let pick = |picked: &[usize]| serde_json::json!({ "picked": picked });
+        for (id, body, status, code) in [
+            (
+                "choice-2",
+                two(pick(&[0]), pick(&[0])),
+                StatusCode::NOT_FOUND,
+                "notFound",
+            ),
+            (
+                "choice",
+                two(pick(&[0]), pick(&[0])),
+                StatusCode::NOT_FOUND,
+                "notFound",
+            ),
+            (
+                "choice-01",
+                two(pick(&[0]), pick(&[0])),
+                StatusCode::NOT_FOUND,
+                "notFound",
+            ),
+            // A pick out of range.
+            (
+                "choice-1",
+                two(pick(&[2]), pick(&[0])),
+                StatusCode::BAD_REQUEST,
+                "badRequest",
+            ),
+            // Two picks on a question that takes one.
+            (
+                "choice-1",
+                two(pick(&[0, 1]), pick(&[0])),
+                StatusCode::BAD_REQUEST,
+                "badRequest",
+            ),
+            // One option picked twice.
+            (
+                "choice-1",
+                two(pick(&[0]), pick(&[1, 1])),
+                StatusCode::BAD_REQUEST,
+                "badRequest",
+            ),
+            // No pick and no words of the learner.
+            (
+                "choice-1",
+                two(
+                    pick(&[0]),
+                    serde_json::json!({ "picked": [], "other": "  " }),
+                ),
+                StatusCode::BAD_REQUEST,
+                "badRequest",
+            ),
+            // A missing question.
+            (
+                "choice-1",
+                serde_json::json!({ "answers": [ { "picked": [0] } ] }),
+                StatusCode::BAD_REQUEST,
+                "badRequest",
+            ),
+            // An empty answer.
+            (
+                "choice-1",
+                serde_json::json!({ "answers": [] }),
+                StatusCode::BAD_REQUEST,
+                "badRequest",
+            ),
+            (
+                "choice-1",
+                serde_json::json!({}),
+                StatusCode::BAD_REQUEST,
+                "badRequest",
+            ),
+            (
+                "choice-1",
+                serde_json::json!({ "answers": [ { "picked": [0], "ok": true }, pick(&[0]) ] }),
+                StatusCode::BAD_REQUEST,
+                "badRequest",
+            ),
+            (
+                "choice-1",
+                serde_json::json!({ "answers": [ { "picked": [-1] }, pick(&[0]) ] }),
+                StatusCode::BAD_REQUEST,
+                "badRequest",
+            ),
+        ] {
+            let (got, answer) = answer_choice(&state, id, body.clone()).await;
+
+            assert_eq!(got, status, "{id} {body}: {answer}");
+            assert_eq!(answer["error"]["code"], code, "{id} {body}");
+            assert!(answer["error"]["message"].is_string(), "{answer}");
+        }
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        assert_eq!(state.events.after(None, events::HOLD).await.next, after);
+
+        // An answer sent twice: the second one changes nothing.
+        let (status, _) = answer_choice(&state, "choice-1", two(pick(&[0]), pick(&[1]))).await;
+        assert_eq!(status, StatusCode::OK);
+        let answered = std::fs::read(&path).unwrap();
+        let after = state.events.after(None, events::HOLD).await.next;
+        let (status, answer) = answer_choice(&state, "choice-1", two(pick(&[1]), pick(&[2]))).await;
+        assert_eq!(status, StatusCode::CONFLICT, "{answer}");
+        assert_eq!(answer["error"]["code"], "conflict");
+        assert_eq!(std::fs::read(&path).unwrap(), answered);
+        assert_eq!(state.events.after(None, events::HOLD).await.next, after);
+    }
+
+    #[tokio::test]
+    async fn an_answer_to_a_choice_from_another_site_is_forbidden() {
+        let (dir, state) = with_lesson().await;
+        let (status, _) = choose(&state, LEVEL).await;
+        assert_eq!(status, StatusCode::OK);
+        let before = std::fs::read(dir.path().join(".learn/raft/choices.json")).unwrap();
+
+        let request = Request::builder()
+            .method("POST")
+            .uri("/api/choices/choice-1")
+            .header(
+                header::COOKIE,
+                format!("{}={TOKEN}", auth::cookie_name(PORT)),
+            )
+            .header(header::CONTENT_TYPE, "application/json")
+            .header(header::ORIGIN, "http://127.0.0.1:3000")
+            .header("sec-fetch-site", "same-site")
+            .body(Body::from(r#"{"answers":[{"picked":[0]}]}"#))
+            .unwrap();
+        let (status, body) = json(app(state.clone()), request).await;
+
+        assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+        assert_eq!(body["error"]["code"], "forbidden");
+        assert_eq!(
+            std::fs::read(dir.path().join(".learn/raft/choices.json")).unwrap(),
+            before
+        );
+    }
+
+    /// A corrupt choices.json holds answers of the learner: a choice is
+    /// refused rather than written over it.
+    #[tokio::test]
+    async fn a_choice_over_a_corrupt_choices_file_is_refused_and_leaves_it() {
+        let (dir, state) = with_lesson().await;
+        let path = dir.path().join(".learn/raft/choices.json");
+        std::fs::write(&path, "{ not json").unwrap();
+
+        let (status, body) = choose(&state, LEVEL).await;
+
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR, "{body}");
+        assert!(
+            body["error"]["message"]
+                .as_str()
+                .unwrap()
+                .contains("repair it by hand"),
+            "{body}"
+        );
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "{ not json");
+    }
+
+    /// A corrupt choices.json refuses only the choices. The session
+    /// answers, as every command of the agent probes it, and says why the
+    /// choices are gone. The pages, a push and a quiz answer go on.
+    #[tokio::test]
+    async fn a_corrupt_choices_file_blocks_only_the_choices() {
+        let (dir, state) = with_quiz(LESSON, QUIZ).await;
+        let path = dir.path().join(".learn/raft/choices.json");
+        std::fs::write(&path, "{ not json").unwrap();
+
+        let (status, session) =
+            json(app(state.clone()), get_with_cookie("/api/session", TOKEN)).await;
+        assert_eq!(status, StatusCode::OK, "{session}");
+        assert_eq!(session["choices"], serde_json::json!([]));
+        let unreadable = session["choicesError"].as_str().unwrap();
+        assert!(unreadable.contains("repair it by hand"), "{session}");
+
+        let (status, page) = json(app(state.clone()), get_with_cookie("/api/pages/1", TOKEN)).await;
+        assert_eq!(status, StatusCode::OK, "{page}");
+        assert_eq!(page["choices"], serde_json::json!([]));
+        let (status, pushed) = json(app(state.clone()), put("/api/pages/1", LESSON)).await;
+        assert_eq!(status, StatusCode::OK, "{pushed}");
+        let (status, sent) = json(
+            app(state.clone()),
+            send_json("POST", "/api/pages/1/quizzes/1/open", OPEN),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{sent}");
+
+        let (status, refused) = answer_choice(
+            &state,
+            "choice-1",
+            serde_json::json!({ "answers": [{ "picked": [0] }] }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR, "{refused}");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "{ not json");
     }
 
     /// A trace goes into a log or a bug report. The token must not.

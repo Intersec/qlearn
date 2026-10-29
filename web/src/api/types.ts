@@ -66,6 +66,16 @@ export interface Session {
   current: string | null;
   /** The release and the commit under it, as `qlearn --version` says. */
   version: string;
+  /**
+   * The choices that name no page, open or answered, in the order that the
+   * agent asked them. They show at the top of the syllabus column.
+   */
+  choices: Choosing[];
+  /**
+   * Why the server cannot read `choices.json`, or null. The choices then
+   * show nowhere, and only the routes of the choices refuse.
+   */
+  choicesError: string | null;
 }
 
 /**
@@ -147,6 +157,46 @@ export interface Page {
   quizzes: Quiz[];
   /** In the order that they opened. A thread whose block is gone comes last. */
   threads: Thread[];
+  /** The choices that the agent asked at the end of this page, open or answered. */
+  choices: Choosing[];
+}
+
+/**
+ * A choice that the agent asks the learner, in place of a dialog of its
+ * terminal (section 7 of the design). It is never graded.
+ */
+export interface Choosing {
+  /** `choice-<n>`, such as `choice-2`. */
+  id: string;
+  /** The page at whose end it shows, or null for the top of the syllabus column. */
+  page: string | null;
+  questions: ChoosingQuestion[];
+  /** null until the learner answers. Then one answer per question, in order. */
+  answers: ChosenAnswer[] | null;
+}
+
+/** A question of a choice. Every text is plain text. */
+export interface ChoosingQuestion {
+  /** A short name of the question. */
+  header: string;
+  prompt: string;
+  options: ChoosingOption[];
+  /** The learner may pick several options. */
+  multi: boolean;
+}
+
+export interface ChoosingOption {
+  label: string;
+  /** "" when the agent gave none. */
+  description: string;
+}
+
+/** The answer of the learner to one question of a choice, as the page sends it. */
+export interface ChosenAnswer {
+  /** The options picked, from 0, in order. Empty when the free text answers alone. */
+  picked: number[];
+  /** The free text, or null. */
+  other: string | null;
 }
 
 /** A question of the learner, or a word of the agent (section 6 of the design). */

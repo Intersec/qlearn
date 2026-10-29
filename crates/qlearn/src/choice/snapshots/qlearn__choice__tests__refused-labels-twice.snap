@@ -1,0 +1,6 @@
+---
+source: crates/qlearn/src/choice/mod.rs
+description: "{\n  \"questions\": [\n    {\n      \"header\": \"Next step\",\n      \"prompt\": \"What next?\",\n      \"options\": [\n        { \"label\": \"Part 2\" },\n        { \"label\": \" Part 2 \", \"description\": \"The same label once trimmed\" },\n        { \"label\": \"A break\" }\n      ]\n    }\n  ]\n}\n"
+---
+refused
+questions[0].options[1].label: "Part 2" comes twice in the question

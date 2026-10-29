@@ -8,10 +8,11 @@ of `.learn/` is not readable, stop and show the error to the learner: the
 file may hold their answers, and only they repair it.
 
 This release knows the syllabus, pages of text, callouts, excerpts of the
-code, diagrams, quizzes, the debrief of a quiz, threads, and the **Next**
-button. The learner answers a quiz in the page, you get the answer, and you
-write the debrief. The learner asks about a block of a page, and you answer
-in its thread.
+code, diagrams, quizzes, the debrief of a quiz, threads, choices, and the
+**Next** button. The learner answers a quiz in the page, you get the answer,
+and you write the debrief. The learner asks about a block of a page, and you
+answer in its thread. You ask the learner to choose in the page, and you get
+the answer.
 
 ## Start
 
@@ -44,12 +45,23 @@ letters, digits and hyphens, such as `raft-election`.
    qlearn course --title "<subject>" --goal "<what the learner wants>"
    ```
 
-   `--profile` takes the background and the level of the learner. The
-   error `no qlearn server runs on this worktree` means that the server
-   does not run yet: ask the learner to start it, then run the command
-   again.
-4. Write the syllabus (see "The syllabus").
-5. Push the first page (see "Push a page"), then start the loop.
+   The error `no qlearn server runs on this worktree` means that the
+   server does not run yet: ask the learner to start it, then run the
+   command again.
+4. Ask the level of the learner and the quiz mode with a choice, not in
+   your terminal (see "Choices"). The quiz mode takes two options:
+
+   - `mixed`: a quiz also asks about an earlier lesson, to keep it fresh.
+   - `current`: a quiz asks only about the lesson of its page.
+
+   Wait for the answer, then write it into the course:
+
+   ```sh
+   qlearn course --profile "<background and level>" --quiz-mode <mixed|current>
+   ```
+
+5. Write the syllabus (see "The syllabus").
+6. Push the first page (see "Push a page"), then start the loop.
 
 ## The syllabus
 
@@ -118,7 +130,8 @@ Repeat until the learner says that the course is over:
      says that the page cannot draw a diagram (see "Diagrams"). A request
      of kind `answer` says that the learner answered a quiz (see "The
      answer"). A request of kind `ask` says that the learner asked a
-     question (see "Threads").
+     question (see "Threads"). A request of kind `chosen` says that the
+     learner answered a choice (see "Choices").
    - `next`: pass it to the next `wait`, so that no request is lost
      between two waits.
    - `"reset": true`: the server restarted. Wait again with the new
@@ -132,7 +145,7 @@ Repeat until the learner says that the course is over:
 3. Answer each request. For `next`, push the next page. For `broken`,
    fix the diagram and push its page or its debrief again. For `answer`,
    write the debrief (see "The debrief"). For `ask`, answer in the thread
-   with `qlearn reply`.
+   with `qlearn reply`. For `chosen`, do what the learner chose.
 4. Go back to step 1.
 
 Writing a page takes minutes. Before a long piece of work, say what you do,
@@ -529,6 +542,83 @@ Both commands print the thread as JSON, with its id. In that JSON, each
 body is the HTML that the page shows. A reply of the learner in your thread
 comes back as an `ask` request. Your own writes in a thread never make your
 `wait` return.
+
+## Choices
+
+In the page, a choice takes the place of a dialog of your terminal. Never
+ask these questions in your terminal: the learner reads the page. Ask with
+`qlearn choose`:
+
+- at the start: the level of the learner and the quiz mode;
+- at a checkpoint: the next step, such as the next part or a break;
+- at the end: whether to plan a follow-up quiz, and when.
+
+```sh
+qlearn choose --file - <<'EOF'
+{
+  "page": "c1",
+  "questions": [
+    {
+      "header": "Next step",
+      "prompt": "Part 1 is done. What next?",
+      "options": [
+        { "label": "Part 2", "description": "The code tour of the election" },
+        { "label": "A break", "description": "The course waits here" }
+      ],
+      "multi": false
+    }
+  ]
+}
+EOF
+```
+
+- `page` names the page that you pushed last, which the learner reads: the
+  choice shows at its end, and nowhere else. Never name an older page: the
+  learner may never come back to it. Leave `page` out to show the choice
+  at the top of the syllabus column, such as the level at the start,
+  before any page exists.
+- `questions` holds 1 to 4 questions. Each one has a short `header`, a
+  `prompt`, and 2 to 4 `options`. Each option has a `label` and an
+  optional `description`.
+- `multi` is `true` when the learner may pick several options. It is
+  `false` when left out.
+- Every text is plain text. A header and a label hold one line. Two labels
+  of one question differ.
+- The page adds a box for free text under each question. The learner may
+  answer a question with that text alone.
+- A choice is never graded. To check what the learner knows, write a quiz.
+
+The command prints the id of the choice, such as `{ "id": "choice-1" }`. If
+the server refuses the choice, it stores nothing, exits with 1, and prints
+every error on standard error, one per line, with its place in the JSON.
+Fix every error, then run the command again.
+
+Then run `qlearn wait`, as in "The loop". When the learner answers, your
+`wait` returns a request of kind `chosen`. Its `page` names the page, or is
+`null`, and its `id` names the choice. Its `detail` holds:
+
+- `questions`: the questions as you wrote them.
+- `answers`: one per question, in order, with its `header`, the indices
+  that the learner `picked`, the `labels` of those options, and the
+  `other` text, or `null`.
+
+```json
+{
+  "kind": "chosen",
+  "page": "c1",
+  "id": "choice-1",
+  "detail": {
+    "questions": [ ... ],
+    "answers": [
+      { "header": "Next step", "picked": [1], "labels": ["A break"], "other": null }
+    ]
+  }
+}
+```
+
+Read the `other` text first: it may change what the learner picked. A
+choice is answered once. To ask again, run `qlearn choose` with a new
+choice.
 
 ## Next
 

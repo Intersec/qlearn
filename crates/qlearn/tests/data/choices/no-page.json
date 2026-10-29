@@ -1,0 +1,23 @@
+{
+  "questions": [
+    {
+      "header": "Level",
+      "prompt": "How well do you know Raft?",
+      "options": [
+        { "label": "New to it", "description": "I start from the paper" },
+        { "label": "Read the paper", "description": "I know the terms, not the code" },
+        { "label": "Wrote one", "description": "I want the details of this code base" }
+      ]
+    },
+    {
+      "header": "Quiz mode",
+      "prompt": "Should a quiz also ask about earlier lessons?",
+      "options": [
+        { "label": "mixed", "description": "Yes, a question on an earlier lesson in each quiz" },
+        { "label": "current", "description": "No, only the lesson of the page" }
+      ]
+    }
+  ],
+  "page": null,
+  "author": "agent"
+}

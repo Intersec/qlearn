@@ -1,0 +1,47 @@
+---
+source: crates/qlearn/src/api/mod.rs
+expression: "page[\"choices\"]"
+---
+[
+  {
+    "answers": null,
+    "id": "choice-1",
+    "page": "1",
+    "questions": [
+      {
+        "header": "Next step",
+        "multi": false,
+        "options": [
+          {
+            "description": "The code tour of the election",
+            "label": "Part 2"
+          },
+          {
+            "description": "The course waits here",
+            "label": "A break"
+          }
+        ],
+        "prompt": "Part 1 is done. What next?"
+      },
+      {
+        "header": "Topics",
+        "multi": true,
+        "options": [
+          {
+            "description": "",
+            "label": "The timer"
+          },
+          {
+            "description": "",
+            "label": "The vote"
+          },
+          {
+            "description": "",
+            "label": "The log"
+          }
+        ],
+        "prompt": "What should the next part show?"
+      }
+    ]
+  }
+]

@@ -1,0 +1,31 @@
+---
+source: crates/qlearn/src/choice/mod.rs
+description: "{\n  \"page\": \"1\",\n  \"questions\": [\n    {\n      \"header\": \"  Topics  \",\n      \"prompt\": \"Which parts should the follow-up cover?\\nPick any.\",\n      \"options\": [\n        { \"label\": \" The timer \" },\n        { \"label\": \"The vote\", \"description\": null },\n        { \"label\": \"The log\", \"description\": \"  Not taught yet  \" }\n      ],\n      \"multi\": true\n    }\n  ]\n}\n"
+---
+the page gets:
+{
+  "id": "choice-1",
+  "page": "1",
+  "questions": [
+    {
+      "header": "Topics",
+      "prompt": "Which parts should the follow-up cover?\nPick any.",
+      "options": [
+        {
+          "label": "The timer",
+          "description": ""
+        },
+        {
+          "label": "The vote",
+          "description": ""
+        },
+        {
+          "label": "The log",
+          "description": "Not taught yet"
+        }
+      ],
+      "multi": true
+    }
+  ],
+  "answers": null
+}

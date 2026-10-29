@@ -132,6 +132,16 @@ pub enum Command {
         body: String,
     },
 
+    /// Ask the learner to choose, in the page, as the agent: at the end of a
+    /// page, or at the top of the syllabus column. Prints the id of the
+    /// choice. A refused choice prints every error, each with its place in
+    /// the JSON, and exits 1.
+    Choose {
+        /// The JSON file. `-` reads it from standard input.
+        #[arg(long, value_name = "PATH")]
+        file: String,
+    },
+
     /// Print the points of the course and their results, the missed ones
     /// first, then the others by the date of their last result.
     Points,
@@ -359,6 +369,16 @@ mod tests {
         );
         assert!(Cli::try_parse_from(["qlearn", "reply", "3-1"]).is_err());
         assert!(Cli::try_parse_from(["qlearn", "comment", "--body", "x"]).is_err());
+    }
+
+    #[test]
+    fn a_choice_takes_a_file() {
+        let cli = Cli::try_parse_from(["qlearn", "choose", "--file", "-"]).unwrap();
+        assert!(
+            matches!(cli.command, Some(Command::Choose { ref file }) if file == "-"),
+            "{cli:?}"
+        );
+        assert!(Cli::try_parse_from(["qlearn", "choose"]).is_err());
     }
 
     #[test]

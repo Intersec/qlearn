@@ -1,0 +1,18 @@
+{
+  "page": 3,
+  "title": "Next",
+  "author": "learner",
+  "questions": [
+    {
+      "header": ["Next step"],
+      "prompt": null,
+      "question": "What next?",
+      "options": [
+        { "label": 1, "description": 2, "answer": true },
+        "A break"
+      ],
+      "multi": "no"
+    },
+    "Level?"
+  ]
+}

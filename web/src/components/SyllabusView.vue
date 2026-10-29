@@ -1,7 +1,8 @@
 <script setup lang="ts">
 // The syllabus in the left column: the parts and their pages, each with
 // its state and its score (section 3 of the design). A planned page has no
-// content yet, so it is shown but cannot be opened.
+// content yet, so it is shown but cannot be opened. The choices that name
+// no page come first, in the slot (section 7).
 
 import { computed } from 'vue';
 import type { PageRef, PageState, Part, Score } from '@/api/types';
@@ -61,6 +62,7 @@ function hint(page: PageRef): string {
 
 <template>
   <nav class="syllabus" aria-label="Syllabus">
+    <slot />
     <p v-if="empty" class="syllabus-empty">The syllabus shows here when the agent writes it.</p>
     <section v-for="(part, at) in parts" v-else :key="at" class="syllabus-part">
       <h2 v-if="!flat && part.title" class="syllabus-part-title">{{ part.title }}</h2>

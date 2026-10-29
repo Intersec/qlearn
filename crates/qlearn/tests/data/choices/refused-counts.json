@@ -1,0 +1,10 @@
+{
+  "questions": [
+    { "header": "A", "prompt": "One?", "options": [ { "label": "1" } ] },
+    { "header": "B", "prompt": "Two?", "options": [
+      { "label": "1" }, { "label": "2" }, { "label": "3" }, { "label": "4" }, { "label": "5" } ] },
+    { "header": "C", "prompt": "Three?", "options": [] },
+    { "header": "D", "prompt": "Four?", "options": [ { "label": "1" }, { "label": "2" } ] },
+    { "header": "E", "prompt": "Five?", "options": [ { "label": "1" }, { "label": "2" } ] }
+  ]
+}

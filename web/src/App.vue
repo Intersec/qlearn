@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 import AgentPresence from './components/AgentPresence.vue';
+import ChoiceView from './components/ChoiceView.vue';
 import PageView from './components/PageView.vue';
 import SyllabusView from './components/SyllabusView.vue';
 import type { QuizAnswer } from './api/types';
@@ -22,6 +23,9 @@ const {
   error,
   ending,
   following,
+  choices,
+  choicesError,
+  choosing,
 } = storeToRefs(store);
 
 /** On a narrow screen, the syllabus covers the page until the learner picks one. */
@@ -114,9 +118,13 @@ onBeforeUnmount(() => {
         class="syllabus-toggle"
         aria-controls="syllabus"
         :aria-expanded="syllabusOpen"
+        :data-choosing="choosing || undefined"
         @click="syllabusOpen = !syllabusOpen"
       >
         Syllabus
+        <span v-if="choosing" class="syllabus-toggle-asks">
+          <span aria-hidden="true">•</span><span class="sr-only">: the agent asks you</span>
+        </span>
       </button>
       <h1 :title="course?.title">{{ course?.title ?? 'qlearn' }}</h1>
       <span class="bar-end">
@@ -136,6 +144,9 @@ onBeforeUnmount(() => {
       <a :href="format({ page: ready })" @click.prevent="openReady">Read it</a>
     </p>
     <p v-if="error" role="alert" class="error">{{ error }}</p>
+    <p v-if="choicesError" role="alert" class="error">
+      The choices of the agent cannot show. {{ choicesError }}
+    </p>
 
     <div class="columns">
       <SyllabusView
@@ -146,7 +157,18 @@ onBeforeUnmount(() => {
         :shown="page?.id ?? null"
         :current="current"
         @open="openPage"
-      />
+      >
+        <!-- The open ones first: an answer stays below, read only. -->
+        <ChoiceView
+          v-for="choice in [...choices].sort(
+            (a, b) => Number(a.answers !== null) - Number(b.answers !== null),
+          )"
+          :key="choice.id"
+          :choice="choice"
+          compact
+          :send="(answers) => store.choose(choice.id, answers)"
+        />
+      </SyllabusView>
       <main ref="pane" class="course">
         <template v-if="page">
           <PageView
@@ -155,6 +177,7 @@ onBeforeUnmount(() => {
             :focus="focus"
             :ask="sendQuestion"
             :reply="store.reply"
+            :choose="store.choose"
             @broken="store.broken"
             @focus="store.openThread"
           />
@@ -184,6 +207,9 @@ onBeforeUnmount(() => {
         </template>
         <p v-else-if="course && presence === 'working'" role="status" class="preparing empty">
           The agent prepares the first page<template v-if="status">: {{ status }}</template>
+        </p>
+        <p v-else-if="course && choosing" class="empty">
+          The agent asks you to choose, in the syllabus column.
         </p>
         <p v-else-if="course" class="empty">
           No page yet. The first page shows here when the agent writes it.

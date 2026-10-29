@@ -922,7 +922,7 @@ fn point_id(value: &Value, path: &str, faults: &mut Vec<String>) -> Option<Strin
 }
 
 /// "1 option", "3 options".
-fn count_of(count: usize, noun: &str) -> String {
+pub(crate) fn count_of(count: usize, noun: &str) -> String {
     match count {
         1 => format!("1 {noun}"),
         _ => format!("{count} {noun}s"),

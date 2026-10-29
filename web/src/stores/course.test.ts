@@ -3,7 +3,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
 import { ApiError, api } from '@/api/client';
-import type { Course, Event, EventBatch, Page, PageRef, Thread } from '@/api/types';
+import type { Choosing, Course, Event, EventBatch, Page, PageRef, Thread } from '@/api/types';
 import { useCourse } from './course';
 
 /** The HTML of the first block, which these pages hold as text. */
@@ -34,7 +34,13 @@ function courseOf(pages: PageRef[]): Course {
 }
 
 function pageOf(id: string, html = `<h1>Page ${id}</h1>`): Page {
-  return { id, blocks: [{ id: `block${id}`, kind: 'text', html }], quizzes: [], threads: [] };
+  return {
+    id,
+    blocks: [{ id: `block${id}`, kind: 'text', html }],
+    quizzes: [],
+    threads: [],
+    choices: [],
+  };
 }
 
 function batch(fields: Partial<EventBatch> = {}): EventBatch {
@@ -67,6 +73,12 @@ class FakeServer {
   pages = new Map<string, Page>();
   course: Course = courseOf([]);
   current: string | null = null;
+  /** The choices that name no page, as the session sends them. */
+  choices: Choosing[] = [];
+  /** Why the server cannot read its choices, as the session sends it. */
+  choicesError: string | null = null;
+  /** The error that each read of the session gets, if any. */
+  sessionFails: ApiError | null = null;
   /** The `after` of each wait, `undefined` for the one that starts. */
   waits: (number | undefined)[] = [];
   /** The pages that a Next was sent from. */
@@ -84,9 +96,18 @@ class FakeServer {
   constructor() {
     vi.spyOn(api, 'session').mockImplementation(async () => {
       this.reads.session += 1;
+      if (this.sessionFails) {
+        throw this.sessionFails;
+      }
       // A copy, as a fetch makes: Vue sees no change in the same object.
       const course = structuredClone(this.course);
-      return { course, current: this.current, version: '0.1.0 (test)' };
+      return {
+        course,
+        current: this.current,
+        version: '0.1.0 (test)',
+        choices: this.choices,
+        choicesError: this.choicesError,
+      };
     });
     vi.spyOn(api, 'page').mockImplementation(async (id) => {
       this.reads.page.push(id);
@@ -897,5 +918,122 @@ describe('a thread', () => {
     server.send(batch({ next: 12, events: [opened] }));
     await vi.waitFor(() => expect(store.page?.threads).toHaveLength(2));
     expect(store.ready).toBeNull();
+  });
+});
+
+describe('the choices', () => {
+  function choiceOf(id: string, page: string | null): Choosing {
+    return {
+      id,
+      page,
+      questions: [
+        {
+          header: 'Next step',
+          prompt: 'What next?',
+          options: [
+            { label: 'Part 2', description: '' },
+            { label: 'A break', description: '' },
+          ],
+          multi: false,
+        },
+      ],
+      answers: null,
+    };
+  }
+
+  it('shows a choice of the agent in the column, or at the end of its page', async () => {
+    server.push('1', 1);
+    const store = await started();
+    expect(store.choosing).toBe(false);
+
+    server.choices = [choiceOf('choice-1', null)];
+    const column: Event = { seq: 11, kind: 'choose', author: 'agent', page: null, id: 'choice-1' };
+    server.send(batch({ next: 11, events: [column] }));
+    await vi.waitFor(() => expect(store.choices).toHaveLength(1));
+    expect(store.choosing).toBe(true);
+
+    server.pages.get('1')!.choices = [choiceOf('choice-2', '1')];
+    const onPage: Event = { seq: 12, kind: 'choose', author: 'agent', page: '1', id: 'choice-2' };
+    server.send(batch({ next: 12, events: [onPage] }));
+    await vi.waitFor(() => expect(store.page?.choices).toHaveLength(1));
+    // A choice is no new page: it makes nothing ready.
+    expect(store.ready).toBeNull();
+  });
+
+  it('puts the answer of the learner in place, in the column and on the page', async () => {
+    server.push('1', 1);
+    server.choices = [choiceOf('choice-1', null)];
+    server.pages.get('1')!.choices = [choiceOf('choice-2', '1')];
+    const store = await started();
+    const answers = [{ picked: [1], other: null }];
+    vi.spyOn(api, 'choose').mockImplementation(async (id) => ({
+      ...choiceOf(id, id === 'choice-1' ? null : '1'),
+      answers,
+    }));
+
+    expect(await store.choose('choice-1', answers)).toBe(true);
+    expect(store.choices[0].answers).toEqual(answers);
+    expect(store.choosing).toBe(false);
+    expect(await store.choose('choice-2', answers)).toBe(true);
+    expect(store.page?.choices[0].answers).toEqual(answers);
+  });
+
+  it('shows the answer of another tab when the server says that it came first', async () => {
+    server.push('1', 1);
+    server.choices = [choiceOf('choice-1', null)];
+    const store = await started();
+    vi.spyOn(api, 'choose').mockImplementation(async () => {
+      server.choices = [{ ...choiceOf('choice-1', null), answers: [{ picked: [0], other: null }] }];
+      throw new ApiError('conflict', 'choice-1 was answered already');
+    });
+
+    expect(await store.choose('choice-1', [{ picked: [1], other: null }])).toBe(false);
+
+    expect(store.choices[0].answers).toEqual([{ picked: [0], other: null }]);
+    expect(store.error).toBe('choice-1 was answered already');
+  });
+
+  it('says why when the course cannot be read after a conflict', async () => {
+    server.push('1', 1);
+    server.choices = [choiceOf('choice-1', null)];
+    const store = await started();
+    vi.spyOn(api, 'choose').mockImplementation(async () => {
+      server.sessionFails = new ApiError('failed', 'choices.json is not readable');
+      throw new ApiError('conflict', 'choice-1 was answered already');
+    });
+
+    expect(await store.choose('choice-1', [{ picked: [1], other: null }])).toBe(false);
+
+    expect(store.error).toBe('choices.json is not readable');
+  });
+
+  it('says why the server cannot read them', async () => {
+    server.push('1', 1);
+    server.choicesError = 'choices.json is not readable. It is left as it is';
+    const store = await started();
+
+    expect(store.choicesError).toBe('choices.json is not readable. It is left as it is');
+    expect(store.choices).toEqual([]);
+  });
+});
+
+describe('a server that answers with an error', () => {
+  it('says why, and takes the error away once the course reads again', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      server.push('1', 1);
+      server.sessionFails = new ApiError('failed', 'course.json is not readable');
+      const store = useCourse();
+      void store.listen();
+      await vi.waitFor(() => expect(store.error).toBe('course.json is not readable'));
+      expect(store.course).toBeNull();
+
+      server.sessionFails = null;
+      await vi.advanceTimersByTimeAsync(5000);
+      await vi.waitFor(() => expect(store.course).not.toBeNull());
+      expect(store.error).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

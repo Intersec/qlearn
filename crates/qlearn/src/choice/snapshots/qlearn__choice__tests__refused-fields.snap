@@ -1,0 +1,17 @@
+---
+source: crates/qlearn/src/choice/mod.rs
+description: "{\n  \"page\": 3,\n  \"title\": \"Next\",\n  \"author\": \"learner\",\n  \"questions\": [\n    {\n      \"header\": [\"Next step\"],\n      \"prompt\": null,\n      \"question\": \"What next?\",\n      \"options\": [\n        { \"label\": 1, \"description\": 2, \"answer\": true },\n        \"A break\"\n      ],\n      \"multi\": \"no\"\n    },\n    \"Level?\"\n  ]\n}\n"
+---
+refused
+author: takes "agent", not "learner"
+unknown field "title". A choice takes page and questions
+page: takes a page id or null, not a number
+questions[0]: unknown field "question". A question takes header, prompt, options and multi
+questions[0].header: takes a string, not an array
+questions[0].prompt: takes a string, not null
+questions[0].multi: takes true or false, not a string
+questions[0].options[0]: unknown field "answer". An option takes label and description
+questions[0].options[0].label: takes a string, not a number
+questions[0].options[0].description: takes a string, not a number
+questions[0].options[1]: takes an object, not a string
+questions[1]: takes an object, not a string

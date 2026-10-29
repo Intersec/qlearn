@@ -8,6 +8,8 @@ import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import config from '../playwright.config.ts';
 import {
+  CHOICE_LEVEL,
+  CHOICE_NEXT,
   DEBRIEF_1,
   PAGE_1,
   PAGE_2,
@@ -208,8 +210,25 @@ for (const scheme of ['light', 'dark'] as const) {
     await page.locator('.diagram-svg svg').nth(1).scrollIntoViewIfNeeded();
     await page.screenshot({ path: join(OUT, `${scheme}-diagram-fixed.png`) });
 
+    // The agent asks two choices: one at the top of the syllabus column,
+    // and one at the end of the page. The learner answers the second one,
+    // which then shows read only.
+    await agent.choose(CHOICE_LEVEL);
+    await agent.choose({ ...CHOICE_NEXT, page: '3' });
+    const choice = page.locator('.lesson .choice');
+    await page.locator('.syllabus .choice').waitFor();
+    await choice.waitFor();
+    await choice.getByRole('radio').first().check();
+    await choice.getByRole('checkbox').nth(1).check();
+    await choice.getByRole('textbox', { name: 'Other' }).nth(1).fill('and the restart');
+    await choice.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: join(OUT, `${scheme}-choice.png`) });
+    await choice.getByRole('button', { name: 'Send' }).click();
+    await page.locator('.lesson .choice[data-answered="true"]').waitFor();
+    await page.screenshot({ path: join(OUT, `${scheme}-choice-answered.png`) });
+
     // A narrow screen: the syllabus hides behind a button, and opens over
-    // the page.
+    // the page. The button says that a choice of the column waits.
     await page.setViewportSize({ width: 420, height: 860 });
     await page.screenshot({ path: join(OUT, `${scheme}-narrow.png`) });
     await page.getByRole('button', { name: 'Syllabus' }).click();

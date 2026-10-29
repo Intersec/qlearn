@@ -15,6 +15,7 @@ expression: at_redacted(page.clone())
       "kind": "text"
     }
   ],
+  "choices": [],
   "id": "1",
   "quizzes": [],
   "threads": [

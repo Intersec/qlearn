@@ -1,0 +1,6 @@
+---
+source: crates/qlearn/src/choice/mod.rs
+description: "{ \"questions\": [] }\n"
+---
+refused
+questions: holds 0 questions, and a choice asks 1 to 4

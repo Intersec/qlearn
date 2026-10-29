@@ -1,0 +1,9 @@
+{
+  "page": "2",
+  "questions": [
+    { "header": "Next step", "prompt": "What next?", "multi": 1,
+      "options": [ { "label": "Part 2" } ] },
+    { "header": "", "prompt": "And then?",
+      "options": [ { "label": "A break" }, { "label": "A break" } ] }
+  ]
+}

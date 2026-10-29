@@ -1,0 +1,27 @@
+---
+source: crates/qlearn/src/choice/mod.rs
+description: "{\n  \"page\": \"c1\",\n  \"questions\": [\n    {\n      \"header\": \"Next step\",\n      \"prompt\": \"Part 1 is done. What next?\",\n      \"options\": [\n        { \"label\": \"Part 2\", \"description\": \"The code tour of the election\" },\n        { \"label\": \"A break\", \"description\": \"The course waits here\" }\n      ],\n      \"multi\": false\n    }\n  ]\n}\n"
+---
+the page gets:
+{
+  "id": "choice-1",
+  "page": "c1",
+  "questions": [
+    {
+      "header": "Next step",
+      "prompt": "Part 1 is done. What next?",
+      "options": [
+        {
+          "label": "Part 2",
+          "description": "The code tour of the election"
+        },
+        {
+          "label": "A break",
+          "description": "The course waits here"
+        }
+      ],
+      "multi": false
+    }
+  ],
+  "answers": null
+}

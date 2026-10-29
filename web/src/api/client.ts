@@ -1,7 +1,17 @@
 // Every call to the server. The token travels as a cookie that the first
 // page load left behind, so nothing here carries it.
 
-import type { ErrorBody, Event, EventBatch, Page, Pick, Session, Thread } from './types';
+import type {
+  ChosenAnswer,
+  Choosing,
+  ErrorBody,
+  Event,
+  EventBatch,
+  Page,
+  Pick,
+  Session,
+  Thread,
+} from './types';
 
 export class ApiError extends Error {
   constructor(
@@ -94,6 +104,17 @@ export const api = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ body }),
+    }),
+
+  /**
+   * Answer a choice of the agent, one answer per question. The agent gets
+   * the answer. Answers the choice.
+   */
+  choose: (id: string, answers: ChosenAnswer[]) =>
+    call<Choosing>(`/api/choices/${encodeURIComponent(id)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ answers }),
     }),
 
   /**

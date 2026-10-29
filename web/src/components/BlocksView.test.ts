@@ -28,6 +28,7 @@ function pageWith(threads: Thread[] = []): Page {
     ],
     quizzes: [],
     threads,
+    choices: [],
   };
 }
 

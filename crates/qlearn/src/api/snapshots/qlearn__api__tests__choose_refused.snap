@@ -1,0 +1,10 @@
+---
+source: crates/qlearn/src/api/mod.rs
+expression: body
+---
+{
+  "error": {
+    "code": "invalidChoice",
+    "message": "unknown field \"multi\". A choice takes page and questions\npage: page 2 has no content yet, so the learner cannot open it. Push it first with `qlearn page 2`, or leave page out\nquestions[0].header: empty\nquestions[0].options: holds 1 option, and a question takes 2 to 4"
+  }
+}
