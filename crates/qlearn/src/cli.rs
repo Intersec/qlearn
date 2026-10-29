@@ -266,51 +266,179 @@ mod tests {
         assert!(!store.dir().exists(), "a refused slug creates nothing");
     }
 
-    /// The subcommands that the procedure names in its code: inline code
-    /// that opens with `qlearn `, and the lines of a code block.
-    fn named_commands(text: &str) -> Vec<String> {
-        let mut found = Vec::new();
-        let mut in_block = false;
+    /// The calls of `qlearn` that the procedure names in its code, each
+    /// with its text up to the end of its inline code or of its line.
+    fn named_calls(text: &str) -> Vec<String> {
+        use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
 
-        for line in text.lines() {
-            if line.trim_start().starts_with("```") {
-                in_block = !in_block;
+        // The parser ends a fence at its own length and character, and
+        // joins inline code that wraps across a line.
+        let mut pieces = Vec::new();
+        let mut block: Option<String> = None;
+        for event in Parser::new_ext(text, Options::ENABLE_TABLES) {
+            match event {
+                Event::Start(Tag::CodeBlock(_)) => block = Some(String::new()),
+                Event::End(TagEnd::CodeBlock) => {
+                    let code = block.take().unwrap_or_default();
+                    pieces.extend(code.lines().map(str::to_owned));
+                }
+                Event::Text(text) => {
+                    if let Some(code) = block.as_mut() {
+                        code.push_str(&text);
+                    }
+                }
+                Event::Code(code) => pieces.push(code.into_string()),
+                _ => {}
+            }
+        }
+        pieces.iter().flat_map(|piece| calls_in(piece)).collect()
+    }
+
+    /// The words of the shell after which a command starts.
+    const PREFIXES: [&str; 13] = [
+        "if", "then", "else", "elif", "do", "while", "until", "nohup", "exec", "time", "env",
+        "command", "sudo",
+    ];
+
+    fn calls_in(piece: &str) -> Vec<String> {
+        let word_char = |c: char| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.' | '/');
+        let mut found = Vec::new();
+        for (at, name) in piece.match_indices("qlearn") {
+            let rest = &piece[at + name.len()..];
+            if piece[..at].ends_with(word_char) || !rest.is_empty() && !rest.starts_with(' ') {
                 continue;
             }
-            let calls: Vec<&str> = match in_block {
-                // A block in a list item is indented.
-                true => line
-                    .trim_start()
-                    .strip_prefix("qlearn ")
-                    .into_iter()
-                    .collect(),
-                false => line.split("`qlearn ").skip(1).collect(),
-            };
-            for call in calls {
-                let word: String = call
-                    .chars()
-                    .take_while(|c| c.is_ascii_lowercase() || *c == '-')
-                    .collect();
-                // An option or a placeholder such as `<slug>` is no command.
-                if !word.is_empty() && !word.starts_with('-') {
-                    found.push(word);
-                }
+            // A call starts a command of the shell. Elsewhere, such as in
+            // "no qlearn server runs", the word is text.
+            let before = piece[..at].trim_end();
+            let last = before.rsplit(' ').next().unwrap_or("");
+            let assignment = last.split_once('=').is_some_and(|(name, _)| {
+                name.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_')
+                    && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+            });
+            if before.is_empty()
+                || before.ends_with(['(', '|', ';', '&', '{', '`', '!'])
+                || PREFIXES.contains(&last)
+                || assignment
+            {
+                found.push(rest.trim_start().to_owned());
             }
         }
         found
     }
 
+    /// The subcommand that a call names: its first word, unless it is an
+    /// option or a placeholder such as `<slug>`.
+    fn subcommand(call: &str) -> Option<String> {
+        let word: String = call
+            .chars()
+            .take_while(|c| c.is_ascii_lowercase() || *c == '-')
+            .collect();
+        (!word.is_empty() && !word.starts_with('-')).then_some(word)
+    }
+
+    fn named_commands(text: &str) -> Vec<String> {
+        named_calls(text)
+            .iter()
+            .filter_map(|call| subcommand(call))
+            .collect()
+    }
+
+    /// Why this release refuses a call that the procedure names, if it does.
+    fn refusal(cli: &clap::Command, call: &str) -> Option<String> {
+        let word = subcommand(call)?;
+        let Some(command) = cli.find_subcommand(&word) else {
+            return Some(format!(
+                "the procedure names `qlearn {word}`, which this release does not have"
+            ));
+        };
+        // A word after a command that takes none names a subcommand that
+        // this release lacks, such as `qlearn export cheatsheet`.
+        let next = call[word.len()..].split_whitespace().next().unwrap_or("");
+        let takes_a_word = command.get_positionals().next().is_some() || command.has_subcommands();
+        (!takes_a_word && next.starts_with(|c: char| c.is_ascii_lowercase())).then(|| {
+            format!(
+                "the procedure names `qlearn {word} {next}`, and this release has no \
+                 `{next}` for `{word}`"
+            )
+        })
+    }
+
     #[test]
     fn the_procedure_names_only_commands_of_this_release() {
         let cli = Cli::command();
-        let named = named_commands(qlearn::agent::SKILL);
+        let calls = named_calls(qlearn::agent::SKILL);
 
+        let named = named_commands(qlearn::agent::SKILL);
         assert!(named.contains(&"wait".to_owned()), "{named:?}");
-        for word in named {
-            assert!(
-                cli.find_subcommand(&word).is_some(),
-                "the procedure names `qlearn {word}`, which this release does not have"
-            );
+        let refused: Vec<String> = calls.iter().filter_map(|c| refusal(&cli, c)).collect();
+        assert!(refused.is_empty(), "{refused:#?}");
+    }
+
+    /// The table row guards the cells of a table, which the check has
+    /// always read.
+    #[test]
+    fn a_call_after_a_pipe_is_checked_too() {
+        let text = "```sh\nx=$(qlearn bogus)\nqlearn points | qlearn other --x\n```\n\
+                    Run `x | qlearn inline`.\n\n\
+                    | Habit | Command |\n|---|---|\n| A dialog | `qlearn odd` |\n";
+
+        assert_eq!(
+            named_commands(text),
+            ["bogus", "points", "other", "inline", "odd"]
+        );
+    }
+
+    #[test]
+    fn a_call_after_a_shell_prefix_is_checked_too() {
+        let text = "```sh\nnohup qlearn one &\nif qlearn two; then\n  x=`qlearn three`\nfi\n\
+                    env A=1 qlearn four\n{ qlearn five; }\n! qlearn six\n```\n";
+
+        assert_eq!(
+            named_commands(text),
+            ["one", "two", "three", "four", "five", "six"]
+        );
+    }
+
+    #[test]
+    fn inline_code_that_wraps_is_one_call() {
+        let cli = Cli::command();
+        let text = "Then run `qlearn export\ncheatsheet` to get it,\nor `qlearn\nbogus`.\n";
+
+        assert_eq!(named_calls(text), ["export cheatsheet", "bogus"]);
+        assert!(refusal(&cli, &named_calls(text)[0]).is_some());
+    }
+
+    #[test]
+    fn a_fence_ends_only_at_its_own_length_and_character() {
+        let text = "````sh\nqlearn debrief 3 1 --file - <<'EOF'\n```sh\nqlearn six\n```\n\
+                    EOF\n````\n\n~~~sh\nqlearn seven\n~~~\n";
+
+        assert_eq!(named_commands(text), ["debrief", "six", "seven"]);
+    }
+
+    #[test]
+    fn a_message_that_names_qlearn_is_no_call() {
+        let text = "The error `no qlearn server runs on this worktree`.\n\
+                    ```\nError: no qlearn server runs\n```\n";
+
+        assert!(named_calls(text).is_empty(), "{:?}", named_calls(text));
+    }
+
+    #[test]
+    fn a_word_after_a_command_that_takes_none_is_refused() {
+        let cli = Cli::command();
+
+        assert!(refusal(&cli, "export cheatsheet").is_some());
+        assert!(refusal(&cli, "points list").is_some());
+        assert!(refusal(&cli, "bogus").is_some());
+        for call in [
+            "export --json",
+            "points",
+            "page 3 --file -",
+            "delete <slug> --yes",
+        ] {
+            assert_eq!(refusal(&cli, call), None, "{call}");
         }
     }
 
