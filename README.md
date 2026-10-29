@@ -5,9 +5,6 @@ terminal.
 
 One binary, no runtime to install, nothing leaves your machine.
 
-> **Status.** Nothing is coded yet. This README says what qlearn will do.
-> The design is in [`roadmap/`](./roadmap/README.md).
-
 ## Why
 
 An agent such as Claude Code can teach a subject of a code base as a
@@ -16,8 +13,8 @@ lesson is plain text, a quiz scrolls away with the conversation, and the
 learner never sees the syllabus or the score. Nothing proves that an excerpt
 in a lesson is the code of the repository.
 
-qlearn will start a small web server on the loopback address, on one course,
-and open the browser. The agent will teach the course through commands of
+qlearn starts a small web server on the loopback address, on one course,
+and opens the browser. The agent teaches the course through commands of
 the binary.
 
 ## Use
@@ -39,28 +36,34 @@ qlearn export cheatsheet        # the cheatsheet, as Markdown for a wiki
 | `-v` | Print the course before the URL |
 | `--trace` | Print on standard error what the work costs |
 
-What the browser will show:
+What the browser shows:
 
 - The syllabus on the left, in parts and lessons, with the state and the
   score of each lesson.
-- The lesson: text, tables, diagrams, charts, step-by-step views, and
-  excerpts of the code with their colors. The server reads each excerpt in
-  the repository, submodules included. It refuses a page whose excerpt does
-  not match the code.
+- The lesson: text, tables, diagrams, charts, step-by-step views, images
+  of the repository, and excerpts of the code with their colors. The
+  server reads each excerpt and each image in the repository, submodules
+  included. It refuses a page whose excerpt does not match the code.
 - The quiz under the lesson: the open question first, then the
   multiple-choice questions, then the debrief of the agent. They stay on the
   page.
 - An **Ask** button on each block of a lesson, and one at the end of the
   page for a question about the whole page. Your question opens a thread,
   and the agent answers in it.
-- The points of the course, with the result of each one, so you see what to
-  revisit.
+- The choices that the agent asks you to make, such as the next step, at
+  the end of a page or at the top of the syllabus.
+- A line in the top bar that says what the agent does now.
+- The grade of each point of an open question, under the debrief of its
+  quiz.
+- The findings of the course, under the syllabus: what the agent found in
+  the code that looks wrong or undocumented, for you to check with the
+  team.
 - At the end, a cheatsheet of one page. The agent writes it, and qlearn adds
-  the map of the code and the points that you missed. Save it as HTML, as a
-  PDF, or as Markdown.
+  the map of the code and the points that you missed. Save it as one HTML
+  file, as a PDF from the print dialog, or as Markdown for a wiki.
 
-The course will live in `.learn/<slug>/` at the top level of the
-repository. If git does not ignore `.learn/`, qlearn adds it to
+The course lives in `.learn/<slug>/` at the top level of the repository.
+If git does not ignore `.learn/`, qlearn adds it to
 `.git/info/exclude`. A course stays there until `qlearn delete` removes it.
 Deleting the course deletes its cheatsheet, so export the cheatsheet
 first. `qlearn delete` names what it removes and asks before it removes
@@ -95,7 +98,7 @@ mkdir -p ~/.claude/skills
 cp -r skills/qlearn ~/.claude/skills/
 ```
 
-The skill will hold no procedure of its own. It will run `qlearn skill`,
+The skill holds no procedure of its own. It runs `qlearn skill`,
 which prints the procedure of the binary on your PATH: how to teach the
 course, and how to drive the page. So the skill and the binary are always
 the same release. A new release of qlearn needs no new copy of the skill.
@@ -107,20 +110,35 @@ An organization can wrap qlearn in a skill of its own. That skill adds its
 sources, such as tickets, a review server or internal docs, and its rules.
 Then it follows `qlearn skill`.
 
-The agent will write through these commands. Each one finds the server of
+The agent writes through these commands. Each one finds the server of
 the worktree on its own:
 
 ```sh
+# change the course: its title, its goal, your profile, the quiz mode...
+qlearn course --goal "..." --profile "..." --quiz-mode mixed
 qlearn syllabus --file syllabus.json  # the parts and the pages
 qlearn page 3 --file lesson.md        # a lesson, checked before it is stored
 qlearn quiz 3 --file quiz.json        # a quiz under the lesson
+# the debrief of quiz 1 of page 3, with the grade of each point
 qlearn debrief 3 1 --file debrief.md --point split-vote=ok
 qlearn reply <thread> --body "..."    # answer your question in a thread
-qlearn comment 3 --body "..."         # say something outside a lesson
+qlearn comment 3 --body "..."         # open a thread about page 3
 qlearn choose --file choice.json      # ask you to choose the next step
+# something in the code that looks wrong, for you to check with the team
+qlearn finding seed-race --title "..." --body "..."
+qlearn status "Writing lesson 4"      # a line in the top bar of the page
+qlearn points                         # the points, the missed ones first
+# the cheatsheet of the course, checked before it is stored
 qlearn cheatsheet --file cheatsheet.md
 qlearn wait                           # block until you act, print it as JSON
+qlearn wait --after 7 --server <id>   # the next request after the last wait
+qlearn export --json                  # the whole course, to resume it
 ```
+
+A `--file` or a `--body` of `-` reads standard input. A command that
+writes prints its result as JSON: what it wrote, or the id of a new quiz
+or a new choice. If the server refuses a command, the command prints the
+errors on standard error and exits with 1.
 
 If Claude Code runs commands in a sandbox, start `qlearn` yourself, in your
 own terminal. The agent commands reach your server through its Unix socket
@@ -137,7 +155,10 @@ Rust and Node. Node builds the interface. It is not needed to run the tool.
 make setup         # the interface dependencies, once
 make build         # the interface, then the binary
 make check         # the gate: lint, format, tests, build
+make test          # the Rust and Vitest tests alone
 make e2e           # the browser tests alone
+make fmt           # correct the format of everything
+make dev           # the server and Vite together, with hot reload
 make shots         # screenshots of both themes, into web/e2e/.shots
 make install       # into ~/.local/bin
 make dist          # one static x86_64-unknown-linux-musl binary

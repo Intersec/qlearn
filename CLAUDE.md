@@ -5,7 +5,9 @@ builds the course and teaches it through commands of the binary. Rust for
 the binary, Vue 3 for the interface, embedded in that binary. It ships as
 one file and needs no runtime.
 
-Nothing is coded yet. [README.md](./README.md) says what the tool will be.
+The code follows the steps of section 14 of
+[`roadmap/design.md`](./roadmap/design.md), and [README.md](./README.md)
+says how to use the tool.
 [`roadmap/`](./roadmap/README.md) holds the design. This file holds what a
 session must do.
 
@@ -121,6 +123,31 @@ Two rules that no tool enforces:
 
 This section fills as the code grows. Add a line when a pattern becomes the
 way the project does a thing. Keep each line short.
+
+- **A refusal of the server lists every fault at once.** A page and a
+  cheatsheet give each with its line (`lesson::Fault`), a quiz and a
+  choice with its place in the JSON. Each refusal of a page, a quiz or a
+  choice gets a `refused-*` case in `crates/qlearn/tests/data/`.
+- **A file of the store goes through `write_atomic`.** A write of several
+  files returns an `Undo`. A route that fails after it calls
+  `undo.after(error)`, so a refused push leaves the store as it was.
+- **Each route that answers JSON gets an `insta` snapshot** in
+  `api/snapshots/`. It pins the shape that `web/src/api/types.ts` copies
+  by hand.
+- **Ids.** A block id is 12 hex characters of a SHA-256 of its kind and
+  its source (`lesson::block_id`), so an unchanged block keeps its threads.
+  A thread is `<page>-<n>`, a choice `choice-<n>`, and neither is removed.
+- **The model takes the time as `now`.** Only a route or `main.rs` reads
+  the clock, so a test passes a fixed date.
+- **A command of the agent is a thin client.** It sends its request
+  through `agent/client.rs` and prints the JSON. The checks live on the
+  server.
+- **Every `v-html` shows a string cleaned by DOMPurify**: `clean()` in
+  `web/src/html.ts`, or `diagram.ts` for Mermaid. Its ESLint comment says
+  where.
+- **The e2e agent is `web/e2e/agent.ts`.** It runs the real commands of the
+  release binary. A browser test drives the course through it, never by a
+  write to `.learn/`.
 
 ## Git workflow
 
