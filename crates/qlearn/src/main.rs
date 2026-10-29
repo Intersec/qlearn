@@ -55,7 +55,7 @@ async fn main() -> Result<()> {
     if let Some(code) = agent_command(&cli, &Home::of(git.root())).await? {
         std::process::exit(code);
     }
-    let store = Store::at(git.root());
+    let store = Store::at(git.root()).refusing(cli::command_names());
 
     if let Some(cli::Command::List) = cli.command {
         print!("{}", store.listing()?);
@@ -227,9 +227,13 @@ async fn agent_command(cli: &cli::Cli, home: &Home) -> Result<Option<i32>> {
             let client = agent::connect(home).await?;
             print(&agent::status(&client, text).await?);
         }
-        Some(cli::Command::Wait { after, timeout }) => {
+        Some(cli::Command::Wait {
+            after,
+            server,
+            timeout,
+        }) => {
             let timeout = Duration::from_secs(*timeout);
-            let (events, any) = agent::wait(home, *after, timeout).await?;
+            let (events, any) = agent::wait(home, *after, server.as_deref(), timeout).await?;
             print(&events);
             return Ok(Some(if any { 0 } else { 1 }));
         }

@@ -53,6 +53,7 @@ function batch(fields: Partial<EventBatch> = {}): EventBatch {
     preparing: false,
     left: false,
     status: null,
+    server: 'first',
     ...fields,
   };
 }
@@ -107,6 +108,7 @@ class FakeServer {
         version: '0.1.0 (test)',
         choices: this.choices,
         choicesError: this.choicesError,
+        server: 'first',
       };
     });
     vi.spyOn(api, 'page').mockImplementation(async (id) => {
@@ -326,6 +328,20 @@ describe('the events', () => {
     expect(server.reads.session).toBe(sessions + 1);
     expect(firstHtml(store.page)).toBe('<p>written again</p>');
     // A new start: the wait after a reset takes the number again.
+    expect(server.waits).toEqual([undefined, 10, undefined, 10]);
+  });
+
+  it('reads everything again when another server answers', async () => {
+    server.push('1', 1);
+    const store = await started();
+    server.pages.set('1', pageOf('1', '<p>on the new server</p>'));
+    const sessions = server.reads.session;
+
+    // The new server counted past the number of the old one: no reset.
+    server.send(batch({ next: 12, server: 'second', events: [idle(11)] }));
+
+    await vi.waitFor(() => expect(firstHtml(store.page)).toBe('<p>on the new server</p>'));
+    expect(server.reads.session).toBe(sessions + 1);
     expect(server.waits).toEqual([undefined, 10, undefined, 10]);
   });
 
@@ -804,6 +820,26 @@ describe('an answer of the learner', () => {
 
     expect(store.page?.quizzes[0].choices[0].graded?.ok).toBe(true);
     expect(store.error).toBeNull();
+  });
+
+  it('in part from another tab reads the page again, and moves to its step', async () => {
+    server.push('1', 1);
+    server.pages.get('1')!.quizzes = [
+      {
+        open: { prompt: 'Why?', sent: null },
+        choices: [{ header: 'Vote', prompt: 'Who?', options: ['S1', 'S2'], graded: null }],
+        debrief: null,
+      },
+    ];
+    const store = await started();
+    const sessions = server.reads.session;
+    server.pages.get('1')!.quizzes[0].open!.sent = 'From the other tab.';
+
+    const event: Event = { seq: 11, kind: 'answered', author: 'learner', page: '1', id: '1' };
+    server.send(batch({ next: 11, events: [event] }));
+
+    await vi.waitFor(() => expect(store.page?.quizzes[0].open?.sent).toBe('From the other tab.'));
+    expect(server.reads.session).toBe(sessions);
   });
 
   it('sent from another tab reads the page and the course again', async () => {

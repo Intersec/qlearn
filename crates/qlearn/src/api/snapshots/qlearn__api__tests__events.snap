@@ -1,6 +1,6 @@
 ---
 source: crates/qlearn/src/api/mod.rs
-expression: body
+expression: "server_redacted(&state, body)"
 ---
 {
   "agent": false,
@@ -17,6 +17,7 @@ expression: body
   "next": 2,
   "preparing": false,
   "reset": false,
+  "server": "[server]",
   "status": null,
   "working": false
 }

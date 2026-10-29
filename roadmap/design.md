@@ -22,10 +22,15 @@ the agent can go on and the learner can open the page again.
 
 **One server per worktree, one course per server.** `qlearn <slug>` opens
 the course `.learn/<slug>/`, and creates it when it does not exist. Without
-a slug, `qlearn` opens the only course of `.learn/`. If `.learn/` holds
-several courses, it lists them and stops. If a server already answers on
-the worktree, `qlearn` prints its course and its URL, and stops. To open
-another course, the learner stops that server first.
+a slug, `qlearn` opens the only course of `.learn/`. A new course whose
+slug is the name of a command of the binary, such as `list` or `wait`, is
+refused: `qlearn list` runs the command, so that course could never open.
+The binary reads the names from its parser of the arguments, so a new
+command is refused too. A course made before its slug became a command
+still opens with `qlearn -- <slug>`. If `.learn/` holds several courses, it
+lists them and stops. If a server already answers on the worktree, `qlearn`
+prints its course and its URL, and stops. To open another course, the
+learner stops that server first.
 
 **The token and the socket.** The server binds the
 loopback address only. It makes a random token at startup. The first page
@@ -277,10 +282,12 @@ the repository of the submodule, at the commit that the tree names. If that
 commit is not in the submodule, the server refuses the page and names the
 submodule to update.
 
-**A hidden line.** The page shows the line as a blank of the same width.
-The server sends its text only after the learner answers every quiz of the
-page. A page with no quiz keeps the line hidden, because the agent pushes
-the quiz after the page. The developer tools of the browser then cannot give the answer away.
+**A hidden line.** The page shows the line as a blank that spans the
+width of the excerpt. The page never gets the length of the line, so the
+blank gives none of it away. The server sends its text only after the
+learner answers every quiz of the page. A page with no quiz keeps the line
+hidden, because the agent pushes the quiz after the page. The developer
+tools of the browser then cannot give the answer away.
 
 ```ts
 type Excerpt = {
@@ -558,7 +565,7 @@ writer, and grants no permission.
 
 | Method and route | Who | What it does |
 |---|---|---|
-| `GET /api/session` | page | The course, the syllabus, the current page, the tool version |
+| `GET /api/session` | page | The course, the syllabus, the current page, the tool version, the id of the server |
 | `GET /api/pages/:id` | page | The blocks, the quizzes without their answers until answered, the threads |
 | `POST /api/pages/:id/next` | page | Ask the agent for the next page. Answers the request |
 | `POST /api/pages/:id/quizzes/:n/open` | page | Send the open answer. Body: `{ text }`. Answers the page |
@@ -603,11 +610,19 @@ it numbers its writes, keeps the last few hundred in memory, and holds a
 request on `/api/events` until a write comes, for 30 seconds at most. An
 `after` that the server no longer holds answers `"reset": true`.
 
+**The id of the server.** The server draws a random id at each start. Each
+answer of `/api/events` carries it as `server`, and so does
+`GET /api/session`. A new server numbers its events from 1 again, so an
+`after` of the old server can name events of the new one. A party that
+gets an id other than the one it had takes it as `"reset": true`, and reads
+the state again.
+
 ```ts
 type Event = {
   seq: number;
   kind: 'course' | 'syllabus' | 'page' | 'quiz' | 'debrief' | 'status'
       | 'thread' | 'reply' | 'choose' | 'finding' | 'cheatsheet' | 'idle'
+      | 'answered'
       // the requests of the learner:
       | 'next' | 'answer' | 'ask' | 'chosen' | 'broken';
   author: 'learner' | 'agent';
@@ -615,6 +630,12 @@ type Event = {
   id: string | null;        // the quiz, the thread, or the choice
 };
 ```
+
+**A part of a quiz.** Each time that the learner sends the open answer or
+the choices of a quiz, the server writes an `answered` event, with the page
+and the number of the quiz in `id`. The other tabs of the page read the
+page again. `answered` is not a request. When the part is the last one, an
+`answer` request follows it.
 
 **A request** is an event of the learner that needs the agent: `next`,
 `answer`, `ask`, `chosen`, `broken`. `qlearn wait` returns on a request
@@ -751,17 +772,21 @@ qlearn finding <id> --title <text> --body <text> [--checked]
 qlearn status <text>
 qlearn points
 qlearn cheatsheet --file <path>
-qlearn wait [--after <n>] [--timeout <s>]
+qlearn wait [--after <n>] [--server <id>] [--timeout <s>]
 ```
 
 A `--file` or a `--body` of `-` is read from standard input. Every command
 prints what it wrote as JSON, its id included. A command that the server
 refuses exits with 1 and prints the errors on standard error.
 
-`wait` prints `{ "events": [...], "next": <n> }`,
-returns on a request only, exits with 1 when the time runs out (600 seconds
-by default), and stays attached across a restart of the server, with
-`"reset": true`.
+`wait` prints
+`{ "events": [...], "next": <n>, "server": <id> }`, returns on a request
+only, exits with 1 when the time runs out (600 seconds by default), and
+stays attached across a restart of the server, with `"reset": true`. The
+agent passes `next` and `server` to the next `wait`. If the server that
+answers has another id than `--server`, the `wait` answers
+`"reset": true` at once, with `next` at 0. So an `after` of the old server
+never skips a request of the new one.
 
 None of these commands starts a server. Each one says to run `qlearn` when
 no server answers.

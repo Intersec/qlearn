@@ -386,6 +386,10 @@ pub struct Session {
     /// nowhere, and only the routes of the choices refuse.
     #[serde(default)]
     pub choices_error: Option<String>,
+    /// The id of this server, as its events carry it.
+    // A server of an earlier release sends none.
+    #[serde(default)]
+    pub server: String,
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -948,6 +952,9 @@ pub enum EventKind {
     /// The agent waits again after it wrote: its work is over, and a page
     /// that held its reloads catches up once.
     Idle,
+    /// The learner sent a part of a quiz. The other tabs of the page read
+    /// it again. Only the last part makes an `answer` request.
+    Answered,
     Next,
     Answer,
     Ask,
@@ -1097,6 +1104,12 @@ pub struct Batch {
     pub left: bool,
     /// What the agent says it does, until its next wait.
     pub status: Option<String>,
+    /// The id of this server, drawn at its start. A new server numbers its
+    /// events from 1 again, so a party that sees another id reads
+    /// everything again, whatever `next` says.
+    // A server of an earlier release sends none, as in its session.
+    #[serde(default)]
+    pub server: String,
 }
 
 /// A time as the store writes it: RFC 3339.
@@ -1113,6 +1126,25 @@ mod tests {
 
     fn at_new_year() -> OffsetDateTime {
         OffsetDateTime::from_unix_timestamp(1_767_225_600).unwrap()
+    }
+
+    /// A server of an earlier release sends no id. The batch still reads,
+    /// with the empty id that its session gave, so a wait goes on.
+    #[test]
+    fn a_batch_without_a_server_id_reads_with_an_empty_one() {
+        let batch: Batch = serde_json::from_value(json!({
+            "events": [],
+            "next": 3,
+            "reset": false,
+            "agent": false,
+            "working": false,
+            "preparing": false,
+            "left": false,
+            "status": null,
+        }))
+        .unwrap();
+
+        assert_eq!(batch.server, "");
     }
 
     #[test]

@@ -120,9 +120,10 @@ the end of the last part. To put it in its place, write the syllabus again.
 
 Repeat until the learner says that the course is over:
 
-1. Run `qlearn wait --after <next>` in the background. Use the `next`
-   number of the last `wait`. The first time, use `--after 0`, so that a
-   **Next** that the learner presses before your first `wait` is not lost.
+1. Run `qlearn wait --after <next> --server <server>` in the background.
+   Use the `next` number and the `server` id of the last `wait`. The first
+   time, use `--after 0` alone, so that a **Next** that the learner presses
+   before your first `wait` is not lost.
 2. When it returns, read the JSON:
    - `events`: the requests of the learner. A request of kind `next` says
      that the learner pressed **Next**. Its `detail.left` names the page
@@ -134,8 +135,11 @@ Repeat until the learner says that the course is over:
      learner answered a choice (see "Choices").
    - `next`: pass it to the next `wait`, so that no request is lost
      between two waits.
+   - `server`: the id of the server. Pass it to the next `wait` with
+     `--server`. A new server counts its requests from 1 again, and the id
+     tells the `wait` that your `next` belongs to the old one.
    - `"reset": true`: the server restarted. Wait again with the new
-     `next`.
+     `next` and the new `server`.
    - Exit code 1 and no event: the time ran out. Wait again.
    - The error `no qlearn server runs on this worktree`: the server
      stopped and did not come back before the time ran out. Tell the

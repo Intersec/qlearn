@@ -1,6 +1,6 @@
 ---
 source: crates/qlearn/src/api/mod.rs
-expression: body
+expression: "server_redacted(&state, body)"
 ---
 {
   "choices": [],
@@ -33,5 +33,6 @@ expression: body
     "version": 1
   },
   "current": null,
+  "server": "[server]",
   "version": "[version]"
 }

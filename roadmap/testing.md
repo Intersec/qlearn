@@ -71,7 +71,7 @@ word that you can grep for.
 | Delete | `qlearn delete` refuses a course that a server serves, and removes nothing |
 | Directory without `course.json` | A directory of `.learn/` without `course.json` is refused, and the error says to start a new course with a new slug |
 | Working tree | The server writes under `.learn/` only, and adds `.learn/` to `.git/info/exclude` when git does not ignore it |
-| Events | `wait` returns on a request only. An `after` that the server no longer holds answers `"reset": true` |
+| Events | `wait` returns on a request only. An `after` that the server no longer holds answers `"reset": true`, and so does a `--server` that names another server |
 | Token and socket | A request without the token gets 401, on the port and on the socket. A socket directory that another user owns, or that others can enter, is refused |
 | Cheatsheet | Map of the code merges excerpts that overlap. To revisit holds every point whose last result is `missed` or `partial`, and no other |
 | Highlighting | The spans of a line cover its text exactly. An unknown extension falls back to plain text and does not fail |

@@ -26,6 +26,9 @@ const DIR: &str = ".learn";
 
 pub struct Store {
     dir: PathBuf,
+    /// The names that `qlearn <name>` runs as a command, so a course of
+    /// that name could never open.
+    commands: Vec<String>,
 }
 
 impl Store {
@@ -33,7 +36,16 @@ impl Store {
     pub fn at(root: &Path) -> Self {
         Self {
             dir: root.join(DIR),
+            commands: Vec::new(),
         }
+    }
+
+    /// Refuse a slug that is one of `names`: the commands of the binary.
+    /// The binary gives them, so a new command is refused with no change
+    /// here.
+    pub fn refusing(mut self, names: impl IntoIterator<Item = String>) -> Self {
+        self.commands = names.into_iter().collect();
+        self
     }
 
     /// `.learn/` itself.
@@ -54,7 +66,7 @@ impl Store {
     pub fn open(&self, slug: Option<&str>, now: OffsetDateTime) -> Result<Course> {
         let slug = match slug {
             Some(slug) => {
-                check_slug(slug)?;
+                self.check_slug(slug)?;
                 slug.to_owned()
             }
             None => self.only_slug()?,
@@ -63,6 +75,9 @@ impl Store {
         if let Some(course) = self.load(&slug)? {
             return Ok(course);
         }
+        // Only a new course: one made before its slug became a command
+        // still opens with `qlearn -- <slug>`.
+        self.check_command(&slug)?;
         let course = Course::new(&slug, now);
         self.save(&course)?;
 
@@ -754,11 +769,23 @@ fn is_slug(slug: &str) -> bool {
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
 }
 
-fn check_slug(slug: &str) -> Result<()> {
-    if !is_slug(slug) {
-        bail!("`{slug}` is not a slug. Use lowercase letters, digits and hyphens");
+impl Store {
+    fn check_slug(&self, slug: &str) -> Result<()> {
+        if !is_slug(slug) {
+            bail!("`{slug}` is not a slug. Use lowercase letters, digits and hyphens");
+        }
+        Ok(())
     }
-    Ok(())
+
+    fn check_command(&self, slug: &str) -> Result<()> {
+        if self.commands.iter().any(|name| name == slug) {
+            bail!(
+                "`{slug}` is a command of qlearn: `qlearn {slug}` runs it, so this course \
+                 could never open. Pick another slug"
+            );
+        }
+        Ok(())
+    }
 }
 
 /// Make git ignore `.learn/`, so a course is never committed by accident.
@@ -1030,6 +1057,45 @@ mod tests {
         }
         store.open(Some("raft-2"), at_new_year()).unwrap();
         assert_eq!(files(repo.path()), [".learn/raft-2/course.json", "a.txt"]);
+    }
+
+    #[tokio::test]
+    async fn a_slug_that_names_a_command_is_refused_and_stores_nothing() {
+        let repo = repo().await;
+        let store = Store::at(repo.path()).refusing(["list".to_owned(), "wait".to_owned()]);
+
+        for slug in ["list", "wait"] {
+            let error = store.open(Some(slug), at_new_year()).unwrap_err();
+            assert_eq!(
+                error.to_string(),
+                format!(
+                    "`{slug}` is a command of qlearn: `qlearn {slug}` runs it, so this course \
+                     could never open. Pick another slug"
+                )
+            );
+        }
+        assert_eq!(files(repo.path()), ["a.txt"]);
+        store.open(Some("listing"), at_new_year()).unwrap();
+        assert_eq!(files(repo.path()), [".learn/listing/course.json", "a.txt"]);
+    }
+
+    /// A course made by an earlier release, or before its slug became a
+    /// command, still opens by name: `qlearn -- list` reaches it.
+    #[tokio::test]
+    async fn a_course_whose_slug_became_a_command_still_opens() {
+        let repo = repo().await;
+        Store::at(repo.path())
+            .open(Some("list"), at_new_year())
+            .unwrap();
+        Store::at(repo.path())
+            .open(Some("raft"), at_new_year())
+            .unwrap();
+        let store = Store::at(repo.path()).refusing(["list".to_owned()]);
+
+        assert_eq!(
+            store.open(Some("list"), at_new_year()).unwrap().slug,
+            "list"
+        );
     }
 
     #[tokio::test]

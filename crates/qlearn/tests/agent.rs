@@ -709,6 +709,100 @@ async fn a_reset_hands_over_the_requests_of_the_new_server() {
     assert!(interrupt(server).await.success());
 }
 
+/// A new server numbers its events from 1 again. Once it has counted past
+/// the `next` of the old one, that number names events of the new server,
+/// and a wait after it would skip a request made before them. The id of
+/// the server tells the wait.
+#[tokio::test]
+async fn a_wait_after_a_number_of_the_old_server_hands_over_the_new_requests() {
+    let repo = build_repo();
+    let root = repo.path();
+    let mut server = qlearn(root, &["raft", "--no-open"]).spawn().unwrap();
+    read_url(&mut server).await;
+    std::fs::write(root.join("page.md"), "# Two leaders\n\nOne term.\n").unwrap();
+    for _ in 0..3 {
+        json_of(&run(root, &["page", "1", "--file", "page.md"], None).await);
+    }
+    let out = run(root, &["wait", "--timeout", "1"], None).await;
+    assert_eq!(out.status.code(), Some(1), "{out:?}");
+    let old: Value = serde_json::from_slice(&out.stdout).unwrap();
+    let (after, id) = (old["next"].as_u64().unwrap(), old["server"].clone());
+    assert!(id.as_str().is_some_and(|id| !id.is_empty()), "{old}");
+    assert!(interrupt(server).await.success());
+
+    let mut server = qlearn(root, &["raft", "--no-open"]).spawn().unwrap();
+    read_url(&mut server).await;
+    let asked = page_of(root)
+        .post("/api/pages/1/next", &json!({}))
+        .await
+        .unwrap();
+    while page_of(root).get("/api/events").await.unwrap()["next"].as_u64() < Some(after) {
+        json_of(&run(root, &["page", "1", "--file", "page.md"], None).await);
+    }
+
+    let id = id.as_str().unwrap();
+    let after = after.to_string();
+    let args = ["wait", "--after", &after, "--server", id, "--timeout", "10"];
+    let reset = json_of(&run(root, &args, None).await);
+    assert_eq!(reset["reset"], true, "{reset}");
+    assert_eq!(reset["next"], 0, "{reset}");
+    let new = reset["server"].as_str().unwrap();
+    assert_ne!(new, id);
+
+    let args = ["wait", "--after", "0", "--server", new, "--timeout", "10"];
+    let batch = json_of(&run(root, &args, None).await);
+    assert_eq!(batch["events"][0]["seq"], asked["seq"], "{batch}");
+    assert_eq!(batch["server"], new);
+    assert!(interrupt(server).await.success());
+}
+
+/// A part of a quiz tells the other tabs of the page, and is no request:
+/// the wait of the agent returns on the last part only.
+#[tokio::test]
+async fn a_part_of_a_quiz_does_not_end_the_wait() {
+    let repo = build_repo();
+    let root = repo.path();
+    let mut server = qlearn(root, &["raft", "--no-open"]).spawn().unwrap();
+    read_url(&mut server).await;
+    std::fs::write(root.join("page.md"), "# Two leaders\n\nOne term.\n").unwrap();
+    json_of(&run(root, &["page", "1", "--file", "page.md"], None).await);
+    let quiz = r#"{ "open": { "prompt": "Why?", "points": ["why"] },
+        "choices": [{ "header": "Who", "prompt": "Who wins?",
+        "options": ["The first to time out", "The highest id"], "answer": 0,
+        "point": "who" }],
+        "points": { "why": { "label": "Why" }, "who": { "label": "Who" } } }"#;
+    json_of(&run(root, &["quiz", "1", "--file", "-"], Some(quiz)).await);
+    let page = page_of(root);
+    let after = page.get("/api/events").await.unwrap()["next"].to_string();
+
+    page.post("/api/pages/1/quizzes/1/open", &json!({ "text": "Luck." }))
+        .await
+        .unwrap();
+    let told = page
+        .get(&format!("/api/events?after={after}"))
+        .await
+        .unwrap();
+    assert_eq!(told["events"][0]["kind"], "answered", "{told}");
+    let out = run(root, &["wait", "--after", &after, "--timeout", "2"], None).await;
+    assert_eq!(out.status.code(), Some(1), "no request yet: {out:?}");
+
+    page.post(
+        "/api/pages/1/quizzes/1/choices",
+        &json!({ "choices": [{ "option": 0 }] }),
+    )
+    .await
+    .unwrap();
+    let batch = json_of(&run(root, &["wait", "--after", &after, "--timeout", "10"], None).await);
+    let kinds: Vec<_> = batch["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|event| event["kind"].clone())
+        .collect();
+    assert_eq!(kinds, [json!("answer")], "{batch}");
+    assert!(interrupt(server).await.success());
+}
+
 /// A wait that runs out of time is a wait that the server answered, not
 /// an agent that hung up: the agent starts the next one on its next turn,
 /// which may take more than a few seconds.

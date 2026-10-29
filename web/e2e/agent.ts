@@ -54,6 +54,8 @@ export interface Waited {
   events: Request[];
   next: number;
   reset?: boolean;
+  /** The id of the server, for `--server` of the next wait. */
+  server: string;
 }
 
 /**

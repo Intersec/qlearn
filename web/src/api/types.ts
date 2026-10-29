@@ -76,6 +76,8 @@ export interface Session {
    * show nowhere, and only the routes of the choices refuse.
    */
   choicesError: string | null;
+  /** The id of this server, as its events carry it. */
+  server: string;
 }
 
 /**
@@ -301,6 +303,8 @@ export type EventKind =
   | 'finding'
   | 'cheatsheet'
   | 'idle'
+  // A part of a quiz that the learner sent, for the other tabs:
+  | 'answered'
   // The requests of the learner:
   | 'next'
   | 'answer'
@@ -338,6 +342,11 @@ export interface EventBatch {
   left: boolean;
   /** What the agent says it does, until its next wait. */
   status: string | null;
+  /**
+   * The id of the server, drawn at its start. A new server numbers its
+   * events from 1 again: another id is a reset.
+   */
+  server: string;
 }
 
 /** The body of every error of the API. */

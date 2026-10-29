@@ -1,6 +1,6 @@
 //! The command line.
 
-use clap::{ArgGroup, Parser, Subcommand, ValueEnum};
+use clap::{ArgGroup, CommandFactory, Parser, Subcommand, ValueEnum};
 
 #[derive(Parser, Debug)]
 #[command(name = "qlearn", version = qlearn::version::LONG, about, long_about = None)]
@@ -160,10 +160,27 @@ pub enum Command {
         /// The `next` number of the last wait. Now by default.
         #[arg(long)]
         after: Option<u64>,
+        /// The `server` id of the last wait. The `after` number of another
+        /// server counts other events, so the wait answers `reset` then.
+        #[arg(long, value_name = "ID")]
+        server: Option<String>,
         /// Seconds to wait.
         #[arg(long, default_value_t = 600)]
         timeout: u64,
     },
+}
+
+/// The names that `qlearn <name>` runs as a command, so no course may
+/// take one as its slug. Read from the parser, so the list holds every new
+/// command.
+pub fn command_names() -> Vec<String> {
+    let mut cli = Cli::command();
+    // The build adds `help`, which runs as a command too.
+    cli.build();
+    cli.get_subcommands()
+        .flat_map(|command| std::iter::once(command.get_name()).chain(command.get_all_aliases()))
+        .map(str::to_owned)
+        .collect()
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
@@ -183,7 +200,6 @@ pub enum Status {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use clap::CommandFactory;
 
     #[test]
     fn the_arguments_are_consistent() {
@@ -200,6 +216,31 @@ mod tests {
         assert!(matches!(cli.command, Some(Command::List)));
 
         assert!(Cli::try_parse_from(["qlearn", "raft", "list"]).is_err());
+    }
+
+    #[test]
+    fn every_command_is_a_name_that_no_course_may_take() {
+        let names = command_names();
+        for word in ["list", "skill", "course", "page", "wait", "help"] {
+            assert!(names.iter().any(|name| name == word), "{word}: {names:?}");
+        }
+        for command in Cli::command().get_subcommands() {
+            assert!(names.iter().any(|name| name == command.get_name()));
+        }
+
+        // `qlearn <command>` runs the command. Only `--` gets the name to
+        // the store as a slug, which refuses it.
+        let cli = Cli::try_parse_from(["qlearn", "--", "list"]).unwrap();
+        assert_eq!(cli.slug.as_deref(), Some("list"));
+
+        let dir = tempfile::tempdir().unwrap();
+        let store = qlearn::store::Store::at(dir.path()).refusing(command_names());
+        let now = time::OffsetDateTime::UNIX_EPOCH;
+        for name in &names {
+            let error = store.open(Some(name), now).unwrap_err().to_string();
+            assert!(error.contains("is a command of qlearn"), "{name}: {error}");
+        }
+        assert!(!store.dir().exists(), "a refused slug creates nothing");
     }
 
     /// The subcommands that the procedure names in its code: inline code
@@ -389,9 +430,18 @@ mod tests {
             cli.command,
             Some(Command::Wait {
                 after: None,
+                server: None,
                 timeout: 600
             })
         ));
+
+        let cli =
+            Cli::try_parse_from(["qlearn", "wait", "--after", "7", "--server", "0a1b"]).unwrap();
+        assert!(
+            matches!(cli.command, Some(Command::Wait { after: Some(7), ref server, .. })
+                if server.as_deref() == Some("0a1b")),
+            "{cli:?}"
+        );
     }
 
     #[test]

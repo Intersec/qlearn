@@ -160,9 +160,22 @@ test('the Ask button leaves the commit of an excerpt in reach', async ({ page })
   const commit = anchor.locator('.excerpt-commit');
   await expect(commit).toHaveText(/^[0-9a-f]{7}$/);
 
-  // The pointer in the block shows the button, in the corner of the commit.
+  // With no hover, the button stays in sight in quiet ink, in the corner
+  // of the commit. On hover, it takes the color of the agent.
+  const ask = anchor.getByRole('button', { name: 'Ask' });
+  const colorOf = (token: string) =>
+    page.evaluate((token) => {
+      const probe = document.createElement('span');
+      probe.style.color = `var(${token})`;
+      document.body.append(probe);
+      const color = getComputedStyle(probe).color;
+      probe.remove();
+      return color;
+    }, token);
+  await expect(ask).toHaveCSS('opacity', '1');
+  await expect(ask).toHaveCSS('color', await colorOf('--ink-quiet'));
   await anchor.hover();
-  await expect(anchor.getByRole('button', { name: 'Ask' })).toHaveCSS('opacity', '1');
+  await expect(ask).toHaveCSS('color', await colorOf('--action'));
 
   // The tooltip of the commit holds the full hash: the pointer must reach it.
   const reached = await commit.evaluate((element) => {

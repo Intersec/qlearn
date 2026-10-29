@@ -361,16 +361,26 @@ const POLL: Duration = Duration::from_millis(500);
 
 /// Wait for the next request of the learner.
 ///
-/// Answers with the requests, each with its detail, and the number to pass
-/// as `after` next time. The flag is false when the time ran out with
-/// nothing to report.
+/// Answers with the requests, each with its detail, the number to pass as
+/// `after` next time, and the id of the server to pass as `server`. The
+/// flag is false when the time ran out with nothing to report.
 ///
 /// A server that stops does not end the wait: the learner may start it
 /// again, and the agent then stays attached with no word from it. A new
-/// server numbers its events again, so the wait answers `reset` then.
-pub async fn wait(home: &Home, after: Option<u64>, timeout: Duration) -> Result<(Value, bool)> {
+/// server numbers its events again, so the wait answers `reset` then. Its
+/// id differs, so an `after` of the old server never skips events of the
+/// new one, even when the new one has counted past it.
+pub async fn wait(
+    home: &Home,
+    after: Option<u64>,
+    server: Option<&str>,
+    timeout: Duration,
+) -> Result<(Value, bool)> {
     let deadline = Instant::now() + timeout;
-    let mut client = reach(home, deadline).await?;
+    let (mut client, id) = reach(home, deadline).await?;
+    if server.is_some_and(|server| server != id) {
+        return Ok(reset(&id));
+    }
     // With no `--after`, the wait starts now. The procedure passes
     // `--after 0` to the first wait of a course, so a request made
     // before it is not lost.
@@ -382,22 +392,27 @@ pub async fn wait(home: &Home, after: Option<u64>, timeout: Duration) -> Result<
     loop {
         let answer = match ask(&client, after, deadline).await {
             Ok(Some(answer)) => answer,
-            Ok(None) => return Ok((json!({ "events": [], "next": after }), false)),
+            Ok(None) => return Ok((json!({ "events": [], "next": after, "server": id }), false)),
             Err(_) => {
-                let back = reach(home, deadline).await?;
-                if back.address() != client.address() {
-                    return Ok((json!({ "events": [], "next": 0, "reset": true }), true));
+                let (back, back_id) = reach(home, deadline).await?;
+                if back_id != id {
+                    return Ok(reset(&back_id));
                 }
                 client = back;
                 continue;
             }
         };
         let batch: Batch = serde_json::from_value(answer).context("the server sent no events")?;
+        // The server stopped and a new one took its address since `reach`.
+        if batch.server != id {
+            return Ok(reset(&batch.server));
+        }
         if batch.reset {
             // Ahead of the server: a new one, whose requests no wait has
             // handed over yet. Behind it: those requests are gone.
             let next = if after > batch.next { 0 } else { batch.next };
-            return Ok((json!({ "events": [], "next": next, "reset": true }), true));
+            let answer = json!({ "events": [], "next": next, "reset": true, "server": id });
+            return Ok((answer, true));
         }
 
         let asked: Vec<_> = batch
@@ -406,14 +421,24 @@ pub async fn wait(home: &Home, after: Option<u64>, timeout: Duration) -> Result<
             .filter(|event| event.kind.is_request())
             .collect();
         if !asked.is_empty() {
-            return Ok((json!({ "events": asked, "next": batch.next }), true));
+            return Ok((
+                json!({ "events": asked, "next": batch.next, "server": id }),
+                true,
+            ));
         }
 
         after = batch.next;
         if Instant::now() >= deadline {
-            return Ok((json!({ "events": [], "next": after }), false));
+            return Ok((json!({ "events": [], "next": after, "server": id }), false));
         }
     }
+}
+
+/// What a wait answers on a new server. No wait handed over its requests
+/// yet, so the next one starts from its first event.
+fn reset(server: &str) -> (Value, bool) {
+    let answer = json!({ "events": [], "next": 0, "reset": true, "server": server });
+    (answer, true)
 }
 
 /// The events after `after`, as the agent. None when the deadline passed
@@ -451,11 +476,12 @@ async fn start(client: &Client) -> Result<u64> {
         .context("the server sent no event number")
 }
 
-/// The server of the worktree, as soon as one answers before the deadline.
-async fn reach(home: &Home, deadline: Instant) -> Result<Client> {
+/// The server of the worktree and its id, as soon as one answers before
+/// the deadline.
+async fn reach(home: &Home, deadline: Instant) -> Result<(Client, String)> {
     loop {
-        if let Some((probe, _)) = running(home).await {
-            return Ok(Client::new(probe.address().clone()));
+        if let Some((probe, session)) = running(home).await {
+            return Ok((Client::new(probe.address().clone()), session.server));
         }
         if Instant::now() >= deadline {
             bail!("{NO_SERVER}");

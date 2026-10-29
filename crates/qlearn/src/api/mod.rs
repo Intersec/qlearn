@@ -198,6 +198,7 @@ async fn session(State(state): State<AppState>) -> Json<Session> {
         version: crate::version::LONG.to_owned(),
         choices,
         choices_error,
+        server: state.events.server().to_owned(),
     })
 }
 
@@ -465,11 +466,17 @@ async fn send(state: &AppState, id: &str, n: &str, part: Part) -> Result<Json<Pa
         return Err(undo.after(error).into());
     }
     *course = changed;
-    // Under the lock, so the events come in the order of the writes.
+    // Under the lock, so the events come in the order of the writes. The
+    // other tabs of the page show each part, and only the last one needs
+    // the agent.
+    let n = at.to_string();
+    state
+        .events
+        .push(EventKind::Answered, Author::Learner, Some(id), Some(&n));
     if let Some(detail) = done {
         state
             .events
-            .request(EventKind::Answer, Some(id), Some(&at.to_string()), detail);
+            .request(EventKind::Answer, Some(id), Some(&n), detail);
     }
     drop(course);
 
@@ -1677,14 +1684,15 @@ mod tests {
 
     #[tokio::test]
     async fn the_session_route_answers_with_the_course_and_the_version() {
-        let app = server();
-        let (status, mut body) = json(app, get_with_cookie("/api/session", TOKEN)).await;
+        let state = state();
+        let (status, mut body) =
+            json(app(state.clone()), get_with_cookie("/api/session", TOKEN)).await;
 
         assert_eq!(status, StatusCode::OK);
         // The commit under the release changes with every commit of qlearn.
         assert_eq!(body["version"], crate::version::LONG);
         body["version"] = "[version]".into();
-        insta::assert_json_snapshot!("session", body);
+        insta::assert_json_snapshot!("session", server_redacted(&state, body));
     }
 
     #[tokio::test]
@@ -1698,13 +1706,13 @@ mod tests {
             .push(EventKind::Next, Author::Learner, Some("1"), None);
 
         let (status, body) = json(
-            app(state),
+            app(state.clone()),
             get_with_cookie("/api/events?after=1&who=page", TOKEN),
         )
         .await;
 
         assert_eq!(status, StatusCode::OK);
-        insta::assert_json_snapshot!("events", body);
+        insta::assert_json_snapshot!("events", server_redacted(&state, body));
     }
 
     #[tokio::test]
@@ -2468,7 +2476,7 @@ mod tests {
             get_with_cookie("/api/events?after=0&who=agent", TOKEN),
         )
         .await;
-        insta::assert_json_snapshot!("events_of_the_agent", agent);
+        insta::assert_json_snapshot!("events_of_the_agent", server_redacted(&state, agent));
         assert!(
             state.events.agent_works(),
             "the wait handed the request over"
@@ -2559,7 +2567,7 @@ mod tests {
             get_with_cookie(&format!("/api/events?after={after}&who=agent"), TOKEN),
         )
         .await;
-        insta::assert_json_snapshot!("events_broken", agent);
+        insta::assert_json_snapshot!("events_broken", server_redacted(&state, agent));
         assert!(
             state.events.agent_works(),
             "the wait handed the request over"
@@ -3057,8 +3065,15 @@ mod tests {
         assert!(!keys(&page).contains(&"answer".to_owned()), "{page}");
         assert!(!keys(&page).contains(&"picked".to_owned()), "{page}");
 
-        // The choices are left, so the agent has nothing to answer yet.
-        assert_eq!(state.events.after(None, events::HOLD).await.next, after);
+        // The choices are left, so the agent has nothing to answer yet. The
+        // other tabs of the page show the open answer.
+        let batch = state.events.after(Some(after), events::HOLD).await;
+        let told: Vec<_> = batch
+            .events
+            .iter()
+            .map(|event| (event.kind, event.page.as_deref(), event.id.as_deref()))
+            .collect();
+        assert_eq!(told, [(EventKind::Answered, Some("1"), Some("1"))]);
         let (_, session) = json(app(state), get_with_cookie("/api/session", TOKEN)).await;
         assert_eq!(session["course"]["parts"][0]["pages"][0]["state"], "taught");
         let points = Store::at(dir.path()).load_points("raft").unwrap();
@@ -3109,7 +3124,7 @@ mod tests {
             get_with_cookie(&format!("/api/events?after={after}&who=agent"), TOKEN),
         )
         .await;
-        insta::assert_json_snapshot!("events_answer", agent);
+        insta::assert_json_snapshot!("events_answer", server_redacted(&state, agent));
         assert!(
             state.events.agent_works(),
             "the wait handed the request over"
@@ -3122,7 +3137,8 @@ mod tests {
         assert_eq!(
             events["events"],
             serde_json::json!([
-                { "seq": after + 1, "kind": "answer", "author": "learner", "page": "1", "id": "1" }
+                { "seq": after + 1, "kind": "answered", "author": "learner", "page": "1", "id": "1" },
+                { "seq": after + 2, "kind": "answer", "author": "learner", "page": "1", "id": "1" }
             ]),
             "the page needs no detail"
         );
@@ -3343,10 +3359,10 @@ mod tests {
 
         assert_eq!(status, StatusCode::OK, "{body}");
         let batch = state.events.after(Some(after), events::HOLD).await;
-        assert_eq!(batch.events.len(), 1);
-        assert_eq!(batch.events[0].kind, EventKind::Answer);
+        let kinds: Vec<_> = batch.events.iter().map(|event| event.kind).collect();
+        assert_eq!(kinds, [EventKind::Answered, EventKind::Answer]);
         assert_eq!(
-            batch.events[0].detail,
+            batch.events[1].detail,
             Some(Detail::Answer {
                 quiz: 1,
                 open: Some(model::OpenAnswer {
@@ -4306,6 +4322,14 @@ mod tests {
         .await
     }
 
+    /// A batch or a session with the id of its server in a fixed place: each
+    /// start draws another one.
+    fn server_redacted(state: &AppState, mut value: serde_json::Value) -> serde_json::Value {
+        assert_eq!(value["server"], state.events.server(), "{value}");
+        value["server"] = "[server]".into();
+        value
+    }
+
     /// What the wait of the agent gets after `after`.
     async fn agent_waits(state: &AppState, after: u64) -> serde_json::Value {
         let uri = format!("/api/events?after={after}&who=agent");
@@ -4339,7 +4363,10 @@ mod tests {
         insta::assert_json_snapshot!("open_thread", at_redacted(opened.clone()));
         assert_eq!(opened["id"], "1-1");
         let agent = agent_waits(&state, after).await;
-        insta::assert_json_snapshot!("events_ask", at_redacted(agent.clone()));
+        insta::assert_json_snapshot!(
+            "events_ask",
+            server_redacted(&state, at_redacted(agent.clone()))
+        );
         assert!(state.events.agent_works(), "the wait handed the ask over");
 
         // The answer of the agent is no request.
@@ -4777,7 +4804,7 @@ mod tests {
         assert_eq!(status, StatusCode::OK, "{chosen}");
         insta::assert_json_snapshot!("chosen", chosen);
         let agent = agent_waits(&state, batch.next).await;
-        insta::assert_json_snapshot!("events_chosen", agent);
+        insta::assert_json_snapshot!("events_chosen", server_redacted(&state, agent.clone()));
         assert!(
             state.events.agent_works(),
             "the wait handed the choice over"

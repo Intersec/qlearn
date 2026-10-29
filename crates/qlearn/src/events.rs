@@ -44,8 +44,10 @@ const WORKS_FOR: Duration = Duration::from_secs(30 * 60);
 /// opens a new wait within a second.
 const PAGE_GONE_AFTER: Duration = Duration::from_secs(3);
 
-#[derive(Default)]
 pub struct Events {
+    /// Drawn at the start. A new server numbers its events from 1 again,
+    /// so an `after` of the last one may name events of this one.
+    server: String,
     log: Mutex<Log>,
     notify: Notify,
     /// The server stops. A page always holds a wait open, and a stop must
@@ -53,6 +55,21 @@ pub struct Events {
     closed: AtomicBool,
     agent: Mutex<Presence>,
     pages: Mutex<Pages>,
+}
+
+impl Default for Events {
+    fn default() -> Self {
+        let mut bytes = [0u8; 8];
+        getrandom::fill(&mut bytes).expect("the system has no randomness");
+        Self {
+            server: hex::encode(bytes),
+            log: Mutex::default(),
+            notify: Notify::default(),
+            closed: AtomicBool::default(),
+            agent: Mutex::default(),
+            pages: Mutex::default(),
+        }
+    }
 }
 
 /// The pages of the course that hold a wait open.
@@ -191,6 +208,11 @@ struct Log {
 }
 
 impl Events {
+    /// The id of this server, which every batch carries.
+    pub fn server(&self) -> &str {
+        &self.server
+    }
+
     /// Mark an agent as waiting until the guard is dropped.
     ///
     /// A wait that opens ends the work of the agent and clears its status:
@@ -407,6 +429,7 @@ impl Events {
             preparing,
             left,
             status,
+            server: self.server.clone(),
         };
 
         let Some(after) = after else {
@@ -928,5 +951,32 @@ mod tests {
         assert_eq!(batch.events.len(), 1, "one idle, not one per wait");
         assert_eq!(batch.events[0].kind, EventKind::Idle);
         assert_eq!(batch.events[0].page, None);
+    }
+
+    /// A new server numbers its events from 1 again, so the id is what
+    /// tells a party that its `after` counts the events of another one.
+    #[tokio::test]
+    async fn each_server_draws_an_id_that_every_batch_carries() {
+        let old = Events::default();
+        let new = Events::default();
+        assert_ne!(old.server(), new.server());
+        assert_eq!(old.server().len(), 16, "{}", old.server());
+
+        new.push(EventKind::Page, Author::Agent, Some("1"), None);
+        assert_eq!(new.after(None, HOLD).await.server, new.server());
+        assert_eq!(new.after(Some(0), HOLD).await.server, new.server());
+        assert_eq!(new.after(Some(9), HOLD).await.server, new.server());
+    }
+
+    /// A part of a quiz tells the other tabs, and is no work for the agent.
+    #[tokio::test(start_paused = true)]
+    async fn a_part_of_a_quiz_is_no_request() {
+        let events = Events::default();
+        assert!(!EventKind::Answered.is_request());
+
+        events.push(EventKind::Answered, Author::Learner, Some("1"), Some("1"));
+        hand_over(&events).await;
+
+        assert!(!events.agent_works(), "the agent has nothing to do");
     }
 }

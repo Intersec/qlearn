@@ -547,6 +547,78 @@ refuse a quiz.
   The agent would read that no server runs, and the page would stay
   blank.
 
+## 2026-10-29 — Decisions on the open points of steps 2 and 3
+
+The reviews of steps 2 and 3 left six open points. The user decided them
+on this date.
+
+**Decisions.**
+
+- **The earlier decisions stand.** The five entries above on the quiz
+  format, the answers, the debrief, the threads and the choices stay as
+  written. So does the text of `design.md` on the 403 of a write from
+  another site (section 1), on the refusals of `PATCH /api/course`
+  (section 8), and on the callouts (section 4.1).
+- **A slug that names a command is refused.** `qlearn list` runs the
+  command `list`, so a course with the slug `list` could never open. The
+  store refuses such a slug for a new course, and the error says to pick
+  another one. The binary reads the names from its parser of the
+  arguments, `help` included. A course made before its slug became a
+  command, by an earlier release or before a new command, still opens
+  with `qlearn -- <slug>`.
+- **A part of a quiz tells the other tabs.** The open answer and the
+  choices each write an `answered` event, with the page and the number of
+  the quiz. The other tabs of the page read the page again. `answered` is
+  not a request, so `qlearn wait` does not return on it. The `answer`
+  request stays as it was, after the last part.
+- **The hidden line spans the excerpt.** The page draws it as a blank of
+  the full width of the excerpt. The wire carries no length of the line.
+  Section 4.2 said "a blank of the same width", which the page cannot draw
+  with no length.
+- **Each server draws an id.** The server draws a random id at each start.
+  The answers of `/api/events` and `GET /api/session` carry it as
+  `server`. A party that gets another id takes it as a reset, and reads
+  the state again. `qlearn wait` prints the id, and takes it back with
+  `--server`. If the id differs, the wait answers `"reset": true` with
+  `next` at 0.
+- **Two limits are accepted.**
+  - The server counts one change of presence for all the tabs, because no
+    wait names its tab. With several tabs between two waits, a tab can
+    show a presence that is up to 30 seconds old.
+  - Mermaid makes `web/dist` about 5 MB, and the release binary about
+    12 MB.
+
+**Why.** The reviews found no fault in the earlier decisions. A course that
+`qlearn <slug>` cannot open is a course that the learner loses. A list of
+names written by hand misses the next command. A second tab showed an open
+answer only after a reload, because only the last part made an event. The
+length of a hidden line can give the answer away, such as a short name. A
+new server numbers its events from 1 again: once it counts past the
+`next` of the old one, an `after` of the old one names events of the new
+one, and the wait skips a request that came before them. The address of
+the server does not tell this to a new `qlearn wait`, which only has its
+arguments. A presence that is late by one wait costs less than an id for
+each tab. The page loads Mermaid in a chunk of its own, so a page with no
+diagram does not read it.
+
+**Rejected:**
+
+- **A fixed list of reserved slugs.** A new command would be missing
+  from it.
+- **Refuse a course that exists.** It would open by no route at all, and
+  the learner would lose its answers.
+- **An `answer` request for each part.** The agent would wake for an
+  answer that it cannot debrief yet.
+- **A blank with the length of the line.** The length is part of the
+  answer.
+- **A count of events that goes on across starts.** The server keeps its
+  events in memory only. A random first number could still fall at or
+  below the `after` of the old server, where two ids never match.
+- **Compare the address of the server.** One wait sees the address
+  change, but the next `qlearn wait` has only its arguments.
+- **A count of presence for each tab.** Each wait of the page would need
+  an id of its tab, for a delay of 30 seconds at most.
+
 ## Open questions
 
 - **The URL of the repository.** The host is decided: a public repository

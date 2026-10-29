@@ -1363,7 +1363,9 @@ a.syllabus-entry:focus-visible {
 /* ---------------------------------------------------------- the threads */
 
 /* A block and what hangs under it. The Ask button sits at the top right
-   of the block, and shows on hover or when the keyboard reaches it. */
+   of the block. It stays in sight in quiet ink, since a touch screen has
+   no hover, and takes the color of the agent on hover or when the
+   keyboard reaches it. */
 .thread-anchor {
   position: relative;
 }
@@ -1373,33 +1375,32 @@ a.syllabus-entry:focus-visible {
   right: 0;
   z-index: 1;
   padding: 1px 10px;
-  border: 1px solid var(--agent-edge);
+  border: 1px solid var(--edge);
   border-radius: 4px;
-  background: var(--agent);
-  color: var(--action);
+  background: transparent;
+  color: var(--ink-quiet);
   font-size: 12px;
   font-weight: 600;
-  opacity: 0;
-  transition: opacity 0.1s;
+  transition:
+    color 0.1s,
+    background-color 0.1s,
+    border-color 0.1s;
 }
 .thread-anchor:hover > .ask,
 .thread-anchor:focus-within > .ask {
-  opacity: 1;
+  border-color: var(--agent-edge);
+  background: var(--agent);
+  color: var(--action);
 }
-/* The button sits in the corner of the commit of an excerpt, whose title
-   holds the full hash: the commit moves clear of it. */
+/* The first line of a block runs under the button: the text moves clear
+   of it. The commit of an excerpt, whose title holds the full hash, too. */
+.thread-anchor > .md-doc.block > :first-child,
 .thread-anchor > .block .excerpt-head {
   padding-right: 64px;
 }
 .ask:focus-visible {
   outline: 2px solid var(--action);
   outline-offset: 1px;
-}
-/* A touch screen has no hover: the button stays in sight. */
-@media (hover: none) {
-  .ask {
-    opacity: 1;
-  }
 }
 @media (prefers-reduced-motion: reduce) {
   .ask {

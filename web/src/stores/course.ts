@@ -164,8 +164,8 @@ export const useCourse = defineStore('course', () => {
         'open' in sent ? await api.open(id, n, sent.open) : await api.choices(id, n, sent.choices);
     } catch (e) {
       fail(e);
-      // Another tab sent this part, and only the last part tells the
-      // others: the quiz moves to the step that the server holds.
+      // Another tab sent this part, and this one missed its event: the
+      // quiz moves to the step that the server holds.
       if (e instanceof ApiError && e.code === 'conflict') {
         await refresh(id);
       }
@@ -482,6 +482,12 @@ export const useCourse = defineStore('course', () => {
     let fresh: string | null = null;
 
     for (const event of events) {
+      // A part of a quiz sent in another tab shows here too, and the
+      // quiz moves to its next step.
+      if (event.kind === 'answered' && event.page) {
+        again ||= event.page === page.value?.id;
+        continue;
+      }
       // An answer in another tab may answer its page, and shows its
       // grades there.
       if (event.kind === 'answer' && event.page) {
@@ -600,7 +606,9 @@ export const useCourse = defineStore('course', () => {
           const batch = await api.events(after);
           after = batch.next;
           hear(batch);
-          if (batch.reset) {
+          // A new server took the address: `after` counts the events of
+          // the old one, and may skip some of the new one.
+          if (batch.reset || batch.server !== start.server) {
             stale = true;
             break;
           }
