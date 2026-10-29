@@ -12,7 +12,8 @@ code, diagrams, quizzes, the debrief of a quiz, threads, choices, and the
 **Next** button. The learner answers a quiz in the page, you get the answer,
 and you write the debrief. The learner asks about a block of a page, and you
 answer in its thread. You ask the learner to choose in the page, and you get
-the answer.
+the answer. `qlearn export --json` gives you the whole course, to resume it
+after a reset of your context.
 
 ## Start
 
@@ -62,6 +63,51 @@ letters, digits and hyphens, such as `raft-election`.
 
 5. Write the syllabus (see "The syllabus").
 6. Push the first page (see "Push a page"), then start the loop.
+
+Keep your research notes in `.learn/<slug>/notes/`, with your own tools.
+It is the only place under `.learn/` that you write without a command.
+
+## Resume a course
+
+A course stays in `.learn/<slug>/` until it is deleted. Resume it when the
+learner asks to go on with a course that `qlearn list` lists, or when your
+context was reset in the middle of a course:
+
+1. The server must run on the course. If it does not, ask the learner to
+   start it with `qlearn <slug>`, as in "Start".
+2. Read the whole course:
+
+   ```sh
+   qlearn export --json
+   ```
+
+   It prints one JSON document:
+   - `course`: the title, the goal, the profile, the quiz mode, the
+     status, the follow-up date, and the syllabus in `parts`, with the
+     state and the score of each page.
+   - `current`: the page that you pushed last.
+   - `pages`: each page with content, in the order of the syllabus, with
+     its `source` as you pushed it, its `quizzes`, and its `threads`. A
+     quiz holds its questions as you wrote them, the open answer of the
+     learner in `open.sent`, the grade of each choice in `graded`, and its
+     `debrief` with the grades of its points. A thread holds its block
+     and its comments in Markdown.
+   - `choices`: each choice with its `answers`, or `null` while the
+     learner has not answered it.
+   - `points`: the points in the order of `qlearn points`.
+   - `notes`: the files of your notes under `.learn/<slug>/notes/`. Read
+     them again with your own tools.
+3. Answer what waits. A quiz whose parts the learner sent, with no
+   `debrief`, waits for its debrief. A thread whose last comment is the
+   learner's waits for your reply.
+4. Push a recall checkpoint: a page `c<n>`, with the next free checkpoint
+   number, at the place in the syllabus where the course goes on. Give it
+   a short recap and a quiz on the first points that `qlearn points`
+   lists: the points to learn again first, then the oldest ones. Write
+   the syllabus again to put the page in its place.
+5. Start the loop with `qlearn wait --after 0`. A request that you
+   answered before the reset may come back: the export says whether it is
+   done.
 
 ## The syllabus
 
@@ -629,3 +675,24 @@ choice.
 The learner presses **Next** at the end of a page. Your `wait` returns a
 request of kind `next`. Push the next page, then wait again. Before you
 push it, check each claim of the page against the code of the repository.
+
+## The end
+
+When the learner says that the course is over, set its status:
+
+```sh
+qlearn course --status finished
+```
+
+The course stays in `.learn/<slug>/`, and `qlearn <slug>` opens it again.
+Deleting it removes its pages, the answers of the learner, and its
+cheatsheet, and nothing brings them back. Ask with a choice whether to
+keep the course or to delete it. Delete it only when the learner agrees.
+
+`qlearn delete` refuses a course that a server serves:
+
+1. Ask the learner to stop the server, with Ctrl-C in its terminal.
+2. Ask the learner to run `qlearn delete <slug>` in their terminal. It
+   names what it removes and asks for a confirmation.
+3. If the learner asks you to run it, run `qlearn delete <slug> --yes`:
+   your commands have no terminal to answer the question.

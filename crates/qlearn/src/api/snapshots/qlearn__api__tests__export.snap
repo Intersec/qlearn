@@ -1,0 +1,256 @@
+---
+source: crates/qlearn/src/api/mod.rs
+expression: at_redacted(body)
+---
+{
+  "choices": [
+    {
+      "answers": [
+        {
+          "other": null,
+          "picked": [
+            1
+          ]
+        },
+        {
+          "other": "And the snapshots",
+          "picked": [
+            0,
+            2
+          ]
+        }
+      ],
+      "id": "choice-1",
+      "page": "1",
+      "questions": [
+        {
+          "header": "Next step",
+          "multi": false,
+          "options": [
+            {
+              "description": "The code tour of the election",
+              "label": "Part 2"
+            },
+            {
+              "description": "The course waits here",
+              "label": "A break"
+            }
+          ],
+          "prompt": "Part 1 is done. What next?"
+        },
+        {
+          "header": "Topics",
+          "multi": true,
+          "options": [
+            {
+              "description": "",
+              "label": "The timer"
+            },
+            {
+              "description": "",
+              "label": "The vote"
+            },
+            {
+              "description": "",
+              "label": "The log"
+            }
+          ],
+          "prompt": "What should the next part show?"
+        }
+      ]
+    },
+    {
+      "answers": null,
+      "id": "choice-2",
+      "page": null,
+      "questions": [
+        {
+          "header": "Level",
+          "multi": false,
+          "options": [
+            {
+              "description": "",
+              "label": "New to it"
+            },
+            {
+              "description": "",
+              "label": "Read the paper"
+            }
+          ],
+          "prompt": "How well do you know Raft?"
+        }
+      ]
+    }
+  ],
+  "course": {
+    "created": "2026-01-01T00:00:00Z",
+    "findings": [],
+    "followUp": null,
+    "goal": "",
+    "parts": [
+      {
+        "pages": [
+          {
+            "id": "1",
+            "kind": "lesson",
+            "score": {
+              "right": 1.5,
+              "total": 3
+            },
+            "state": "taught",
+            "title": "Two leaders, one term"
+          }
+        ],
+        "title": "Why"
+      }
+    ],
+    "profile": "",
+    "quizMode": "mixed",
+    "slug": "raft",
+    "status": "new",
+    "title": "Raft, the leader election",
+    "updated": "[updated]",
+    "version": 1
+  },
+  "current": "1",
+  "notes": [
+    "plan.md",
+    "sources/paper.txt"
+  ],
+  "pages": [
+    {
+      "id": "1",
+      "quizzes": [
+        {
+          "choices": [
+            {
+              "graded": {
+                "answer": 1,
+                "ok": false,
+                "other": null,
+                "picked": 0
+              },
+              "header": "Split vote",
+              "options": [
+                "The higher id wins",
+                "Both time out and start a new term"
+              ],
+              "point": "split-vote",
+              "prompt": "Two candidates get 2 votes each out of 5. What happens next?"
+            }
+          ],
+          "debrief": {
+            "points": [
+              {
+                "id": "random-timeout",
+                "label": "Why the election timeout is random",
+                "result": "ok"
+              },
+              {
+                "id": "majority",
+                "label": "How many votes make a leader",
+                "result": "partial"
+              }
+            ],
+            "source": "# Almost\n\nThe random part is right. A majority is 3 of 5, not 2.\n\n```excerpt\npath: src/raft.c\nlines: 2-4\nmark: 4\n```\n\n```mermaid\nflowchart LR\n  F[Follower] --> C[Candidate]\n```\n"
+          },
+          "open": {
+            "points": [
+              "random-timeout",
+              "majority"
+            ],
+            "prompt": "Why is the timeout random, and how many votes win?",
+            "sent": "So that two followers rarely wake up at once."
+          }
+        },
+        {
+          "choices": [
+            {
+              "graded": null,
+              "header": "Split vote",
+              "options": [
+                "The candidate with the higher id wins",
+                "Both time out and start a *new* election in a new `term`",
+                "The leader of the previous term breaks the tie <b>now</b>"
+              ],
+              "point": "split-vote",
+              "prompt": "Two candidates get 2 votes each out of 5. What happens next?"
+            }
+          ],
+          "debrief": null,
+          "open": {
+            "points": [
+              "random-timeout"
+            ],
+            "prompt": "In 2 sentences: why is the timeout random?",
+            "sent": null
+          }
+        }
+      ],
+      "source": "# Two leaders, one term\n\nA follower that hears nothing starts an election.\n\n```c\nint term = 1;\n```\n\n## The vote\n\nEach server votes once per term.\n",
+      "threads": [
+        {
+          "block": {
+            "id": "80499f7ec474",
+            "kind": "text",
+            "source": "# Two leaders, one term\n\nA follower that hears nothing starts an election.\n\n```c\nint term = 1;\n```"
+          },
+          "comments": [
+            {
+              "at": "[at]",
+              "author": "learner",
+              "body": "Why does it *start* one?"
+            },
+            {
+              "at": "[at]",
+              "author": "agent",
+              "body": "Nobody leads: it must."
+            }
+          ],
+          "earlier": false,
+          "id": "1-1",
+          "quote": "starts an election"
+        }
+      ]
+    }
+  ],
+  "points": [
+    {
+      "id": "split-vote",
+      "label": "How a split vote ends",
+      "lesson": "1",
+      "results": [
+        {
+          "at": "[at]",
+          "how": "choice",
+          "result": "missed"
+        }
+      ]
+    },
+    {
+      "id": "majority",
+      "label": "How many votes make a leader",
+      "lesson": "1",
+      "results": [
+        {
+          "at": "[at]",
+          "how": "open",
+          "result": "partial"
+        }
+      ]
+    },
+    {
+      "id": "random-timeout",
+      "label": "Why the election timeout is random",
+      "lesson": "1",
+      "results": [
+        {
+          "at": "[at]",
+          "how": "open",
+          "result": "ok"
+        }
+      ]
+    }
+  ],
+  "version": "[version]"
+}

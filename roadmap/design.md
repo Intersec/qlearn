@@ -588,7 +588,7 @@ writer, and grants no permission.
 | `PUT /api/findings/:id` | agent | Write a finding |
 | `PUT /api/status` | agent | Say what the agent does. Body: `{ text }`. Answers `{ status }` |
 | `PUT /api/cheatsheet` | agent | Write the source of the cheatsheet |
-| `GET /api/export` | agent | The whole course as JSON, for a resume after a reset |
+| `GET /api/export` | agent | The whole course as JSON, for a resume after a reset (section 8.4) |
 
 ### 8.1 The place in the fragment
 
@@ -659,6 +659,65 @@ minutes to write, and the agent must not look gone while it writes one.
 The page shows "the agent prepares the next page" while it works, with the
 text of the status.
 
+### 8.4 The export
+
+`GET /api/export` gives an agent that lost its context what it needs to
+resume the course: where it stopped, what the learner answered, and which
+points to ask again. `qlearn export --json` prints it.
+
+```ts
+type Export = {
+  version: string;          // the release, as qlearn --version says
+  course: Course;           // its version is the format of the store
+  current: string | null;   // the page that the agent pushed last
+  pages: ExportPage[];      // the pages with content, in the order of the syllabus
+  choices: Choosing[];      // every choice, open or answered, as the page gets it
+  points: Point[];          // in the order of section 5.3
+  notes: string[];          // the files under notes/, relative to it
+};
+
+type ExportPage = {
+  id: string;
+  source: string;           // as the agent pushed it last
+  quizzes: ExportQuiz[];    // quiz n is at n - 1
+  threads: ExportThread[];  // in the order of the page
+};
+
+type ExportQuiz = {
+  open: { prompt: string; points: string[]; sent: string | null } | null;
+  choices: {
+    header: string;
+    prompt: string;
+    options: string[];      // inline Markdown, as the agent wrote it
+    point: string;
+    graded: GradedChoice | null; // as in the page
+  }[];
+  debrief: { source: string; points: GradedPoint[] } | null;
+};
+
+type ExportThread = {
+  id: string;
+  block: { id: string; kind: string; source: string } | null;
+  earlier: boolean;         // the block is gone
+  quote: string | null;
+  comments: Comment[];      // the bodies in Markdown
+};
+```
+
+The page may read this route too, with its cookie. So the export follows
+the rules of the page: the right option of a choice stays in `graded`,
+which is `null` until the learner sends the choices. A source names a
+hidden line by its number, never by its text. An agent that resumes needs
+neither: the `answer` request carries the right options.
+
+The export lists the names of the notes, never their content. The agent
+reads its notes with its own tools.
+
+A file of the store that cannot be read fails the whole export, with the
+error of the file. So does a file of a page that `course.json` says the
+agent pushed, when it is missing. A part of the course left out would read
+as a part that never happened.
+
 ## 9. The cheatsheet
 
 At the end of the course, the learner keeps a cheatsheet of one page. The
@@ -718,8 +777,9 @@ saves an export first.
 
 **The server is the only writer**, except for `notes/`. The agent writes its
 research notes there with its own tools, and the server never reads or
-writes them. Every other file goes through the commands of section 11.
-`qlearn delete` removes a course only when no server serves it.
+writes them. The export lists their names only. Every other file goes
+through the commands of section 11. `qlearn delete` removes a course only
+when no server serves it.
 
 Each write goes to a temporary file in the same directory, then a rename,
 so a crash never leaves half a file. One server per worktree, and
@@ -753,6 +813,39 @@ qlearn export cheatsheet      the cheatsheet as Markdown
 that course, it refuses and says to stop that server first. It names what
 it removes and asks for a confirmation, which `--yes` skips. Until then, a
 course stays in `.learn/`, and `qlearn <slug>` opens it again.
+
+- It works with no server, on the store. It holds the claim of the
+  worktree (the lock on `.learn/`) until the course is gone, so no server
+  opens the course meanwhile. A server that holds the claim and serves
+  another course does not block it: a server writes its own course only.
+  That server may stop while the learner reads the question, and a server
+  of this course start, so the command checks again after the answer, and
+  takes the claim if it is free. Only the instant between that check and
+  the removal stays open. A server that holds the claim and does not
+  answer blocks it, because nothing tells which course it serves. A
+  `server.json` left by a server that died blocks nothing.
+- It names the directory, the title of the course, the number of pages,
+  whether a cheatsheet exists, and the number of notes. It asks
+  `[y/N]` on the terminal. With no terminal on standard input and no
+  `--yes`, it refuses. An answer other than `y` or `yes` deletes nothing,
+  and the command exits with 1.
+- It refuses a slug that names no directory, a directory with no
+  `course.json`, and a symbolic link. A course whose `course.json` cannot
+  be read is deleted. The removal follows no link inside the course.
+
+**`qlearn export`** prints the course for the learner: the line of the
+course, the syllabus with the state and the score of each page, as
+`qlearn -v` prints it, then "To revisit" with each point whose last result
+is `missed` or `partial`, in the order of section 5.3, or "Nothing to
+revisit.". `--json` prints the export of section 8.4. Both ask the server
+of the worktree. With no server, the command holds the claim of the
+worktree, so no server starts and writes the store meanwhile, and reads
+the store: the course is the only course of `.learn/`, as `qlearn` with no
+slug finds it. It writes nothing, and shows what a server would show after
+its start. With several courses, it says to open the course to export with
+`qlearn <slug>`. A server that holds the claim and does not answer in the
+few seconds that a second `qlearn` waits makes the command refuse. `cheatsheet` stays the word of
+`qlearn export cheatsheet`, so `export` takes no slug.
 
 **The commands of the agent.** They write as the agent, through the server
 of the worktree:
@@ -812,7 +905,9 @@ The procedure covers the teaching and the page. For the teaching, it says:
 For the page, it says:
 
 - How to start: the server, the sandbox case, the resume with
-  `qlearn export --json`.
+  `qlearn export --json`. After a reset, the agent reads the export,
+  answers what waits, and pushes a recall checkpoint whose quiz asks
+  about the first points of `qlearn points`.
 - The loop: `wait` in the background, then the answer to each request.
 - The format of a page, a quiz, a choice, and the cheatsheet, with one
   example of each.

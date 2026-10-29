@@ -1,6 +1,8 @@
-//! The course as text, for `qlearn -v`.
+//! The course as text, for the learner: `qlearn -v`, `qlearn export` and
+//! `qlearn delete`.
 
-use crate::model::{Course, PageKind, PageState};
+use crate::model::{Course, Export, Grade, PageKind, PageState};
+use crate::store::Removal;
 
 /// The course and its syllabus, one line per page.
 pub fn outline(course: &Course) -> String {
@@ -37,6 +39,71 @@ pub fn outline(course: &Course) -> String {
     out
 }
 
+/// What `qlearn export` prints: the course and its syllabus, then the
+/// points to revisit, in the order of section 5.3 of the design.
+pub fn summary(export: &Export) -> String {
+    let mut out = outline(&export.course);
+    let revisit: Vec<_> = export
+        .points
+        .iter()
+        .filter_map(|point| {
+            let last = point.results.last()?;
+            (last.result != Grade::Ok).then_some((point, last.result))
+        })
+        .collect();
+
+    out.push('\n');
+    if revisit.is_empty() {
+        out.push_str("Nothing to revisit.\n");
+        return out;
+    }
+    out.push_str("To revisit\n");
+    for (point, result) in revisit {
+        out.push_str(&format!(
+            "  {}  (page {}, {})\n",
+            point.label,
+            point.lesson,
+            grade(result)
+        ));
+    }
+    out
+}
+
+/// What `qlearn delete` names before it asks: what the learner loses.
+pub fn removal(removal: &Removal) -> String {
+    let course = match &removal.title {
+        Some(title) => format!("the course {title:?}"),
+        None => format!(
+            "the course {}, whose course.json this qlearn cannot read",
+            removal.slug
+        ),
+    };
+    let mut out = format!("This removes {}/, {course}:\n", removal.dir.display());
+    out.push_str(&format!(
+        "  {}, with the answers of the learner\n",
+        crate::quiz::count_of(removal.pages, "page")
+    ));
+    out.push_str(match removal.cheatsheet {
+        true => "  the cheatsheet\n",
+        false => "  no cheatsheet\n",
+    });
+    if removal.notes > 0 {
+        out.push_str(&format!(
+            "  {} of the agent\n",
+            crate::quiz::count_of(removal.notes, "note")
+        ));
+    }
+    out
+}
+
+fn grade(grade: Grade) -> &'static str {
+    match grade {
+        Grade::Ok => "ok",
+        Grade::Partial => "partial",
+        Grade::Missed => "missed",
+    }
+}
+
 fn kind(kind: PageKind) -> &'static str {
     match kind {
         PageKind::Lesson => "lesson",
@@ -57,7 +124,7 @@ fn state(state: PageState) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{PageRef, Part, Score};
+    use crate::model::{Graded, PageRef, Part, Point, PointResult, Score};
     use time::OffsetDateTime;
 
     fn course() -> Course {
@@ -102,6 +169,87 @@ mod tests {
              \x20 Why\n\
              \x20   1    lesson     answered  Two leaders, one term  1.5/3\n\
              \x20   c1   checkpoint planned   Checkpoint\n"
+        );
+    }
+
+    fn point(id: &str, lesson: &str, results: &[Grade]) -> Point {
+        Point {
+            id: id.to_owned(),
+            label: format!("The {id}"),
+            lesson: lesson.to_owned(),
+            results: results
+                .iter()
+                .map(|result| PointResult {
+                    at: "2026-01-01T00:00:00Z".to_owned(),
+                    result: *result,
+                    how: Graded::Choice,
+                })
+                .collect(),
+        }
+    }
+
+    fn export(points: Vec<Point>) -> Export {
+        Export {
+            version: "0.1.0".to_owned(),
+            course: course(),
+            current: None,
+            pages: Vec::new(),
+            choices: Vec::new(),
+            points,
+            notes: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn the_summary_ends_with_the_points_to_revisit_in_their_order() {
+        let points = vec![
+            point("split-vote", "3", &[Grade::Missed]),
+            point("majority", "2", &[Grade::Ok, Grade::Partial]),
+            point("timeout", "1", &[Grade::Missed, Grade::Ok]),
+            point("leader", "1", &[]),
+        ];
+
+        assert_eq!(
+            summary(&export(points)),
+            "raft  new  raft\n  no page yet\n\n\
+             To revisit\n\
+             \x20 The split-vote  (page 3, missed)\n\
+             \x20 The majority  (page 2, partial)\n"
+        );
+        assert_eq!(
+            summary(&export(vec![point("timeout", "1", &[Grade::Ok])])),
+            "raft  new  raft\n  no page yet\n\nNothing to revisit.\n"
+        );
+    }
+
+    #[test]
+    fn a_removal_names_the_directory_the_pages_the_cheatsheet_and_the_notes() {
+        let mut removal = Removal {
+            slug: "raft".to_owned(),
+            dir: "/work/.learn/raft".into(),
+            title: Some("Raft elections".to_owned()),
+            pages: 3,
+            cheatsheet: true,
+            notes: 2,
+        };
+        assert_eq!(
+            super::removal(&removal),
+            "This removes /work/.learn/raft/, the course \"Raft elections\":\n\
+             \x20 3 pages, with the answers of the learner\n\
+             \x20 the cheatsheet\n\
+             \x20 2 notes of the agent\n"
+        );
+
+        removal.title = None;
+        removal.pages = 1;
+        removal.cheatsheet = false;
+        removal.notes = 0;
+        assert_eq!(
+            super::removal(&removal),
+            "This removes /work/.learn/raft/, the course raft, whose course.json this \
+             qlearn cannot read:\n\
+             \x20 1 page, with the answers of the learner\n\
+             \x20 no cheatsheet\n"
         );
     }
 }

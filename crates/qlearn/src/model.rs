@@ -1112,6 +1112,99 @@ pub struct Batch {
     pub server: String,
 }
 
+/// What `GET /api/export` answers: the whole course, so that an agent that
+/// lost its context resumes it. See section 8.4 of the design.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Export {
+    /// The release and the commit under it, as `qlearn --version` says.
+    pub version: String,
+    /// The syllabus holds the state and the score of each page. Its
+    /// `version` is the format of the store.
+    pub course: Course,
+    /// The page that the agent pushed last, or None before the first push.
+    pub current: Option<String>,
+    /// The pages with content, in the order of the syllabus.
+    pub pages: Vec<ExportPage>,
+    /// Every choice, open or answered, in the order that the agent asked
+    /// them.
+    pub choices: Vec<Choosing>,
+    /// In the order of section 5.3 of the design.
+    pub points: Vec<Point>,
+    /// The files under `notes/`, relative to it. Their content stays
+    /// there: the agent reads them with its own tools.
+    pub notes: Vec<String>,
+}
+
+/// A page as the agent wrote it, with what the learner did on it.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportPage {
+    pub id: String,
+    /// The source as the agent pushed it last.
+    pub source: String,
+    /// In the order that the agent added them. Quiz `n` is at `n - 1`.
+    pub quizzes: Vec<ExportQuiz>,
+    /// In the order that the page shows them: a thread whose block is gone
+    /// comes last.
+    pub threads: Vec<ExportThread>,
+}
+
+/// A quiz as the agent wrote it, with the answers of the learner.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportQuiz {
+    pub open: Option<ExportOpen>,
+    pub choices: Vec<ExportChoice>,
+    pub debrief: Option<ExportDebrief>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportOpen {
+    pub prompt: String,
+    pub points: Vec<String>,
+    /// The open answer of the learner, once sent.
+    pub sent: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportChoice {
+    pub header: String,
+    pub prompt: String,
+    /// Inline Markdown, as the agent wrote it.
+    pub options: Vec<String>,
+    pub point: String,
+    /// None until the learner sends the choices. The right option is in
+    /// here, as in the page: the page may read this route too.
+    pub graded: Option<GradedChoice>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportDebrief {
+    /// The source as the agent wrote it last.
+    pub source: String,
+    /// The grade of each point of the open question.
+    pub points: Vec<GradedPoint>,
+}
+
+/// A thread as the agent reads it in the detail of `ask`.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportThread {
+    pub id: String,
+    /// The block as the agent wrote it when the thread opened, or None for
+    /// a thread about the whole page.
+    pub block: Option<BlockSource>,
+    /// The block is gone: a later push of the page took it away.
+    pub earlier: bool,
+    pub quote: Option<String>,
+    /// In Markdown, as written.
+    pub comments: Vec<Comment>,
+}
+
 /// A time as the store writes it: RFC 3339.
 pub fn stamp(time: OffsetDateTime) -> String {
     // Only a year outside 0..=9999 fails, which no clock gives.

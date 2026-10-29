@@ -26,6 +26,8 @@ the binary.
 qlearn raft-election            # open the course, and create it when it is new
 qlearn                          # open the only course of .learn/
 qlearn list                     # list the courses of .learn/
+qlearn export                   # the syllabus, the scores, the points to revisit
+qlearn export --json            # the whole course, as an agent reads it to resume
 qlearn delete raft-election     # delete a course, once its server is stopped
 qlearn export cheatsheet        # the cheatsheet, as Markdown
 ```
@@ -60,7 +62,11 @@ The course will live in `.learn/<slug>/` at the top level of the
 repository. If git does not ignore `.learn/`, qlearn adds it to
 `.git/info/exclude`. A course stays there until `qlearn delete` removes it.
 Deleting the course deletes its cheatsheet, so export the cheatsheet
-first.
+first. `qlearn delete` names what it removes and asks before it removes
+it. `--yes` skips the question.
+
+`qlearn export` asks the server of the worktree for the course. With no
+server, it reads the only course of `.learn/`.
 
 ## Learn with an agent
 

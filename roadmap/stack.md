@@ -619,6 +619,91 @@ diagram does not read it.
 - **A count of presence for each tab.** Each wait of the page would need
   an id of its tab, for a delay of 30 seconds at most.
 
+## 2026-10-29 — Holes found by the export
+
+The export, the resume and the delete, sections 8, 10, 11 and 12, left
+seven questions that the design did not answer.
+
+**Decisions.**
+
+- **The shape of the export.** `GET /api/export` answers the course, the
+  current page, each page with content in the order of the syllabus, the
+  choices, the points in the order of section 5.3, the names of the
+  notes, and the release. A page holds its source, its quizzes as the
+  agent wrote them with the answers, grades and debriefs, and its threads
+  as the detail of `ask` gives them. Section 8.4 holds the type. The store
+  version is `course.version`, so the export has no field of its own for
+  it.
+- **The export gives no quiz away.** The right option of a choice stays
+  in `graded`, `null` until the learner sends the choices, as in the
+  page. A source names a hidden line by its number only.
+- **The notes go by name.** The export lists the files under `notes/`,
+  relative to it, and never reads their content. A link is listed, never
+  followed.
+- **A file that cannot be read fails the export**, with its error, a
+  broken `choices.json` included. A file of a page that `course.json`
+  backs and that is missing fails it too.
+- **`qlearn export` works with no server.** It asks the server of the
+  worktree when one answers. Otherwise it holds the claim of the worktree,
+  so that no server starts and writes the store, and reads the store: the
+  only course of `.learn/`, as `qlearn` with no slug finds it. A server
+  that holds the claim and does not answer makes it refuse. It settles the course in memory, as a server does at its
+  start, and writes nothing. `export` takes no slug, so `qlearn export
+  cheatsheet` stays free for step 4.
+- **The summary of `qlearn export`** is the outline of `qlearn -v`, then
+  "To revisit" with the label, the page and the last result of each
+  point whose last result is `missed` or `partial`, or "Nothing to
+  revisit.".
+- **`qlearn delete` runs on the store.** It holds the claim of the
+  worktree until the course is gone. A server of another course does not
+  block it, and the command checks again after the answer of the learner,
+  since that server may stop and one of this course start meanwhile. A
+  server that does not answer blocks it. It names the
+  directory, the title, the number of pages, the cheatsheet and the
+  number of notes, then asks `[y/N]`. With no terminal and no `--yes`, it
+  refuses. A "no" exits with 1. It refuses a slug with no directory, a
+  directory with no `course.json`, and a link. It deletes a course whose
+  `course.json` cannot be read.
+
+The procedure gets the resume: the export, what waits, then a recall
+checkpoint `c<n>` on the first points of `qlearn points`. It gets the end
+too: the status `finished`, a choice to keep or delete the course, and the
+learner stops the server before `qlearn delete`. It asks for no export of
+the cheatsheet before the delete until step 4 adds `qlearn export
+cheatsheet`: an agent would send the learner to a command that fails.
+
+**Why.** An agent whose context was reset knows nothing of the course, and
+one document is one command. The page has the cookie of the server, so a
+route of the agent is a route of the page too: the developer tools would
+show what the page hides. The agent does not need a right option before
+the answer, because the `answer` request carries it. The notes are files
+of the agent, and section 10 says that the server does not read them. A
+course with a part missing would mislead the agent into asking a choice or
+a quiz again. The learner wants to see where a course stands with no
+server running, and a server that does not run writes nothing. A positional
+slug would take the word `cheatsheet`. A summary that reuses `qlearn -v`
+reads the same in both places. The claim keeps a server off the course
+while it goes, and a server writes its own course only. A command with no
+terminal cannot ask, and a delete that nobody confirmed loses answers of
+the learner.
+
+**Rejected:**
+
+- **The right options in the export.** The page could read them with its
+  cookie.
+- **The content of small notes.** The server would read files that the
+  agent writes, against section 10, for a read that the agent does with
+  its own tools.
+- **`choicesError` in the export, as in the session.** The agent would
+  resume a course with its choices missing, and might ask them again.
+- **`qlearn export <slug>`.** The slug would take the word `cheatsheet`.
+- **An export through the server only.** The learner could not read the
+  course of a stopped server, before a delete for instance.
+- **Delete with no claim.** A server could open the course between the
+  check and the removal.
+- **Refuse a delete while any server runs on the worktree.** A server of
+  another course never writes this one.
+
 ## Open questions
 
 - **The URL of the repository.** The host is decided: a public repository

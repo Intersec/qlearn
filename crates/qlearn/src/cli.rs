@@ -40,6 +40,29 @@ pub enum Command {
     /// this release.
     Skill,
 
+    /// Print the course: its syllabus with the state and the score of each
+    /// page, and the points to revisit. Reads the course of the server of
+    /// the worktree, or, with no server, the only course of `.learn/`.
+    // `qlearn export cheatsheet` comes later as a subcommand, so `export`
+    // takes no positional argument that would capture the word `cheatsheet`.
+    Export {
+        /// Print the whole course as JSON, as an agent reads it to resume
+        /// the course.
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// Delete a course: remove `.learn/<slug>/`, with the answers and the
+    /// cheatsheet. Refused while a server serves the course.
+    Delete {
+        /// The course to delete.
+        slug: String,
+        /// Delete with no question. Without it, qlearn asks on the
+        /// terminal.
+        #[arg(long)]
+        yes: bool,
+    },
+
     /// Change the course, as the agent. Name at least one field.
     #[command(group(ArgGroup::new("field").required(true).multiple(true)))]
     Course {
@@ -420,6 +443,34 @@ mod tests {
             "{cli:?}"
         );
         assert!(Cli::try_parse_from(["qlearn", "choose"]).is_err());
+    }
+
+    #[test]
+    fn an_export_takes_json_and_no_other_word() {
+        let cli = Cli::try_parse_from(["qlearn", "export"]).unwrap();
+        assert!(matches!(cli.command, Some(Command::Export { json: false })));
+        let cli = Cli::try_parse_from(["qlearn", "export", "--json"]).unwrap();
+        assert!(matches!(cli.command, Some(Command::Export { json: true })));
+
+        // The word of `qlearn export cheatsheet`, which a later step adds,
+        // must not parse as something else meanwhile.
+        assert!(Cli::try_parse_from(["qlearn", "export", "cheatsheet"]).is_err());
+    }
+
+    #[test]
+    fn a_delete_names_its_course() {
+        let cli = Cli::try_parse_from(["qlearn", "delete", "raft"]).unwrap();
+        assert!(
+            matches!(cli.command, Some(Command::Delete { ref slug, yes: false }) if slug == "raft"),
+            "{cli:?}"
+        );
+        let cli = Cli::try_parse_from(["qlearn", "delete", "raft", "--yes"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Some(Command::Delete { yes: true, .. })
+        ));
+        assert!(Cli::try_parse_from(["qlearn", "delete"]).is_err());
+        assert!(Cli::try_parse_from(["qlearn", "delete", "--yes"]).is_err());
     }
 
     #[test]

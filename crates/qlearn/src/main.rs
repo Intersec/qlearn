@@ -19,12 +19,12 @@ use tokio::signal::unix::{SignalKind, signal};
 use tokio::sync::watch;
 
 use qlearn::agent::address::Address;
-use qlearn::agent::client::Refusal;
+use qlearn::agent::client::{Client, Refusal};
 use qlearn::agent::{self, Claim, Home, socket};
 use qlearn::api::{self, AppState, auth};
 use qlearn::events::Events;
 use qlearn::git::exec::Git;
-use qlearn::model::{CourseChange, CourseStatus, QuizMode};
+use qlearn::model::{CourseChange, CourseStatus, Export, QuizMode};
 use qlearn::status::{self, Agent, Snapshot, Terminal};
 use qlearn::store::{self, Store};
 use qlearn::trace;
@@ -52,20 +52,28 @@ async fn main() -> Result<()> {
     let started = trace::start();
     let git = Git::discover(&cwd).await?;
     trace::since(started, || "find the worktree".to_owned());
-    if let Some(code) = agent_command(&cli, &Home::of(git.root())).await? {
+    let home = Home::of(git.root());
+    if let Some(code) = agent_command(&cli, &home).await? {
         std::process::exit(code);
     }
     let store = Store::at(git.root()).refusing(cli::command_names());
 
-    if let Some(cli::Command::List) = cli.command {
-        print!("{}", store.listing()?);
-        return Ok(());
+    match &cli.command {
+        Some(cli::Command::List) => {
+            print!("{}", store.listing()?);
+            return Ok(());
+        }
+        Some(cli::Command::Export { json }) => return export(&store, &home, *json).await,
+        Some(cli::Command::Delete { slug, yes }) => {
+            let code = delete(&store, &home, slug, *yes).await?;
+            std::process::exit(code);
+        }
+        _ => {}
     }
 
     // One server per worktree. An agent that starts qlearn twice gets the
     // course that is open, not a second server and a second tab. This comes
     // before the course is opened, so a new slug creates nothing.
-    let home = Home::of(git.root());
     let Some(claim) = agent::claim(&home)? else {
         return report_running(&home, cli.slug.as_deref()).await;
     };
@@ -240,6 +248,111 @@ async fn agent_command(cli: &cli::Cli, home: &Home) -> Result<Option<i32>> {
         _ => return Ok(None),
     }
     Ok(Some(0))
+}
+
+/// Print the course: as a summary for the learner, or whole as JSON for an
+/// agent that resumes it.
+///
+/// The server of the worktree answers when one runs. With no server, the
+/// course is read in the store, as `qlearn` with no slug finds it. The
+/// claim on the worktree is held meanwhile: a server writes the store as
+/// it starts, before it answers, and none can start while the claim is
+/// held.
+async fn export(store: &Store, home: &Home, json: bool) -> Result<()> {
+    let export: Export = match agent::claim(home)? {
+        Some(_claim) => {
+            let course = store.only().context(
+                "no qlearn server runs on this worktree, so qlearn export reads the only \
+                 course of .learn/. Open the course to export with `qlearn <slug>`, then \
+                 run qlearn export again",
+            )?;
+            let points = store.load_points(&course.slug)?;
+            let (course, points) = api::settled(store, &course, points)?;
+            let current = store.current(&course)?;
+            qlearn::export::build(store, &course, current, points)?
+        }
+        None => {
+            let Some((probe, _)) = agent::running_soon(home).await else {
+                bail!(NOT_ANSWERING);
+            };
+            // The probe gives up in seconds, and a long course takes longer.
+            let client = Client::new(probe.address().clone());
+            serde_json::from_value(agent::export(&client).await?)
+                .context("the server sent no course")?
+        }
+    };
+
+    match json {
+        true => println!("{}", serde_json::to_string_pretty(&export)?),
+        false => print!("{}", qlearn::report::summary(&export)),
+    }
+    Ok(())
+}
+
+/// Why a command refuses when another qlearn holds the worktree and does
+/// not answer: nothing tells which course it serves.
+const NOT_ANSWERING: &str = "stop the other qlearn of this worktree, or resume it if it is \
+     suspended: it holds the worktree but does not answer, so qlearn cannot tell which \
+     course it serves";
+
+/// Remove a course, once no server serves it and the learner agrees.
+/// Answers the exit code: 1 when the learner says no.
+///
+/// The server is the only writer of the store, so the claim on the
+/// worktree is held until the course is gone: no server can open it in
+/// the meantime. A server that holds the worktree serves one course, and
+/// never writes another one. It may stop while the learner reads the
+/// question, and a server of this course start, so the check comes again
+/// after the answer.
+async fn delete(store: &Store, home: &Home, slug: &str, yes: bool) -> Result<i32> {
+    use std::io::{BufRead, IsTerminal, Write};
+
+    let removal = store.removal(slug)?;
+    let mut claim = hold(home, slug).await?;
+
+    print!("{}", qlearn::report::removal(&removal));
+    if !yes {
+        if !std::io::stdin().is_terminal() {
+            bail!(
+                "run qlearn delete {slug} in a terminal, to answer its question, or add \
+                 --yes. Nothing was deleted"
+            );
+        }
+        print!("Delete it? It cannot be undone. [y/N] ");
+        std::io::stdout().flush()?;
+        let mut answer = String::new();
+        std::io::stdin().lock().read_line(&mut answer)?;
+        if !matches!(answer.trim().to_lowercase().as_str(), "y" | "yes") {
+            println!("Nothing was deleted.");
+            return Ok(1);
+        }
+        if claim.is_none() {
+            claim = hold(home, slug).await?;
+        }
+    }
+
+    store.remove(&removal)?;
+    println!("Deleted {}/.", removal.dir.display());
+    drop(claim);
+    Ok(0)
+}
+
+/// The claim on the worktree, or None when a server of another course
+/// holds it. Fails when the server of `slug` holds it, or one that does
+/// not answer.
+async fn hold(home: &Home, slug: &str) -> Result<Option<Claim>> {
+    if let Some(claim) = agent::claim(home)? {
+        return Ok(Some(claim));
+    }
+    match agent::running_soon(home).await {
+        Some((_, session)) if session.course.slug != slug => Ok(None),
+        Some((client, _)) => bail!(
+            "stop the server of the course {slug} first, with Ctrl-C in its terminal: it \
+             runs at {}",
+            client.address().url()
+        ),
+        None => bail!(NOT_ANSWERING),
+    }
 }
 
 /// Print the server that holds the worktree, as a second qlearn does.

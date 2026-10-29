@@ -33,6 +33,8 @@ two-face = { version = "0.4", default-features = false, features = ["syntect-fan
 
 [dev-dependencies]
 insta = { version = "1", features = ["json"] }
+# A terminal for the question of `qlearn delete`, which reads only one.
+libc = "0.2"
 # The tests embed the interface as a release does, rather than read it from
 # disk, so they check what a release carries.
 rust-embed = { version = "8", features = ["debug-embed"] }

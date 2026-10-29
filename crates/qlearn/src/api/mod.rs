@@ -25,9 +25,9 @@ use crate::highlight::Highlighter;
 use crate::lesson::{self, Fault};
 use crate::model::{
     self, AgentStatus, Author, Batch, Block, BlockSource, Broken, ChoiceId, ChoiceSent,
-    ChoicesSent, Choosing, Course, CourseChange, Detail, Event, EventKind, Graded, GradedPoint,
-    OpenSent, Page, PageKind, Point, PointResult, QuizNumber, ReplySent, Session, StatusText,
-    Thread, ThreadOpened,
+    ChoicesSent, Choosing, Course, CourseChange, Detail, Event, EventKind, Export, Graded,
+    GradedPoint, OpenSent, Page, PageKind, Point, PointResult, QuizNumber, ReplySent, Session,
+    StatusText, Thread, ThreadOpened,
 };
 use crate::quiz::{Refusal, StoredDebrief};
 use crate::store::{self, PageFile, Store};
@@ -101,6 +101,7 @@ pub fn app(state: AppState) -> Router {
         .route("/api/pages/{id}/quizzes/{n}/choices", post(send_choices))
         .route("/api/pages/{id}/quizzes/{n}/debrief", put(write_debrief))
         .route("/api/points", get(points))
+        .route("/api/export", get(export))
         .route("/api/pages/{id}/next", post(next))
         .route("/api/pages/{id}/broken", post(broken))
         .route("/api/pages/{id}/threads", post(open_thread))
@@ -652,6 +653,19 @@ async fn points(State(state): State<AppState>) -> Result<Json<Vec<Point>>, ApiEr
     Ok(Json(crate::quiz::in_order(points)))
 }
 
+/// The whole course, for an agent that lost its context. See section 8.4
+/// of the design.
+async fn export(State(state): State<AppState>) -> Result<Json<Export>, ApiError> {
+    // Held while the files are read, so the export never sees a write
+    // halfway through.
+    let course = state.course.read().await;
+    let points = state.store.load_points(&course.slug)?;
+    let export = crate::export::build(&state.store, &course, state.current(), points)?;
+    drop(course);
+
+    Ok(Json(export))
+}
+
 /// Add the result of each graded choice to its point, at the stamp `at`.
 fn add_results(
     points: &mut [model::Point],
@@ -678,8 +692,28 @@ fn add_results(
 /// debrief that a new one replaced, or a page whose state and score are
 /// behind its quizzes.
 pub fn settle(store: &Store, course: &mut Course) -> anyhow::Result<()> {
-    let mut points = store.load_points(&course.slug)?;
-    let before = points.clone();
+    let before = store.load_points(&course.slug)?;
+    let (changed, points) = settled(store, course, before.clone())?;
+
+    // points.json first: a page that is answered has its results.
+    if points != before {
+        store.save_points(&course.slug, &points)?;
+    }
+    if changed != *course {
+        store.save(&changed)?;
+        *course = changed;
+    }
+    Ok(())
+}
+
+/// The course and the points as `settle` would write them, from `points`,
+/// those of points.json. Writes nothing, so `qlearn export` with no server
+/// reads the course as a server would show it.
+pub fn settled(
+    store: &Store,
+    course: &Course,
+    mut points: Vec<Point>,
+) -> anyhow::Result<(Course, Vec<Point>)> {
     let mut changed = course.clone();
     let now = OffsetDateTime::now_utc();
     let mut debriefs: Vec<StoredDebrief> = Vec::new();
@@ -720,16 +754,7 @@ pub fn settle(store: &Store, course: &mut Course) -> anyhow::Result<()> {
     for debrief in &debriefs {
         debrief.record(&mut points)?;
     }
-
-    // points.json first: a page that is answered has its results.
-    if points != before {
-        store.save_points(&course.slug, &points)?;
-    }
-    if changed != *course {
-        store.save(&changed)?;
-        *course = changed;
-    }
-    Ok(())
+    Ok((changed, points))
 }
 
 /// Whether a point holds a result that `how` gave at the stamp `at`.
@@ -3246,6 +3271,20 @@ mod tests {
             let store = Store::at(dir.path());
             let mut course = store.load("raft").unwrap().unwrap();
             assert_eq!(course.parts[0].pages[0].state, PageState::Taught);
+            // `qlearn export` with no server sees the course settled, and
+            // writes nothing.
+            let stored = files(dir.path())
+                .iter()
+                .map(|name| std::fs::read(dir.path().join(name)).unwrap())
+                .collect::<Vec<_>>();
+            let points = store.load_points("raft").unwrap();
+            let (seen, _) = settled(&store, &course, points).unwrap();
+            assert_eq!(seen.parts[0].pages[0].state, PageState::Answered);
+            let after = files(dir.path())
+                .iter()
+                .map(|name| std::fs::read(dir.path().join(name)).unwrap())
+                .collect::<Vec<_>>();
+            assert_eq!(after, stored, "{put_back:?}");
             settle(&store, &mut course).unwrap();
             settle(&store, &mut course).unwrap();
 
@@ -5108,6 +5147,67 @@ mod tests {
         .await;
         assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR, "{refused}");
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "{ not json");
+    }
+
+    /// The export holds what an agent needs to resume the course: the
+    /// sources, the answers with their grades and debriefs, the threads,
+    /// the choices, the points in their order, and the names of the notes.
+    #[tokio::test]
+    async fn the_export_route_answers_the_whole_course() {
+        let (dir, state) = with_quiz(LESSON, QUIZ_TWO_POINTS).await;
+        answer_quiz(&state, 1).await;
+        let body = debrief_body(
+            DEBRIEF,
+            serde_json::json!({ "random-timeout": "ok", "majority": "partial" }),
+        );
+        let (status, written) = write_debrief(&state, 1, &body).await;
+        assert_eq!(status, StatusCode::OK, "{written}");
+        let block = block_of(&state, 0);
+        let opened = serde_json::json!({ "block": block, "quote": "starts an election",
+                                         "body": "Why does it *start* one?" });
+        let (status, thread) = thread_write(&state, "/api/pages/1/threads", opened).await;
+        assert_eq!(status, StatusCode::OK, "{thread}");
+        let reply = serde_json::json!({ "body": "Nobody leads: it must.", "author": "agent" });
+        let (status, thread) = thread_write(&state, "/api/threads/1-1", reply).await;
+        assert_eq!(status, StatusCode::OK, "{thread}");
+        let (status, asked) = choose(&state, CHOICE).await;
+        assert_eq!(status, StatusCode::OK, "{asked}");
+        let answers = serde_json::json!({ "answers": [
+            { "picked": [1] }, { "picked": [0, 2], "other": "And the snapshots" } ] });
+        let (status, chosen) = answer_choice(&state, "choice-1", answers).await;
+        assert_eq!(status, StatusCode::OK, "{chosen}");
+        let (status, open) = choose(&state, LEVEL).await;
+        assert_eq!(status, StatusCode::OK, "{open}");
+        // A second quiz that the learner has not answered yet.
+        let (status, quiz) = json(
+            app(state.clone()),
+            send_json("POST", "/api/pages/1/quizzes", QUIZ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{quiz}");
+        let notes = dir.path().join(".learn/raft/notes");
+        std::fs::create_dir_all(notes.join("sources")).unwrap();
+        std::fs::write(notes.join("plan.md"), "The plan.\n").unwrap();
+        std::fs::write(notes.join("sources/paper.txt"), "In Search of...\n").unwrap();
+        let stored = files(dir.path());
+        let untouched = outside(dir.path());
+
+        let (status, mut body) =
+            json(app(state.clone()), get_with_cookie("/api/export", TOKEN)).await;
+
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(files(dir.path()), stored, "an export writes nothing");
+        assert_eq!(outside(dir.path()), untouched, "a write outside .learn/");
+        // The right option of a quiz with no answer stays on the server, as
+        // in the page: the page could read this route too.
+        let waiting = &body["pages"][0]["quizzes"][1];
+        assert_eq!(waiting["choices"][0]["graded"], serde_json::Value::Null);
+        assert!(!keys(waiting).contains(&"answer".to_owned()), "{waiting}");
+        assert_eq!(body["version"], crate::version::LONG);
+        body["version"] = "[version]".into();
+        // The writes of the test stamp the course with the clock.
+        body["course"]["updated"] = "[updated]".into();
+        insta::assert_json_snapshot!("export", at_redacted(body));
     }
 
     /// A trace goes into a log or a bug report. The token must not.

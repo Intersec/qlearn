@@ -84,6 +84,14 @@ impl Store {
         Ok(course)
     }
 
+    /// The only course of `.learn/`, as `qlearn` with no slug finds it, and
+    /// never a new one: this writes nothing.
+    pub fn only(&self) -> Result<Course> {
+        let slug = self.only_slug()?;
+        self.load(&slug)?
+            .with_context(|| format!("the course {slug} went away while qlearn read it"))
+    }
+
     fn only_slug(&self) -> Result<String> {
         let mut slugs = self.slugs()?;
         match slugs.len() {
@@ -640,6 +648,127 @@ impl Store {
             }
         }
         Ok(newest.map(|(_, id)| id))
+    }
+}
+
+/// What `qlearn delete` removes: the directory of a course, and what the
+/// learner loses with it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Removal {
+    pub slug: String,
+    pub dir: PathBuf,
+    /// None when `course.json` cannot be read: the course goes all the same.
+    pub title: Option<String>,
+    /// The pages that the agent pushed.
+    pub pages: usize,
+    pub cheatsheet: bool,
+    /// The files under `notes/`.
+    pub notes: usize,
+}
+
+impl Store {
+    /// The files under `notes/` of a course, relative to it, in order.
+    ///
+    /// The agent writes them with its own tools. Only their names are read,
+    /// and a link is never followed: it may lead out of the store.
+    pub fn notes(&self, slug: &str) -> Result<Vec<String>> {
+        let root = self.course_dir(slug).join("notes");
+        let mut out = Vec::new();
+        if !fs::symlink_metadata(&root).is_ok_and(|meta| meta.is_dir()) {
+            return Ok(out);
+        }
+        let mut todo = vec![root.clone()];
+        while let Some(dir) = todo.pop() {
+            let entries =
+                fs::read_dir(&dir).with_context(|| format!("cannot read {}", dir.display()))?;
+            for entry in entries {
+                let entry = entry.with_context(|| format!("cannot read {}", dir.display()))?;
+                let path = entry.path();
+                // The type of the entry itself: a link to a directory is a
+                // name, not a directory to walk.
+                match entry.file_type().is_ok_and(|kind| kind.is_dir()) {
+                    true => todo.push(path),
+                    false => out.push(
+                        path.strip_prefix(&root)
+                            .unwrap_or(&path)
+                            .to_string_lossy()
+                            .into_owned(),
+                    ),
+                }
+            }
+        }
+        out.sort();
+        Ok(out)
+    }
+
+    /// What `qlearn delete <slug>` would remove, or why it refuses.
+    ///
+    /// Only a course of qlearn goes: a directory without `course.json`
+    /// belongs to another tool, and a link may lead out of `.learn/`. A
+    /// course that cannot be read goes too, since the learner may want
+    /// exactly that.
+    pub fn removal(&self, slug: &str) -> Result<Removal> {
+        self.check_slug(slug)?;
+        let dir = self.course_dir(slug);
+        let title = match self.find(slug) {
+            Ok(Found::Course(course)) => Some(course.title),
+            Ok(Found::Newer(_) | Found::Corrupt(_)) => None,
+            // `find` fails on the read of `course.json` alone, and a course
+            // whose `course.json` cannot be read goes all the same.
+            Err(_) if fs::symlink_metadata(&dir).is_ok_and(|meta| meta.is_dir()) => None,
+            Err(error) => return Err(error),
+            Ok(Found::Nothing) => {
+                let slugs = self.slugs()?;
+                match slugs.is_empty() {
+                    true => bail!("{DIR}/ holds no course yet, so no course {slug}"),
+                    false => bail!(
+                        "{DIR}/ holds no course {slug}. Its courses: {}",
+                        slugs.join(", ")
+                    ),
+                }
+            }
+            Ok(Found::Foreign) => bail!(
+                "{} has no course.json, so it is not a course of qlearn. qlearn deletes \
+                 only its own courses",
+                dir.display()
+            ),
+            Ok(Found::Link) => bail!(
+                "{} is a symbolic link, not a course of qlearn. qlearn deletes only its \
+                 own courses",
+                dir.display()
+            ),
+        };
+
+        let pages = dir.join("pages");
+        let pages = match fs::symlink_metadata(&pages).is_ok_and(|meta| meta.is_dir()) {
+            true => fs::read_dir(&pages)
+                .with_context(|| format!("cannot read {}", pages.display()))?
+                .filter_map(|entry| entry.ok()?.file_name().into_string().ok())
+                .filter(|name| {
+                    name.strip_suffix(".md")
+                        .is_some_and(|id| check_page_id(id).is_ok())
+                })
+                .count(),
+            false => 0,
+        };
+        Ok(Removal {
+            slug: slug.to_owned(),
+            title,
+            pages,
+            cheatsheet: dir.join("cheatsheet.md").exists(),
+            notes: self.notes(slug)?.len(),
+            dir,
+        })
+    }
+
+    /// Remove the directory of a course, and nothing else.
+    ///
+    /// The removal does not follow a link inside the course: it removes the
+    /// link, and leaves what it leads to.
+    pub fn remove(&self, removal: &Removal) -> Result<()> {
+        // `removal()` refused a link in place of the course.
+        fs::remove_dir_all(&removal.dir)
+            .with_context(|| format!("cannot remove {}", removal.dir.display()))
     }
 }
 
@@ -1579,6 +1708,153 @@ mod tests {
             "The code.\n"
         );
         assert_eq!(files(&repo.path().join("src")), ["1.md"]);
+    }
+
+    #[tokio::test]
+    async fn the_only_course_is_read_and_never_made() {
+        let repo = repo().await;
+        let store = Store::at(repo.path());
+        let error = store.only().unwrap_err().to_string();
+        assert!(error.contains("holds no course yet"), "{error}");
+        assert_eq!(files(repo.path()), ["a.txt"], "nothing is created");
+
+        let course = store.open(Some("raft"), at_new_year()).unwrap();
+        assert_eq!(store.only().unwrap(), course);
+        store.open(Some("paxos"), at_new_year()).unwrap();
+        let error = store.only().unwrap_err().to_string();
+        assert!(error.contains("several courses: paxos, raft"), "{error}");
+    }
+
+    /// The names of the notes, never their content, and never what a link
+    /// leads to.
+    #[tokio::test]
+    async fn the_notes_are_listed_by_name_and_a_link_is_not_followed() {
+        let repo = repo().await;
+        let store = Store::at(repo.path());
+        store.open(Some("raft"), at_new_year()).unwrap();
+        assert_eq!(store.notes("raft").unwrap(), Vec::<String>::new());
+        let notes = repo.path().join(".learn/raft/notes");
+        write(&notes.join("plan.md"), "The plan.\n");
+        write(&notes.join("sources/paper.txt"), "The paper.\n");
+        let elsewhere = tempfile::tempdir().unwrap();
+        write(&elsewhere.path().join("secret.txt"), "secret\n");
+        std::os::unix::fs::symlink(elsewhere.path(), notes.join("away")).unwrap();
+
+        assert_eq!(
+            store.notes("raft").unwrap(),
+            ["away", "plan.md", "sources/paper.txt"]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_removal_names_what_the_course_holds_and_removes_it_alone() {
+        let repo = repo().await;
+        let store = Store::at(repo.path());
+        let mut course = store.open(Some("raft"), at_new_year()).unwrap();
+        course.title = "Raft elections".to_owned();
+        store.save(&course).unwrap();
+        store.open(Some("paxos"), at_new_year()).unwrap();
+        let page = text_page("<p>One.</p>");
+        store.save_page("raft", "1", "One.\n", &page).unwrap();
+        store.save_page("raft", "c1", "Check.\n", &page).unwrap();
+        let dir = repo.path().join(".learn/raft");
+        write(&dir.join("cheatsheet.md"), "# Raft\n");
+        write(&dir.join("notes/plan.md"), "The plan.\n");
+        // A link inside the course leads out of the store, and stays a link.
+        let elsewhere = tempfile::tempdir().unwrap();
+        write(&elsewhere.path().join("kept.txt"), "kept\n");
+        std::os::unix::fs::symlink(elsewhere.path(), dir.join("notes/away")).unwrap();
+
+        let removal = store.removal("raft").unwrap();
+        assert_eq!(
+            removal,
+            Removal {
+                slug: "raft".to_owned(),
+                dir: dir.clone(),
+                title: Some("Raft elections".to_owned()),
+                pages: 2,
+                cheatsheet: true,
+                notes: 2,
+            }
+        );
+        store.remove(&removal).unwrap();
+
+        assert!(!dir.exists());
+        assert_eq!(files(elsewhere.path()), ["kept.txt"]);
+        assert_eq!(files(repo.path()), [".learn/paxos/course.json", "a.txt"]);
+    }
+
+    /// A `course.json` that does not parse, that a newer qlearn wrote, or
+    /// that the system cannot read, holds the course back from no delete.
+    #[tokio::test]
+    async fn an_unreadable_course_may_be_removed() {
+        let repo = repo().await;
+        let store = Store::at(repo.path());
+        let path = repo.path().join(".learn/raft/course.json");
+        let newer = format!("{{ \"version\": {} }}", model::VERSION + 1);
+        for text in ["{ not json", newer.as_str()] {
+            write(&path, text);
+
+            let removal = store.removal("raft").unwrap();
+
+            assert_eq!(removal.title, None, "{text}");
+            assert_eq!(
+                (removal.pages, removal.cheatsheet, removal.notes),
+                (0, false, 0)
+            );
+        }
+
+        // A read fails for a directory as it does for a file with no
+        // permission, and the test may run as root.
+        fs::remove_file(&path).unwrap();
+        fs::create_dir(&path).unwrap();
+        let removal = store.removal("raft").unwrap();
+        assert_eq!(removal.title, None);
+        store.remove(&removal).unwrap();
+        assert!(!repo.path().join(".learn/raft").exists());
+    }
+
+    #[tokio::test]
+    async fn a_removal_of_what_is_no_course_is_refused_and_removes_nothing() {
+        let repo = repo().await;
+        let store = Store::at(repo.path());
+        let error = store.removal("raft").unwrap_err().to_string();
+        assert_eq!(error, ".learn/ holds no course yet, so no course raft");
+
+        store.open(Some("paxos"), at_new_year()).unwrap();
+        store.open(Some("zab"), at_new_year()).unwrap();
+        let error = store.removal("raft").unwrap_err().to_string();
+        assert_eq!(
+            error,
+            ".learn/ holds no course raft. Its courses: paxos, zab"
+        );
+
+        write(&repo.path().join(".learn/bully/notes.txt"), "bully\n");
+        let error = store.removal("bully").unwrap_err().to_string();
+        assert!(error.contains("not a course of qlearn"), "{error}");
+
+        let elsewhere = tempfile::tempdir().unwrap();
+        write(&elsewhere.path().join("course.json"), "{}");
+        std::os::unix::fs::symlink(elsewhere.path(), repo.path().join(".learn/gossip")).unwrap();
+        let error = store.removal("gossip").unwrap_err().to_string();
+        assert!(error.contains("symbolic link"), "{error}");
+
+        for slug in ["../paxos", "", "Raft"] {
+            let error = store.removal(slug).unwrap_err().to_string();
+            assert!(error.contains("not a slug"), "{slug}: {error}");
+        }
+        assert_eq!(files(elsewhere.path()), ["course.json"]);
+        assert_eq!(
+            files(repo.path()),
+            [
+                ".learn/bully/notes.txt",
+                // Through the link, which stays.
+                ".learn/gossip/course.json",
+                ".learn/paxos/course.json",
+                ".learn/zab/course.json",
+                "a.txt"
+            ]
+        );
     }
 
     fn exclude_file(repo: &Repo) -> String {
