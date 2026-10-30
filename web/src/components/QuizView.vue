@@ -218,7 +218,9 @@ function verdict(choice: Choice & { graded: GradedChoice }): string {
           <span>{{ choice.graded.other }}</span>
         </p>
       </section>
-      <p v-if="!quiz.debrief" class="quiz-debrief" role="status">The agent writes the debrief.</p>
+      <p v-if="!quiz.debrief" class="quiz-debrief preparing" role="status">
+        The agent writes the debrief.
+      </p>
     </template>
 
     <section v-if="quiz.debrief" class="debrief" aria-label="Debrief">

@@ -1308,6 +1308,23 @@ machine. The budget keeps a file that a mail or a wiki takes.
 - **An image left out whole.** A small figure is often the point of the
   sheet.
 
+## 2026-10-30 — The page waits for the agent where the agent owes an answer
+
+**Decision.** A thread whose last comment is the learner's shows "The
+agent writes its answer here." and no box to reply. A page with a quiz
+that the learner answered and that has no debrief shows no Next: the end
+of the page says that the next page comes after the debrief. If no agent
+waits on the server, it says to run `qlearn wait`. Both waits show the
+dot of the other waits of the agent.
+
+**Why.** A second message before the answer only asked again, and a
+learner who moved on before the debrief skipped the end of the lesson.
+The procedure writes the debrief of every quiz, so Next always comes
+back.
+
+**Rejected:** a box to reply that is there but disabled. It looks like a
+fault, and it says nothing of the wait.
+
 ## Open questions
 
 - **The URL of the repository.** The host is decided: a public repository

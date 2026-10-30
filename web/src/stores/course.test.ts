@@ -766,6 +766,40 @@ describe('next', () => {
     expect(location.hash).toBe('#page=2');
   });
 
+  it('waits for the debrief of an answered quiz, and asks nothing before it', async () => {
+    server.push('1', 1);
+    server.push('2', 2);
+    history.replaceState(null, '', '/#page=1');
+    const quiz = { open: { prompt: 'Why?', sent: 'Because.' }, choices: [], debrief: null };
+    server.pages.get('1')!.quizzes = [quiz];
+    const store = await started();
+
+    expect(store.ending).toBe('debriefing');
+    await store.next();
+    expect(store.page?.id).toBe('1');
+    expect(server.nexts).toEqual([]);
+
+    server.pages.get('1')!.quizzes = [
+      {
+        ...quiz,
+        debrief: { blocks: [{ id: 'd1', kind: 'text', html: '<p>Yes.</p>' }], points: [] },
+      },
+    ];
+    const event: Event = { seq: 11, kind: 'debrief', author: 'agent', page: '1', id: '1' };
+    server.send(batch({ next: 11, events: [event] }));
+    await vi.waitFor(() => expect(store.ending).toBe('next'));
+  });
+
+  it('does not wait for a quiz that the learner has not answered', async () => {
+    server.push('1', 1);
+    server.pages.get('1')!.quizzes = [
+      { open: { prompt: 'Why?', sent: null }, choices: [], debrief: null },
+    ];
+    const store = await started();
+
+    expect(store.ending).toBe('next');
+  });
+
   it('skips a page of the syllabus that has no content', async () => {
     server.push('1', 1);
     server.course.parts[0].pages.push(pageRef('2', 'planned'));

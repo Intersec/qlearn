@@ -50,7 +50,9 @@ describe('ThreadView', () => {
     const wrapper = mount(ThreadView, { props: { thread: asked, reply: async () => true } });
 
     expect(wrapper.find('.thread-quote').exists()).toBe(false);
-    expect(wrapper.find('.thread-waiting').text()).toBe('The agent answers here.');
+    expect(wrapper.find('.thread-waiting').text()).toBe('The agent writes its answer here.');
+    // A second message before the answer would only ask again.
+    expect(wrapper.find('textarea').exists()).toBe(false);
   });
 
   it('sends a reply, and keeps the text when the server refuses it', async () => {

@@ -75,7 +75,8 @@ test('the learner asks about a block, and the reply of the agent shows live', as
   await expect(thread.locator('.thread-comment[data-author="learner"]')).toContainText(
     'Why would they split again?',
   );
-  await expect(thread.locator('.thread-waiting')).toHaveText('The agent answers here.');
+  await expect(thread.locator('.thread-waiting')).toHaveText('The agent writes its answer here.');
+  await expect(thread.getByRole('textbox', { name: 'Reply' })).toHaveCount(0);
   await expect(asking).toHaveCount(0);
 
   // The agent gets the question with the source of its block.

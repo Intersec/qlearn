@@ -243,7 +243,10 @@ describe('the threads of a page', () => {
 
   it('send a reply of the learner with the id of the thread', async () => {
     const reply = vi.fn().mockResolvedValue(true);
-    const wrapper = mount(PageView, { props: { page: pageWith([threadOn('1-2', 'b')]), reply } });
+    // The learner replies once the agent has answered.
+    const thread = threadOn('1-2', 'b');
+    thread.comments.push({ author: 'agent', body: '<p>Yes.</p>', at: '2026-01-01T00:01:00Z' });
+    const wrapper = mount(PageView, { props: { page: pageWith([thread]), reply } });
 
     await wrapper.find('[data-thread="1-2"] textarea').setValue('And then?');
     await wrapper.find('[data-thread="1-2"] form').trigger('submit');

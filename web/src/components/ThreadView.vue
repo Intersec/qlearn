@@ -34,7 +34,10 @@ const waiting = computed(() => props.thread.comments.at(-1)?.author === 'learner
       <!-- eslint-disable-next-line vue/no-v-html -- written by the server, cleaned in html.ts -->
       <div class="md-doc thread-body" v-html="comment.body" />
     </article>
-    <p v-if="waiting" class="thread-waiting" role="status">The agent answers here.</p>
-    <CommentBox label="Reply" :send="reply" />
+    <!-- A second message before the answer would only ask again. -->
+    <p v-if="waiting" class="thread-waiting preparing" role="status">
+      The agent writes its answer here.
+    </p>
+    <CommentBox v-else label="Reply" :send="reply" />
   </section>
 </template>

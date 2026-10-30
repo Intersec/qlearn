@@ -162,6 +162,10 @@ test('the agent debriefs the quiz, and the page and the column follow', async ({
   await quiz.getByRole('button', { name: 'Send' }).click();
   await expect(quiz).toHaveAttribute('data-step', 'graded');
   await expect(entry.locator('.syllabus-score')).toHaveText('1/1');
+  // The next page waits for the debrief.
+  const next = page.getByRole('button', { name: 'Next' });
+  await expect(next).toHaveCount(0);
+  await expect(page.locator('.page-end')).toContainText('after the debrief of your quiz');
 
   // The agent grades the open answer half right, in the debrief.
   const { events } = await waited;
@@ -185,6 +189,7 @@ test('the agent debriefs the quiz, and the page and the column follow', async ({
   // The column follows: a partial point counts half.
   await expect(entry).toHaveAttribute('data-state', 'debriefed');
   await expect(entry.locator('.syllabus-score')).toHaveText('1.5/2');
+  await expect(next).toBeVisible();
 
   // A reload shows the same.
   await page.reload();

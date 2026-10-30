@@ -34,7 +34,7 @@ export type Presence = 'absent' | 'connected' | 'working' | 'left';
  * not taken the request yet. `preparing` says that the agent writes the
  * next page.
  */
-export type Ending = 'next' | 'asked' | 'preparing';
+export type Ending = 'next' | 'debriefing' | 'asked' | 'preparing';
 
 /** How a move of the learner goes into the history of the browser. */
 type Move = 'push' | 'replace';
@@ -124,7 +124,24 @@ export const useCourse = defineStore('course', () => {
     return pages.value.slice(at + 1).find((entry) => entry.state !== 'planned')?.id ?? null;
   });
 
+  /**
+   * A quiz of the page that the learner answered waits for its debrief.
+   * The debrief closes the lesson, so the next page waits for it.
+   */
+  const debriefing = computed(
+    () =>
+      page.value?.quizzes.some(
+        (quiz) =>
+          quiz.debrief === null &&
+          (quiz.open === null || quiz.open.sent !== null) &&
+          quiz.choices.every((choice) => choice.graded !== null),
+      ) ?? false,
+  );
+
   const ending = computed<Ending>(() => {
+    if (debriefing.value) {
+      return 'debriefing';
+    }
     if (following.value) {
       return 'next';
     }
@@ -509,7 +526,7 @@ export const useCourse = defineStore('course', () => {
   /** Next: open the following page, or ask the agent for one. */
   async function next() {
     const shown = page.value;
-    if (!shown) {
+    if (!shown || debriefing.value) {
       return;
     }
     if (following.value) {

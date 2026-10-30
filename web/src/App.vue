@@ -33,6 +33,9 @@ const {
 } = storeToRefs(store);
 
 /** On a narrow screen, the syllabus covers the page until the learner picks one. */
+/** An agent waits on the server, so a request of the learner reaches it. */
+const listening = computed(() => presence.value === 'connected' || presence.value === 'working');
+
 const syllabusOpen = ref(false);
 
 /** The column of the page, which scrolls alone. */
@@ -214,12 +217,22 @@ onBeforeUnmount(() => {
             @focus="store.openThread"
           />
           <footer class="page-end">
-            <p v-if="ending === 'preparing'" role="status" class="preparing">
+            <p
+              v-if="ending === 'debriefing'"
+              role="status"
+              :class="listening ? 'preparing' : 'asked'"
+            >
+              The next page comes after the debrief of your quiz.
+              <template v-if="!listening">
+                No agent listens: ask your agent to run <code>qlearn wait</code>.
+              </template>
+            </p>
+            <p v-else-if="ending === 'preparing'" role="status" class="preparing">
               The agent prepares the next page<template v-if="status">: {{ status }}</template>
             </p>
             <p v-else-if="ending === 'asked'" role="status" class="asked">
               You asked for the next page.
-              <template v-if="presence === 'connected' || presence === 'working'">
+              <template v-if="listening">
                 The agent gets the request when it waits again.
               </template>
               <template v-else>

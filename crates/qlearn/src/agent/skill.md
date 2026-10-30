@@ -330,7 +330,8 @@ Give each lesson a quiz (see "Quizzes" for the format):
 ## Debrief a quiz
 
 When the learner answers a quiz, write its debrief (see "The debrief" for
-the command):
+the command). The page shows Next only once the debrief is written, so
+write it before other work:
 
 - Start with the open answer: what is right, what is missing or wrong.
   Then take each choice. For a right answer, add one detail that goes

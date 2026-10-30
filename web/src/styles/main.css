@@ -1561,9 +1561,6 @@ a.syllabus-entry:focus-visible {
 }
 .quiz-debrief {
   margin: 12px 0 0;
-  color: var(--ink-quiet);
-  font-size: 13px;
-  font-style: italic;
 }
 
 /* The debrief of the agent, under its quiz: a pane of the agent, with the
@@ -1969,9 +1966,6 @@ a.syllabus-entry:focus-visible {
 }
 .thread-waiting {
   margin: 6px 0 0;
-  color: var(--ink-quiet);
-  font-size: 13px;
-  font-style: italic;
 }
 
 /* The box to write a question or a reply in. */
