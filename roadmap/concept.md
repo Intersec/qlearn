@@ -88,7 +88,9 @@ Then it follows `qlearn skill`.
 ## Who it is for
 
 Developers who learn a subject of a codebase with an agent: a mechanism, a
-module, an algorithm, a protocol. One learner, one machine.
+module, an algorithm, a protocol. One learner, one machine. A subject with
+no code, such as a paper, works too, in any directory: the course then
+shows no excerpt.
 
 ## Non-goals
 

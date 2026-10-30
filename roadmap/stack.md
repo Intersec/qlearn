@@ -1325,6 +1325,36 @@ back.
 **Rejected:** a box to reply that is there but disabled. It looks like a
 fault, and it says nothing of the wait.
 
+## 2026-10-30 — A course outside a git repository
+
+**Decision.** qlearn opens a course outside the work tree of a git
+repository. The directory of the course takes the place of the worktree:
+the nearest directory, from the current directory up, that holds
+`.learn/`, or the current directory. Its id comes from its real path, as
+the id of a worktree does. The server writes nothing to git. An excerpt
+or an image is refused with its line, since there is no object database
+to read. A fence of code stays legal. Inside a repository, nothing
+changes. The procedure gets a case for a subject with no code: the
+sources of the learner take the place of the code.
+
+**Why.** A course on a paper or a protocol has no code. A course taught
+in the terminal of an agent runs in any directory, but qlearn refused to
+start outside a repository, so those subjects lost the page. Every widget of a page but the excerpt and the image needs no
+git.
+
+**Rejected:**
+
+- **An empty repository as the way to do it.** It works today, but the
+  learner must know the trick, and the course still offers excerpts that
+  can show nothing.
+- **A store in the home of the user**, such as `~/.local/share/qlearn/`.
+  It changes the lock, the address of the socket and `qlearn list` for
+  every course. A `.learn/` in the directory where the learner works keeps
+  one model.
+- **The current directory alone, with no walk up.** An agent command run
+  from a directory below would not find the server, where a repository
+  finds it.
+
 ## Open questions
 
 - **The URL of the repository.** The host is decided: a public repository

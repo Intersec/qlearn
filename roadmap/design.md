@@ -9,7 +9,7 @@ and report.
 ```
 qlearn [<slug>] [options]
     |
-    |-- find the repository and the worktree
+    |-- find the worktree, or the directory of .learn/ outside a repository
     |-- read .learn/<slug>/, or create the course
     |-- start the server          127.0.0.1:<random port>
     |                             /tmp/qlearn-<uid>/<worktree-id>.sock
@@ -31,6 +31,26 @@ still opens with `qlearn -- <slug>`. If `.learn/` holds several courses, it
 lists them and stops. If a server already answers on the worktree, `qlearn`
 prints its course and its URL, and stops. To open another course, the
 learner stops that server first.
+
+**A course outside a git repository.** A subject with no code, such as a
+paper or a protocol, needs no repository. Outside the work tree of a git
+repository, the directory of the course takes the place of the worktree
+everywhere in this document:
+
+- It is the nearest directory, from the current directory up, that holds
+  a `.learn/` directory. With none, it is the current directory, and
+  `qlearn <slug>` creates `.learn/` there. The agent commands find the
+  server by the same walk, so they work from a directory below it.
+- Its id, for the socket, is computed as the id of a worktree, from its
+  real path.
+- The server writes nothing to git.
+- A page, a debrief or a cheatsheet with an excerpt or an image is
+  refused: they read the object database, and there is none. A fence of
+  code stays legal (section 4.1).
+
+If `git` is not installed, every directory is outside a repository. A
+directory inside a repository always takes the top level of its worktree,
+even when a `.learn/` sits nearer.
 
 **The token and the socket.** The server binds the
 loopback address only. It makes a random token at startup. The first page
@@ -58,10 +78,10 @@ starts inside a sandbox cannot be reached by the browser. The procedure of
 the agent (section 12) says how to detect it.
 
 **What the server reads and writes.** It writes under `.learn/` only, and
-nowhere else in the working tree. At startup, if git does not ignore
-`.learn/`, it adds `.learn/` to `.git/info/exclude`. It reads the code from
-the object database, so an excerpt names a commit and not
-the state of a file on disk. It never runs a command that changes the
+nowhere else in the working tree. At startup, in a repository, if git
+does not ignore `.learn/`, it adds `.learn/` to `.git/info/exclude`. It
+reads the code from the object database, so an excerpt
+names a commit and not the state of a file on disk. It never runs a command that changes the
 repository.
 
 On a terminal, a status line says how the course stands: the page (not
@@ -441,6 +461,10 @@ line in the source:
 lesson.md:14: excerpt: vendor/libcore/src/core/el.c has 98 lines at HEAD, the excerpt asks for 120-135
 lesson.md:31: chart: series[0].values: holds 3 values, and x holds 2. Give one value for each x value
 ```
+
+Outside a git repository, each excerpt and each image is an error of its
+own, which says that a course outside a repository shows no code of a
+repository, and that a fence of code shows a sketch.
 
 The command exits with 1, and the agent fixes the source.
 
@@ -959,6 +983,11 @@ The procedure covers the teaching and the page. For the teaching, it says:
 - How to end: the cheatsheet, the developer doc of the subject, which the
   agent writes in the repository if the learner agrees, and `qlearn delete`
   once the learner agrees and has saved an export of the cheatsheet.
+- A subject with no code, outside a repository or in one: the sources
+  that the learner gives take the place of the code. Each claim is checked
+  against them, a lesson cites them by name and place, and a fence of code
+  shows a sketch. The course writes no developer doc, and a finding is a
+  gap or a contradiction in the sources.
 
 For the page, it says:
 
