@@ -1389,6 +1389,58 @@ The cheatsheet keeps Map of the code outside a repository, with the line
 export then show the same sections in every course, and nothing that
 crosses the wire changes.
 
+## 2026-10-30 — An image of the notes of the course
+
+**Decision.** An image whose path starts with `.learn/<slug>/notes/`,
+where `<slug>` is the course of the page, is read on disk at the push.
+Every other image stays an image of the repository, read at `HEAD`. The
+rule holds inside a repository and outside one. The agent draws the
+figure, makes it with a program, or takes it from the web with its own
+tools. qlearn fetches nothing.
+
+**Why.** A course outside a repository could show no image, and a
+gesture or a shape is hard to teach with a diagram alone, such as a
+stitch of crochet. Inside a repository, the agent could show only a
+figure that a commit holds, and a course commits nothing. `notes/` is
+already the place where the agent writes with its own tools.
+
+**Rules.**
+
+- **The path is written from the top level directory**, as the path of an
+  image of the repository. No new syntax: it is the real path of the file.
+- **Only the notes of the course of the page.** A path under
+  `.learn/<other>/notes/` is refused, and so is any other path under
+  `.learn/`.
+- **The file must be a regular file inside the notes.** The server
+  resolves the real path of the file and of `notes/`, and refuses a file
+  whose real path leaves `notes/`, such as a symbolic link to another
+  directory. It refuses a directory or a device.
+- **The size is checked before the read**, from the metadata of the file:
+  5 MB at most, as for an image of the repository.
+- **Every other rule holds**: the type from the bytes, the refusal of an
+  SVG that declares entities, the alt text, the copy into `media/`.
+- **The block on the wire** carries `origin: 'notes'`, with `repo` and
+  `commit` at `null`. A page stored before this change has no `origin`,
+  and reads as `repository`. The format of the store keeps its version:
+  a server that reads an older page gets the default.
+- **The header of the image** shows its path, with no commit. The
+  Markdown export of the cheatsheet shows the path with no commit too.
+- **The procedure** says when an image beats a diagram, a chart or
+  steps, how to draw an SVG that reads on the white ground of the page,
+  to look at the figure before the push, and to name the source of a
+  figure of the web under it.
+
+**Rejected:**
+
+- **An image read anywhere in the worktree.** The page would show a file
+  that the learner changes, and that no commit holds. The notes belong to
+  the course, and the page says so with no commit in the header.
+- **A path relative to `notes/`, or a prefix such as `notes:`.** A path
+  `notes/a.svg` already names a file of a repository. A prefix is a new
+  syntax that the agent must learn, where the real path needs none.
+- **An image fetched by the server from a URL.** qlearn never calls a
+  network service, and the page loads nothing from the network.
+
 ## Open questions
 
 - **The URL of the repository.** The host is decided: a public repository

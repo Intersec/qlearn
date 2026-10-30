@@ -40,10 +40,12 @@ What the browser shows:
 
 - The syllabus on the left, in parts and lessons, with the state and the
   score of each lesson.
-- The lesson: text, tables, diagrams, charts, step-by-step views, images
-  of the repository, and excerpts of the code with their colors. The
-  server reads each excerpt and each image in the repository, submodules
-  included. It refuses a page whose excerpt does not match the code.
+- The lesson: text, tables, diagrams, charts, step-by-step views, images,
+  and excerpts of the code with their colors. The server reads each
+  excerpt and each image of the repository in the repository, submodules
+  included. It refuses a page whose excerpt does not match the code. An
+  image can also come from the notes of the course, where the agent puts
+  a figure that it drew.
 - The quiz under the lesson: the open question first, then the
   multiple-choice questions, then the debrief of the agent. They stay on the
   page.
@@ -73,7 +75,7 @@ A subject with no code, such as a paper, needs no repository. Outside a
 git repository, the course lives in the nearest directory, from the
 current directory up, that holds `.learn/`, or in the current directory
 when there is none. Such a course shows no excerpt and no image of a
-repository. Without git on the PATH, every directory is outside a
+repository. It shows images of its notes. Without git on the PATH, every directory is outside a
 repository.
 
 `qlearn export` asks the server of the worktree for the course. With no

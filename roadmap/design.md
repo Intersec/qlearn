@@ -44,9 +44,10 @@ everywhere in this document:
 - Its id, for the socket, is computed as the id of a worktree, from its
   real path.
 - The server writes nothing to git.
-- A page, a debrief or a cheatsheet with an excerpt or an image is
-  refused: they read the object database, and there is none. A fence of
-  code stays legal (section 4.1).
+- A page, a debrief or a cheatsheet with an excerpt, or with an image of
+  the repository, is refused: they read the object database, and there
+  is none. A fence of code stays legal (section 4.1), and so does an
+  image of the notes of the course (section 4.6).
 
 If `git` is not installed, every directory is outside a repository. A
 directory inside a repository always takes the top level of its worktree,
@@ -229,7 +230,7 @@ The server splits the source into blocks with `pulldown-cmark`:
 | `diagram` | A fence with the info string `mermaid` | An SVG drawn by Mermaid |
 | `chart` | A fence with the info string `chart` | An SVG chart (section 4.4) |
 | `steps` | A fence with the info string `steps` | A view that plays step by step (section 4.5) |
-| `image` | `![alt](path)` alone in a paragraph | An image of the repository |
+| `image` | `![alt](path)` alone in a paragraph | An image of the repository, or of the notes of the course |
 
 Consecutive text forms one `text` block. A heading starts a new one, so a
 thread can name a section.
@@ -425,11 +426,23 @@ widget of the page, with data in JSON, is the way.
 
 ### 4.6 The image
 
-`![alt](path)` alone in a paragraph is an image of the repository, at
-`HEAD`. The server reads it at the push in the object database,
-submodules included, as it reads an excerpt, and copies it into `media/`,
-under the hash of its content. It takes PNG, JPEG, GIF, WebP, and SVG, and
-reads the type in the bytes of the file. A URL with a scheme is refused.
+`![alt](path)` alone in a paragraph is an image. It comes from one of
+two places:
+
+- **The repository**, at `HEAD`. The server reads it at the push in the
+  object database, submodules included, as it reads an excerpt.
+- **The notes of the course.** If the path starts with
+  `.learn/<slug>/notes/`, where `<slug>` is the course of the page, the
+  server reads the file on disk at the push. The agent puts there a
+  figure that it drew, made with a program, or took from the web. The
+  server refuses a path under the notes of another course. It also
+  refuses a file that is not a regular file inside those notes, such as
+  a link that leads out. This works inside a repository and outside one.
+
+The server copies the image into `media/`, under the hash of its content.
+It takes PNG, JPEG, GIF, WebP, and SVG, and reads the type in the bytes of
+the file. A URL with a scheme is refused. qlearn fetches nothing: the
+agent puts a figure of the web in the notes with its own tools.
 
 The page draws every image from an `<img>`, so an SVG runs no script and
 loads nothing. `GET /api/media/:name` sends it with its type and a
@@ -439,17 +452,18 @@ loads nothing. `GET /api/media/:name` sends it with its type and a
 type Image = {
   alt: string;              // the text for a screen reader, never empty
   media: string;            // <sha256>.<ext>, the name of the file in media/
-  path: string;
-  repo: string;             // "" for the main repository, or the submodule path
-  commit: string;           // the full hash of HEAD, in the repository that holds the file
+  path: string;             // from the top level directory, as the page writes it
+  origin: 'repository' | 'notes';
+  repo: string | null;      // "" for the main repository, or the submodule path; null for the notes
+  commit: string | null;    // the full hash of HEAD, in the repository that holds the file; null for the notes
   type: 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp' | 'image/svg+xml';
   width: number | null;     // in pixels, when the header of the file says it
   height: number | null;
 };
 ```
 
-The limits and the other rules are in `stack.md`, entry "Holes found by
-the image".
+The limits and the other rules are in `stack.md`, entries "Holes found by
+the image" and "An image of the notes of the course".
 
 ### 4.7 The checks
 
@@ -462,9 +476,11 @@ lesson.md:14: excerpt: vendor/libcore/src/core/el.c has 98 lines at HEAD, the ex
 lesson.md:31: chart: series[0].values: holds 3 values, and x holds 2. Give one value for each x value
 ```
 
-Outside a git repository, each excerpt and each image is an error of its
-own, which says that a course outside a repository shows no code of a
-repository, and that a fence of code shows a sketch.
+Outside a git repository, each excerpt and each image of the repository
+is an error of its own. It says that a course outside a repository shows
+no file of a repository. For an excerpt, it says that a fence of code
+shows a sketch. For an image, it says that an image of the notes of the
+course works.
 
 The command exits with 1, and the agent fixes the source.
 
@@ -858,8 +874,8 @@ saves an export first.
 ```
 
 **The server is the only writer**, except for `notes/`. The agent writes its
-research notes there with its own tools, and the server never reads or
-writes them. The export lists their names only. Every other file goes
+research notes and its figures there with its own tools. The server never
+writes them, and reads only an image that a page names (section 4.6). The export lists their names only. Every other file goes
 through the commands of section 11. `qlearn delete` removes a course only
 when no server serves it.
 

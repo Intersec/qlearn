@@ -536,9 +536,10 @@ book. Teach them as any other course, inside a repository or outside one.
 - **Show a sketch in a fence of code**, such as a fence with the info
   string `c`, or pseudo-code in a fence with no info string. Say in the
   text that it is a sketch.
-- **Outside a repository, show no excerpt and no image.** There is no
-  repository to read them in, so the server refuses the page. Draw a
-  figure with a diagram, a chart or steps.
+- **Outside a repository, show no excerpt and no image of the
+  repository.** There is no repository to read them in, so the server
+  refuses the page. Draw a figure with a diagram, a chart or steps, or
+  put an image in the notes of the course (see "Images").
 - **Skip the steps that read code**: the history of the learner in
   `git log`, the code map of the research, and the developer doc at the
   end.
@@ -862,23 +863,43 @@ The server checks every rule, and names the field of each error, such as
 
 ## Images
 
-An image alone in a paragraph shows a file of the repository. Use an
-image only for a diagram or a screenshot that the repository already
-holds, such as a figure of the design docs. Draw a new figure with a
-diagram, a chart or steps instead.
+An image alone in a paragraph shows a file of the repository, or a file
+of the notes of the course. Prefer a diagram, a chart or steps when they
+show the idea: they follow the theme of the page. Use an image when the
+subject is a shape, a gesture or a screen, which boxes and arrows do not
+show.
 
 ```
 ![The states of a server, and what moves a server between them](docs/raft/states.svg)
+![The magic ring: the yarn makes a loop around two fingers](.learn/crochet/notes/magic-ring.svg)
 ```
 
-- The path starts at the top level directory of the worktree, with no
-  leading `/`, no `.` and no `..`. A path inside a submodule works.
+- **An image of the repository** is a figure that a commit holds, such
+  as a figure of the design docs.
+- **An image of the notes** is a file that you put under
+  `.learn/<slug>/notes/`, where `<slug>` is the course. It works inside a
+  repository and outside one. Make it in one of three ways:
+  - Draw an SVG by hand. Give it a `viewBox`, dark strokes, and text of
+    16 px or more: the page draws an image on a white ground, in both
+    themes.
+  - Make it with a program that the machine has, such as a plot or a
+    graph layout. Write the file into the notes.
+  - Take it from the web, such as a figure of Wikimedia Commons. Prefer
+    a free license. Name the source and its license in the text under
+    the image.
+- Look at the figure before you push the page. If you cannot open an
+  SVG, render it to PNG with a tool of the machine, and look at the PNG.
+- The path starts at the top level directory of the worktree, or of the
+  directory of the course outside a repository. It has no leading `/`,
+  no `.` and no `..`. A path inside a submodule works.
 - For a name with a space, put the path between `<` and `>`, such as
   `![A figure](<docs/my figure.png>)`, or write `%20`. A raw space ends
   the link, and the line stays text.
-- The server reads the file at `HEAD` when you push the page, never on
-  disk. Commit nothing for a course: show only an image that a commit
-  holds.
+- The server reads an image of the repository at `HEAD` when you push
+  the page, never on disk. Commit nothing for a course: put a new figure
+  in the notes. The server reads an image of the notes on disk when you
+  push the page. A later change of the file changes nothing in the page
+  until you push it again.
 - The page takes PNG, JPEG, GIF, WebP and SVG, 5 MB at most. The server
   reads the type in the file, and refuses a file whose extension names
   another type. An SVG must be UTF-8 text, and its doctype must declare
@@ -891,7 +912,8 @@ diagram, a chart or steps instead.
   image in a line of text shows as its alt text. An image alone in a
   list, a quote, a callout or a table is refused.
 - Say in the text what the learner should look at in the image.
-- Outside a git repository, the server refuses every image.
+- Outside a git repository, the server refuses every image of the
+  repository. An image of the notes works.
 
 ## Quizzes
 
