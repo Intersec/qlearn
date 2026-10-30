@@ -5,6 +5,6 @@ description: "# Code of a repository\n\nA good excerpt, a broken one, an image, 
 refused
 refused-code.md:5: excerpt: show the code as a sketch in a fence of code, such as ```c: a course outside a git repository shows no code of a repository
 refused-code.md:10: excerpt: show the code as a sketch in a fence of code, such as ```c: a course outside a git repository shows no code of a repository
-refused-code.md:15: image: take this image out, or draw it in a mermaid fence or a fence of code: a course outside a git repository shows no file of a repository
-refused-code.md:17: image: take this image out, or draw it in a mermaid fence or a fence of code: a course outside a git repository shows no file of a repository
+refused-code.md:15: image: take this image out, draw it in a mermaid fence or a fence of code, or put the file under .learn/raft/notes/: a course outside a git repository shows no file of a repository
+refused-code.md:17: image: take this image out, draw it in a mermaid fence or a fence of code, or put the file under .learn/raft/notes/: a course outside a git repository shows no file of a repository
 refused-code.md:21: diagram: the fence holds no Mermaid source: write the diagram inside it

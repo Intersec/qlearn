@@ -1,0 +1,38 @@
+---
+source: crates/qlearn/src/lesson/mod.rs
+description: "# The magic ring\n\nThe agent drew the ring, and put it in the notes of the course:\n\n![The magic ring: the yarn makes a loop around two fingers](.learn/raft/notes/ring.svg)\n\nA file in a directory of the notes, a name with a space, and a link that\nstays inside the notes:\n\n![Six blue pixels](.learn/raft/notes/figures/pixels.png)\n\n![The ring again](<.learn/raft/notes/my ring.svg>)\n\n![The ring, through a link](.learn/raft/notes/linked.svg)\n\n![The ring, with an escape](.learn/raft/notes/my%20ring.svg)\n"
+---
+title: The magic ring
+
+text ec9bb87235c4
+<h1>The magic ring</h1>
+<p>The agent drew the ring, and put it in the notes of the course:</p>
+
+image 76523a4da733
+.learn/raft/notes/ring.svg Notes, repo None, commit None, image/svg+xml, Some(120) x Some(40)
+alt: "The magic ring: the yarn makes a loop around two fingers"
+media: 417270c99e2fbb74da534f6986f16b11a9a45914c3c79351a8a5203b82bd2285.svg, 333 bytes
+
+text e15786170ddf
+<p>A file in a directory of the notes, a name with a space, and a link that
+stays inside the notes:</p>
+
+image 81e9400dff14
+.learn/raft/notes/figures/pixels.png Notes, repo None, commit None, image/png, Some(3) x Some(2)
+alt: "Six blue pixels"
+media: 1a0e893c94ad808c708b09dacf55bd736d300ad9b3e240d91f507dd409c23dfa.png, 73 bytes
+
+image 1036c4c042c5
+.learn/raft/notes/my ring.svg Notes, repo None, commit None, image/svg+xml, Some(120) x Some(40)
+alt: "The ring again"
+media: 417270c99e2fbb74da534f6986f16b11a9a45914c3c79351a8a5203b82bd2285.svg, 333 bytes
+
+image cc99b967675b
+.learn/raft/notes/linked.svg Notes, repo None, commit None, image/svg+xml, Some(120) x Some(40)
+alt: "The ring, through a link"
+media: 417270c99e2fbb74da534f6986f16b11a9a45914c3c79351a8a5203b82bd2285.svg, 333 bytes
+
+image 383801b6ba26
+.learn/raft/notes/my ring.svg Notes, repo None, commit None, image/svg+xml, Some(120) x Some(40)
+alt: "The ring, with an escape"
+media: 417270c99e2fbb74da534f6986f16b11a9a45914c3c79351a8a5203b82bd2285.svg, 333 bytes

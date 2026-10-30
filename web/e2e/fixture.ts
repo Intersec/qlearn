@@ -10,6 +10,9 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 
+/** The course of every fixture. */
+export const SLUG = 'myproject';
+
 export interface Fixture {
   repo: string;
   /**

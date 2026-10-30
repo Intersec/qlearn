@@ -1,0 +1,13 @@
+---
+source: crates/qlearn/src/lesson/mod.rs
+description: "# Images of the notes that the server cannot show\n\n![An SVG named as a PNG](.learn/raft/notes/fake.png)\n\n![Text named as a GIF](.learn/raft/notes/text.gif)\n\n![An SVG that declares entities](.learn/raft/notes/editor.svg)\n\n![An SVG in UTF-16](.learn/raft/notes/wide.svg)\n\n![A bitmap](.learn/raft/notes/ring.bmp)\n\n![](.learn/raft/notes/ring.svg)\n\n![A URL](https://example.com/.learn/raft/notes/ring.svg)\n\n![Out of the notes](.learn/raft/notes/../../../docs/states.svg)\n"
+---
+refused
+refused-image-notes-read.md:3: image: .learn/raft/notes/fake.png holds an SVG image, and its name says PNG: show a file whose name says what it holds
+refused-image-notes-read.md:5: image: .learn/raft/notes/text.gif is not a PNG, JPEG, GIF, WebP or SVG image
+refused-image-notes-read.md:7: image: .learn/raft/notes/editor.svg declares entities in its doctype, and an entity can make a small SVG a large one to draw: show an SVG whose doctype declares none
+refused-image-notes-read.md:9: image: .learn/raft/notes/wide.svg is not UTF-8 text: show an SVG saved in UTF-8
+refused-image-notes-read.md:11: image: .learn/raft/notes/ring.bmp is not a PNG, JPEG, GIF, WebP or SVG file: the page shows only those
+refused-image-notes-read.md:13: image: the alt text is empty: say what the image shows, such as ![The states of a server](docs/states.svg). A screen reader reads it in place of the image
+refused-image-notes-read.md:15: image: take this image out, draw it in a mermaid fence or a fence of code, or put the file under .learn/raft/notes/: a course outside a git repository shows no file of a repository
+refused-image-notes-read.md:17: image: path ".learn/raft/notes/../../../docs/states.svg" must name a file from the top level directory of the worktree, with no leading `/`, no `.` and no `..`

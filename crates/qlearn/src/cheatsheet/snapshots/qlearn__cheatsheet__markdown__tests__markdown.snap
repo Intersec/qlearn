@@ -73,6 +73,8 @@ Values: Term.
 
 **Image**: The states of a server (`docs/states.png` at `<top>`)
 
+**Image**: The magic ring, drawn by the agent (`.learn/raft/notes/ring.svg`)
+
 ## Map of the code
 
 - `src/raft.c:1-4` at `<top>` (The timer, page 1; The \*vote\*, page c1)

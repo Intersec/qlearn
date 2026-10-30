@@ -1,6 +1,5 @@
 ---
 source: crates/qlearn/src/api/mod.rs
-assertion_line: 2003
 expression: body
 ---
 {
@@ -17,6 +16,7 @@ expression: body
       "id": "b093141c73c1",
       "kind": "image",
       "media": "417270c99e2fbb74da534f6986f16b11a9a45914c3c79351a8a5203b82bd2285.svg",
+      "origin": "repository",
       "path": "docs/states.svg",
       "repo": "",
       "type": "image/svg+xml",
@@ -34,6 +34,7 @@ expression: body
       "id": "58ccb3feb2cc",
       "kind": "image",
       "media": "1a0e893c94ad808c708b09dacf55bd736d300ad9b3e240d91f507dd409c23dfa.png",
+      "origin": "repository",
       "path": "docs/flow.png",
       "repo": "",
       "type": "image/png",

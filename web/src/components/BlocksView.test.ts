@@ -265,6 +265,7 @@ describe('an image block', () => {
       alt: 'The flow of a vote',
       media: `${'a'.repeat(64)}.png`,
       path: 'docs/flow.png',
+      origin: 'repository',
       repo: '',
       commit: 'c'.repeat(40),
       type: 'image/png',

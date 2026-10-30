@@ -173,6 +173,50 @@ async fn a_diagram_that_the_page_cannot_draw_reaches_the_wait() {
     assert!(interrupt(server).await.success());
 }
 
+/// A figure that the agent drew, as it writes one into the notes.
+const RING: &str = "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 100 100\">\
+                    <circle cx=\"50\" cy=\"50\" r=\"40\" fill=\"none\" stroke=\"#222\"/></svg>\n";
+
+/// The agent writes a figure into the notes of the course with its own
+/// tools, and a page shows it: the server copies it into `media/`, and
+/// the block names no commit.
+#[tokio::test]
+async fn an_agent_shows_a_figure_of_its_notes() {
+    let repo = build_repo();
+    let root = repo.path();
+    let mut server = qlearn(root, &["raft", "--no-open"]).spawn().unwrap();
+    read_url(&mut server).await;
+
+    let notes = root.join(".learn/raft/notes");
+    std::fs::create_dir_all(&notes).unwrap();
+    std::fs::write(notes.join("ring.svg"), RING).unwrap();
+    let source = "# The ring\n\n![The magic ring](.learn/raft/notes/ring.svg)\n";
+    let page = json_of(&run(root, &["page", "1", "--file", "-"], Some(source)).await);
+
+    let image = &page["blocks"][1];
+    assert_eq!(image["kind"], "image", "{page}");
+    assert_eq!(image["origin"], "notes");
+    assert_eq!(image["repo"], Value::Null);
+    assert_eq!(image["commit"], Value::Null);
+    let media = root
+        .join(".learn/raft/media")
+        .join(image["media"].as_str().unwrap());
+    assert_eq!(std::fs::read_to_string(media).unwrap(), RING);
+    assert!(root.join(".learn/raft/pages/1.json").is_file());
+
+    // The notes of another course stay out of this one.
+    let other = source.replace("raft", "bully");
+    let refused = run(root, &["page", "2", "--file", "-"], Some(&other)).await;
+    assert_eq!(refused.status.code(), Some(1), "{refused:?}");
+    assert!(
+        stderr(&refused).starts_with("-:3: image: .learn/bully/notes/ring.svg is in the notes"),
+        "{}",
+        stderr(&refused)
+    );
+
+    assert!(interrupt(server).await.success());
+}
+
 /// The agent writes the syllabus from a file or from standard input, and
 /// a refused one prints every fault, so the agent fixes them in one pass.
 #[tokio::test]

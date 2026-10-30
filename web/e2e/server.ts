@@ -2,7 +2,7 @@
 
 import { spawn, type ChildProcess } from 'node:child_process';
 import { Agent, BINARY, halt } from './agent.ts';
-import { build, env, type Fixture } from './fixture.ts';
+import { SLUG, build, env, type Fixture } from './fixture.ts';
 
 export interface Running {
   url: string;
@@ -15,9 +15,6 @@ export interface Running {
    */
   stop(): Promise<void>;
 }
-
-/** The course of every fixture. */
-const SLUG = 'myproject';
 
 /**
  * Start qlearn on a fresh fixture and wait for the address it prints.

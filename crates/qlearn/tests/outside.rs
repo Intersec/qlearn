@@ -150,6 +150,66 @@ async fn a_course_outside_a_repository_takes_every_block_but_the_code() {
     );
 }
 
+/// Outside a repository, a figure that the agent put in the notes of the
+/// course shows, and an image of a repository names the notes as the fix.
+#[tokio::test]
+async fn a_course_outside_a_repository_shows_a_figure_of_its_notes() {
+    let paper = paper();
+    let mut server = paper
+        .qlearn(&paper.dir, &["raft", "--no-open"])
+        .spawn()
+        .unwrap();
+    read_url(&mut server).await;
+
+    let ring = "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 100 100\">\
+                <circle cx=\"50\" cy=\"50\" r=\"40\" fill=\"none\" stroke=\"#222\"/></svg>\n";
+    let notes = paper.dir.join(".learn/raft/notes");
+    std::fs::create_dir_all(&notes).unwrap();
+    std::fs::write(notes.join("ring.svg"), ring).unwrap();
+    let page = "# The ring\n\n![The magic ring](.learn/raft/notes/ring.svg)\n";
+    std::fs::write(paper.below.join("ring.md"), page).unwrap();
+    let pushed = json_of(
+        &paper
+            .run(&paper.below, &["page", "1", "--file", "ring.md"])
+            .await,
+    );
+
+    let image = &pushed["blocks"][1];
+    assert_eq!(image["kind"], "image", "{pushed}");
+    assert_eq!(image["origin"], "notes");
+    assert_eq!(image["repo"], Value::Null);
+    assert_eq!(image["commit"], Value::Null);
+    let media = paper
+        .dir
+        .join(".learn/raft/media")
+        .join(image["media"].as_str().unwrap());
+    assert_eq!(std::fs::read_to_string(media).unwrap(), ring);
+    assert!(paper.dir.join(".learn/raft/pages/1.json").is_file());
+
+    std::fs::write(
+        paper.below.join("repo.md"),
+        "# A figure\n\n![The states](states.svg)\n",
+    )
+    .unwrap();
+    let refused = paper
+        .run(&paper.below, &["page", "2", "--file", "repo.md"])
+        .await;
+    assert_eq!(refused.status.code(), Some(1), "{refused:?}");
+    assert_eq!(
+        stderr(&refused),
+        "repo.md:3: image: take this image out, draw it in a mermaid fence or a fence of \
+         code, or put the file under .learn/raft/notes/: a course outside a git repository \
+         shows no file of a repository\n"
+    );
+
+    assert!(interrupt(server).await.success());
+    assert_eq!(
+        dot_gits(&paper.ceiling),
+        Vec::<PathBuf>::new(),
+        "a write to git"
+    );
+}
+
 /// With no git on the PATH, every directory is outside a repository.
 #[tokio::test]
 async fn a_course_opens_with_no_git() {

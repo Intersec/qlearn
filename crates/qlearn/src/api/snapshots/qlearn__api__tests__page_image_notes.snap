@@ -1,0 +1,30 @@
+---
+source: crates/qlearn/src/api/mod.rs
+expression: body
+---
+{
+  "blocks": [
+    {
+      "html": "<h1>The ring</h1>",
+      "id": "c4f8a8e69bde",
+      "kind": "text"
+    },
+    {
+      "alt": "The magic ring, drawn by the agent",
+      "commit": null,
+      "height": 40,
+      "id": "8c5c955a935f",
+      "kind": "image",
+      "media": "417270c99e2fbb74da534f6986f16b11a9a45914c3c79351a8a5203b82bd2285.svg",
+      "origin": "notes",
+      "path": ".learn/raft/notes/ring.svg",
+      "repo": null,
+      "type": "image/svg+xml",
+      "width": 120
+    }
+  ],
+  "choices": [],
+  "id": "1",
+  "quizzes": [],
+  "threads": []
+}

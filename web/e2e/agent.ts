@@ -5,9 +5,9 @@
 // in the tool changes for it.
 
 import { execFile, execFileSync, spawn, type ChildProcess } from 'node:child_process';
-import { writeFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { env, type Fixture } from './fixture.ts';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { SLUG, env, type Fixture } from './fixture.ts';
 
 /**
  * The release binary, where cargo builds it. CARGO_TARGET_DIR or a
@@ -214,7 +214,32 @@ does next.
 \`\`\`
 `;
 
-/** A page with an SVG and a PNG of the repository. */
+/**
+ * A figure that the agent drew by hand and put in the notes of the
+ * course, as the procedure says: a viewBox, dark strokes, and text of
+ * 16 px or more on the white ground of the page.
+ */
+export const SPLIT_VOTE_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 520 220"
+     font-family="sans-serif" font-size="18" fill="#202124">
+  <circle cx="90" cy="70" r="34" fill="#fef7e0" stroke="#202124" stroke-width="2"/>
+  <text x="90" y="76" text-anchor="middle">S1</text>
+  <circle cx="430" cy="70" r="34" fill="#fef7e0" stroke="#202124" stroke-width="2"/>
+  <text x="430" y="76" text-anchor="middle">S4</text>
+  <circle cx="60" cy="170" r="30" fill="#e8f0fe" stroke="#202124" stroke-width="2"/>
+  <text x="60" y="176" text-anchor="middle">S2</text>
+  <circle cx="260" cy="170" r="30" fill="#ffffff" stroke="#202124" stroke-width="2"
+          stroke-dasharray="6 4"/>
+  <text x="260" y="176" text-anchor="middle">S3</text>
+  <circle cx="460" cy="170" r="30" fill="#e8f0fe" stroke="#202124" stroke-width="2"/>
+  <text x="460" y="176" text-anchor="middle">S5</text>
+  <path d="M 70 142 L 82 104" stroke="#202124" stroke-width="2"/>
+  <path d="M 450 142 L 438 104" stroke="#202124" stroke-width="2"/>
+  <text x="260" y="40" text-anchor="middle">2 votes against 2</text>
+  <text x="260" y="70" text-anchor="middle">S3 is down: no majority</text>
+</svg>
+`;
+
+/** A page with an SVG and a PNG of the repository, and a figure of the notes. */
 export const PAGE_IMAGES = `# The states of a server
 
 The design docs draw the three states of a server, and what moves a
@@ -225,6 +250,11 @@ server from one to the next:
 A follower that hears nothing for a while becomes a candidate.
 
 ![Six blue pixels](docs/pixels.png)
+
+Two candidates can split the vote. No commit holds this figure: the agent
+drew it in the notes of the course.
+
+![Five servers: S1 and S4 are candidates with two votes each, and S3 is down](.learn/${SLUG}/notes/split-vote.svg)
 `;
 
 /** A quiz of the first page: an open question, then a choice. */
@@ -474,6 +504,16 @@ export class Agent {
     const path = join(this.fixture.work, 'syllabus.json');
     writeFileSync(path, JSON.stringify({ parts }, null, 2));
     await this.run(['syllabus', '--file', path]);
+  }
+
+  /**
+   * Write a figure into the notes of the course with the tools of the
+   * agent, not with a command of the binary: the server only reads it.
+   */
+  note(name: string, content: string) {
+    const path = join(this.fixture.repo, '.learn', SLUG, 'notes', name);
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, content);
   }
 
   /** Push a page from a file, as the procedure says. */

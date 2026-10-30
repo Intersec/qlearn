@@ -55,11 +55,15 @@ pub fn render(sheet: &Cheatsheet, source: &str) -> Result<String> {
                 repo,
                 commit,
                 ..
-            } => format!(
-                "**Image**: {} ({})",
-                plain(alt),
-                place(path, None, repo, commit)
-            ),
+            } => {
+                // An image of the notes has no commit: the page shows its
+                // path alone.
+                let at = match (repo, commit) {
+                    (Some(repo), Some(commit)) => place(path, None, repo, commit),
+                    _ => code(path),
+                };
+                format!("**Image**: {} ({at})", plain(alt))
+            }
         });
     }
     // A text or a callout may name a definition that no block holds.
@@ -358,7 +362,7 @@ mod tests {
     use crate::git::exec::Git;
     use crate::highlight::Highlighter;
     use crate::model::PageName;
-    use crate::testutil::{PNG, build_repo, commit};
+    use crate::testutil::{PNG, SVG, build_repo, commit};
 
     /// A cheatsheet with a block of each kind. The line `return` of
     /// `src/raft.c` shows in it, and a page still hides it.
@@ -430,6 +434,8 @@ graph LR
 ```
 
 ![The states of a server](docs/states.png)
+
+![The magic ring, drawn by the agent](.learn/raft/notes/ring.svg)
 "#;
 
     const RAFT: &str = "/* The election timer. */\n\
@@ -451,10 +457,14 @@ graph LR
             .submodule("vendor/lib", &lib)])
         .await;
         let git = Git::discover(top.path()).await.unwrap();
-        let mut blocks = crate::lesson::parse_cheatsheet(SHEET, Some(&git), Highlighter::shared())
-            .await
-            .unwrap()
-            .blocks;
+        let notes = crate::lesson::Notes::of(&crate::store::Store::at(top.path()), "raft");
+        std::fs::create_dir_all(&notes.dir).unwrap();
+        std::fs::write(notes.dir.join("ring.svg"), SVG).unwrap();
+        let mut blocks =
+            crate::lesson::parse_cheatsheet(SHEET, Some(&git), &notes, Highlighter::shared())
+                .await
+                .unwrap()
+                .blocks;
         // As `build` does while the quiz of the page that hides it waits.
         let Some(Block::Excerpt { excerpt, .. }) = blocks
             .iter_mut()

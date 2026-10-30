@@ -4,13 +4,13 @@ assertion_line: 1386
 description: "# Images that are not in the repository\n\n![A logo](https://example.com/logo.png)\n\n![A pixel](data:image/png;base64,iVBORw0KGgo=)\n\n![A host](//example.com/logo.png)\n\n![An absolute path](/docs/flow.png)\n\n![Out of the repository](../flow.png)\n\n![A dot](./docs/flow.png)\n\n![A bitmap](docs/flow.bmp)\n\n![](docs/flow.png)\n\n![ ](https://example.com/logo.png)\n"
 ---
 refused
-refused-image-path.md:3: image: "https://example.com/logo.png" is a URL, and an image comes from the repository: give the path of a file from the top level directory of the worktree
-refused-image-path.md:5: image: "data:image/png;base64,iVBORw0KGgo=" is a URL, and an image comes from the repository: give the path of a file from the top level directory of the worktree
-refused-image-path.md:7: image: "//example.com/logo.png" is a URL, and an image comes from the repository: give the path of a file from the top level directory of the worktree
+refused-image-path.md:3: image: "https://example.com/logo.png" is a URL, and qlearn fetches nothing: give the path of a file of the repository from the top level directory of the worktree, or save the image under .learn/raft/notes/ and give that path
+refused-image-path.md:5: image: "data:image/png;base64,iVBORw0KGgo=" is a URL, and qlearn fetches nothing: give the path of a file of the repository from the top level directory of the worktree, or save the image under .learn/raft/notes/ and give that path
+refused-image-path.md:7: image: "//example.com/logo.png" is a URL, and qlearn fetches nothing: give the path of a file of the repository from the top level directory of the worktree, or save the image under .learn/raft/notes/ and give that path
 refused-image-path.md:9: image: path "/docs/flow.png" must name a file from the top level directory of the worktree, with no leading `/`, no `.` and no `..`
 refused-image-path.md:11: image: path "../flow.png" must name a file from the top level directory of the worktree, with no leading `/`, no `.` and no `..`
 refused-image-path.md:13: image: path "./docs/flow.png" must name a file from the top level directory of the worktree, with no leading `/`, no `.` and no `..`
 refused-image-path.md:15: image: docs/flow.bmp is not a PNG, JPEG, GIF, WebP or SVG file: the page shows only those
 refused-image-path.md:17: image: the alt text is empty: say what the image shows, such as ![The states of a server](docs/states.svg). A screen reader reads it in place of the image
 refused-image-path.md:19: image: the alt text is empty: say what the image shows, such as ![The states of a server](docs/states.svg). A screen reader reads it in place of the image
-refused-image-path.md:19: image: "https://example.com/logo.png" is a URL, and an image comes from the repository: give the path of a file from the top level directory of the worktree
+refused-image-path.md:19: image: "https://example.com/logo.png" is a URL, and qlearn fetches nothing: give the path of a file of the repository from the top level directory of the worktree, or save the image under .learn/raft/notes/ and give that path

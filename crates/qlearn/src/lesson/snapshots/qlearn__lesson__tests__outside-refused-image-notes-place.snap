@@ -1,0 +1,13 @@
+---
+source: crates/qlearn/src/lesson/mod.rs
+description: "# Images of the store that a page cannot show\n\n![In the notes of another course](.learn/bully/notes/ring.svg)\n\n![In the course, outside its notes](.learn/raft/ring.svg)\n\n![Not there](.learn/raft/notes/gone.svg)\n\n![A link out of the notes](.learn/raft/notes/away.svg)\n\n![Through a directory linked out of the notes](.learn/raft/notes/out/away.svg)\n\n![A directory](.learn/raft/notes/folder.svg)\n\n![A named pipe](.learn/raft/notes/pipe.svg)\n\n![Too large](.learn/raft/notes/big.png)\n"
+---
+refused
+refused-image-notes-place.md:3: image: .learn/bully/notes/ring.svg is in the notes of the course bully, and this page belongs to the course raft: put the file under .learn/raft/notes/
+refused-image-notes-place.md:5: image: .learn/raft/ring.svg is a file of the store of qlearn, and a page shows only the notes of its course: put the image under .learn/raft/notes/
+refused-image-notes-place.md:7: image: .learn/raft/notes/gone.svg is not there: write the file before the push
+refused-image-notes-place.md:9: image: .learn/raft/notes/away.svg leads out of the notes of the course: copy the file into .learn/raft/notes/ in place of a link
+refused-image-notes-place.md:11: image: .learn/raft/notes/out/away.svg leads out of the notes of the course: copy the file into .learn/raft/notes/ in place of a link
+refused-image-notes-place.md:13: image: .learn/raft/notes/folder.svg is a directory: name an image file inside it
+refused-image-notes-place.md:15: image: .learn/raft/notes/pipe.svg is not a regular file: put the image itself there
+refused-image-notes-place.md:17: image: .learn/raft/notes/big.png holds 5.1 MB, and an image holds 5 MB at most: show a smaller file

@@ -14,6 +14,7 @@ function image(over: Partial<ImageBlock> = {}): ImageBlock {
     alt: 'The states of a server',
     media: MEDIA,
     path: 'docs/states.svg',
+    origin: 'repository',
     repo: '',
     commit: COMMIT,
     type: 'image/svg+xml',
@@ -66,6 +67,17 @@ describe('ImageView', () => {
     const wrapper = view(image({ path: 'vendor/lib/docs/logo.svg', repo: 'vendor/lib' }));
 
     expect(wrapper.find('.image-repo').text()).toBe('in vendor/lib');
+  });
+
+  it('shows the path of an image of the notes, with no commit', () => {
+    const wrapper = view(
+      image({ path: '.learn/crochet/notes/ring.svg', origin: 'notes', repo: null, commit: null }),
+    );
+
+    expect(wrapper.find('.image-path').text()).toBe('.learn/crochet/notes/ring.svg');
+    expect(wrapper.find('.image-commit').exists()).toBe(false);
+    expect(wrapper.find('.image-repo').exists()).toBe(false);
+    expect(wrapper.find('img').attributes('src')).toBe(`/api/media/${MEDIA}`);
   });
 
   it('opens the full size in a tab of its own, with no opener', () => {

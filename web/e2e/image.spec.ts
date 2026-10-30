@@ -5,7 +5,7 @@
 // This suite watches the console too: an image draws with no error.
 
 import { expect, test } from '@playwright/test';
-import { PAGE_IMAGES } from './agent.ts';
+import { PAGE_IMAGES, SPLIT_VOTE_SVG } from './agent.ts';
 import { PIXELS_PNG } from './fixture.ts';
 import { start, type Running } from './server.ts';
 
@@ -44,16 +44,26 @@ function drawn(page: import('@playwright/test').Page) {
     );
 }
 
-test('an SVG and a PNG of the repository draw with their caption', async ({ page }) => {
+test('images of the repository and of the notes draw with their caption', async ({ page }) => {
+  server.agent.note('split-vote.svg', SPLIT_VOTE_SVG);
   await server.agent.page('1', PAGE_IMAGES);
   await page.goto(server.url);
 
   const images = page.locator('.image');
-  await expect(images).toHaveCount(2);
+  await expect(images).toHaveCount(3);
   await expect.poll(() => drawn(page)).toBe(true);
   await expect(images.first().getByRole('img')).toHaveAttribute('alt', /three states/);
   await expect(images.first().locator('.image-path')).toHaveText('docs/states.svg');
   await expect(images.nth(1).locator('.image-commit')).toHaveText(/^[0-9a-f]{7}$/);
+
+  // A figure of the notes names its path, and no commit holds it.
+  const note = images.nth(2);
+  await expect(note.locator('.image-path')).toHaveText('.learn/myproject/notes/split-vote.svg');
+  await expect(note.locator('.image-commit')).toHaveCount(0);
+  const noteSource = await note.locator('img').getAttribute('src');
+  const copy = await page.request.get(new URL(noteSource!, server.url).href);
+  expect(copy.headers()['content-type']).toBe('image/svg+xml');
+  expect(await copy.text()).toBe(SPLIT_VOTE_SVG);
 
   // The bytes come back as they are in the repository, with their type.
   const src = await images.nth(1).locator('img').getAttribute('src');

@@ -1439,6 +1439,45 @@ mod tests {
         }
     }
 
+    /// A page stored before an image could come from the notes has no
+    /// origin. It reads with the store at its version, as an image of the
+    /// repository.
+    #[tokio::test]
+    async fn an_image_stored_before_the_notes_reads_as_one_of_the_repository() {
+        let repo = repo().await;
+        let store = Store::at(repo.path());
+        store.open(Some("raft"), at_new_year()).unwrap();
+        let commit = "c".repeat(40);
+        let media = format!("{}.svg", "a".repeat(64));
+        write(
+            &repo.path().join(".learn/raft/pages/1.json"),
+            &format!(
+                r#"{{ "blocks": [{{ "id": "0123456789ab", "kind": "image", "alt": "The states",
+                    "media": "{media}", "path": "docs/states.svg", "repo": "",
+                    "commit": "{commit}", "type": "image/svg+xml", "width": 120,
+                    "height": 40 }}] }}"#
+            ),
+        );
+
+        let page = store.load_page("raft", "1").unwrap().unwrap();
+
+        assert_eq!(
+            page.blocks,
+            [Block::Image {
+                id: "0123456789ab".to_owned(),
+                alt: "The states".to_owned(),
+                media,
+                path: "docs/states.svg".to_owned(),
+                origin: crate::model::ImageOrigin::Repository,
+                repo: Some(String::new()),
+                commit: Some(commit),
+                format: crate::model::ImageType::Svg,
+                width: Some(120),
+                height: Some(40),
+            }]
+        );
+    }
+
     #[tokio::test]
     async fn a_page_is_written_as_its_source_and_its_blocks() {
         let repo = repo().await;

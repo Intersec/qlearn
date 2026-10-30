@@ -22,7 +22,7 @@ use tokio::sync::RwLock;
 use crate::choice::{self, StoredChoosing};
 use crate::events::{self, Events};
 use crate::highlight::Highlighter;
-use crate::lesson::{self, Fault};
+use crate::lesson::{self, Fault, Notes};
 use crate::model::{
     self, AgentStatus, Author, Batch, Block, BlockSource, Broken, Cheatsheet, ChoiceId, ChoiceSent,
     ChoicesSent, Choosing, Course, CourseChange, Detail, Event, EventKind, Export, Finding, Graded,
@@ -49,6 +49,9 @@ pub struct AppState {
     /// The directory of the course. Its repository, when it has one, is
     /// where the excerpts are read.
     pub root: Root,
+    /// The notes of the course, where a page may find an image. A server
+    /// serves one course, so they never move.
+    pub notes: Arc<Notes>,
     pub events: Arc<Events>,
     /// The broken blocks that the agent heard of, by page and block, with
     /// the request. A push of the page forgets its own.
@@ -65,9 +68,11 @@ impl AppState {
         token: String,
         port: u16,
     ) -> Self {
+        let notes = Notes::of(&store, &course.slug);
         Self {
             token: Arc::new(token),
             port,
+            notes: Arc::new(notes),
             course: Arc::new(RwLock::new(course)),
             current: Arc::new(Mutex::new(current)),
             store: Arc::new(store),
@@ -267,9 +272,14 @@ async fn push_page(
     })?;
 
     let started = crate::trace::start();
-    let parsed = lesson::parse(&source, state.root.git(), Highlighter::shared())
-        .await
-        .map_err(|faults| ApiError::invalid_page(&id, &faults))?;
+    let parsed = lesson::parse(
+        &source,
+        state.root.git(),
+        &state.notes,
+        Highlighter::shared(),
+    )
+    .await
+    .map_err(|faults| ApiError::invalid_page(&id, &faults))?;
     crate::trace::since(started, || {
         format!("parse page {id}, {} bytes", source.len())
     });
@@ -563,9 +573,16 @@ async fn write_debrief(
     };
     let read = crate::quiz::read_debrief(&body, &quiz);
     let parsed = match &read.source {
-        Some(source) => {
-            Some(lesson::parse_debrief(source, at, state.root.git(), Highlighter::shared()).await)
-        }
+        Some(source) => Some(
+            lesson::parse_debrief(
+                source,
+                at,
+                state.root.git(),
+                &state.notes,
+                Highlighter::shared(),
+            )
+            .await,
+        ),
         None => None,
     };
     let mut faults: Vec<String> = match &parsed {
@@ -1339,9 +1356,14 @@ async fn write_cheatsheet(
         code: "badRequest",
         message: rejection.body_text(),
     })?;
-    let parsed = lesson::parse_cheatsheet(&source, state.root.git(), Highlighter::shared())
-        .await
-        .map_err(|faults| ApiError::invalid_cheatsheet(&faults))?;
+    let parsed = lesson::parse_cheatsheet(
+        &source,
+        state.root.git(),
+        &state.notes,
+        Highlighter::shared(),
+    )
+    .await
+    .map_err(|faults| ApiError::invalid_cheatsheet(&faults))?;
 
     // The write lock keeps the store to one writer.
     let course = state.course.write().await;
@@ -2198,6 +2220,48 @@ mod tests {
         assert_eq!(outside(dir.path()), untouched, "a write outside .learn/");
     }
 
+    const NOTES_IMAGE: &str = "# The ring\n\n\
+                               ![The magic ring, drawn by the agent](.learn/raft/notes/ring.svg)\n";
+
+    /// Write the figure of `NOTES_IMAGE`, as the agent does with its own
+    /// tools.
+    fn draw_ring(dir: &std::path::Path) {
+        let notes = dir.join(".learn/raft/notes");
+        std::fs::create_dir_all(&notes).unwrap();
+        std::fs::write(notes.join("ring.svg"), crate::testutil::SVG).unwrap();
+    }
+
+    /// An image of the notes crosses the wire with no repository and no
+    /// commit, inside a repository and outside one. Its copy in `media/`
+    /// is what the page shows.
+    #[tokio::test]
+    async fn an_image_of_the_notes_crosses_the_wire_with_no_commit() {
+        let repo = image_repo().await;
+        let plain = tempfile::tempdir().unwrap();
+        let mut outside = state_in(plain.path());
+        outside.root = Root::Directory(plain.path().to_path_buf());
+
+        for (dir, state) in [
+            (repo.path(), state_in(repo.path())),
+            (plain.path(), outside),
+        ] {
+            draw_ring(dir);
+
+            let (status, pushed) = json(app(state.clone()), put("/api/pages/1", NOTES_IMAGE)).await;
+            assert_eq!(status, StatusCode::OK, "{pushed}");
+            let (status, body) = json(app(state), get_with_cookie("/api/pages/1", TOKEN)).await;
+
+            assert_eq!(status, StatusCode::OK);
+            assert_eq!(body, pushed);
+            insta::assert_json_snapshot!("page_image_notes", body);
+            let name = body["blocks"][1]["media"].as_str().unwrap();
+            assert_eq!(
+                std::fs::read(dir.join(".learn/raft/media").join(name)).unwrap(),
+                crate::testutil::SVG.as_bytes()
+            );
+        }
+    }
+
     /// A page with one bad image stores nothing, not even its good image.
     #[tokio::test]
     async fn a_refused_page_stores_no_image() {
@@ -2585,9 +2649,14 @@ mod tests {
     async fn a_page_file_that_the_course_does_not_hold_is_not_found() {
         let dir = repo().await;
         let state = state_in(dir.path());
-        let parsed = lesson::parse(LESSON, state.root.git(), Highlighter::shared())
-            .await
-            .unwrap();
+        let parsed = lesson::parse(
+            LESSON,
+            state.root.git(),
+            &state.notes,
+            Highlighter::shared(),
+        )
+        .await
+        .unwrap();
         let page = PageFile {
             blocks: parsed.blocks,
             hidden: parsed.hidden,

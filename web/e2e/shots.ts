@@ -22,6 +22,7 @@ import {
   QUIZ_1,
   QUIZ_2,
   SHEET_FULL,
+  SPLIT_VOTE_SVG,
   SYLLABUS,
 } from './agent.ts';
 import { start } from './server.ts';
@@ -300,8 +301,10 @@ for (const scheme of ['light', 'dark'] as const) {
     await page.screenshot({ path: join(OUT, `${scheme}-chart-line.png`) });
     await page.mouse.move(0, 0);
 
-    // Two images of the repository: an SVG figure and a small PNG, each
-    // with where it comes from.
+    // Two images of the repository, an SVG figure and a small PNG, then a
+    // figure that the agent drew in the notes, each with where it comes
+    // from.
+    agent.note('split-vote.svg', SPLIT_VOTE_SVG);
     await agent.page('6', PAGE_IMAGES);
     await page.locator('.ready').getByRole('link', { name: 'Read it' }).click();
     const images = page.locator('.image img');
@@ -313,6 +316,8 @@ for (const scheme of ['light', 'dark'] as const) {
     );
     await images.first().scrollIntoViewIfNeeded();
     await page.screenshot({ path: join(OUT, `${scheme}-image.png`) });
+    await images.nth(2).scrollIntoViewIfNeeded();
+    await page.screenshot({ path: join(OUT, `${scheme}-image-notes.png`) });
 
     // A narrow screen: the syllabus hides behind a button, and opens over
     // the page. The button says that a choice of the column waits.

@@ -1,7 +1,10 @@
-//! The image block: a file of the repository, read at the push.
+//! The image block: a file of the repository or of the notes of the
+//! course, read at the push.
 //!
-//! `![alt](path)` alone in a paragraph names an image of the repository at
-//! `HEAD`. The server reads it in the object database, submodules included,
+//! `![alt](path)` alone in a paragraph names an image. A path under
+//! `.learn/<slug>/notes/` names a file that the agent put in the notes of
+//! the course, read on disk. Any other path names an image of the
+//! repository at `HEAD`, read in the object database, submodules included,
 //! never in the worktree, so a page shows only what the repository holds.
 //! See section 4.6 of the design.
 //!
@@ -9,13 +12,17 @@
 //! file whose name lies is refused at the push rather than served as
 //! something else.
 
+use std::io::{ErrorKind, Read};
+use std::path::PathBuf;
+
 use sha2::{Digest, Sha256};
 
 use super::Fault;
 use super::excerpt::{self, Revs};
 use crate::git::exec::Git;
 use crate::git::object::{self, ReadError};
-use crate::model::{Block, ImageType};
+use crate::model::{Block, ImageOrigin, ImageType};
+use crate::store::{self, Store};
 
 /// The largest image, in bytes. A screenshot or a diagram fits well under
 /// it, and the store keeps a copy of each image that a page shows.
@@ -33,21 +40,70 @@ pub struct Spec {
     line: usize,
 }
 
-/// The error of an image outside a repository, at its line: there is no
-/// object database to read it in.
-pub fn outside(line: usize) -> Fault {
+impl Spec {
+    /// Whether the path names a file of the store. Only the notes of the
+    /// course of the page may hold an image, and `read_notes` says so.
+    pub fn in_store(&self) -> bool {
+        in_store(&self.path)
+    }
+}
+
+/// The notes of the course of a page: the one place on disk that a page
+/// shows an image of.
+#[derive(Clone, Debug)]
+pub struct Notes {
+    pub slug: String,
+    /// `.learn/<slug>/notes/`.
+    pub dir: PathBuf,
+}
+
+impl Notes {
+    pub fn of(store: &Store, slug: &str) -> Self {
+        Self {
+            slug: slug.to_owned(),
+            dir: store.course_dir(slug).join("notes"),
+        }
+    }
+
+    /// The start of a path of a page that names a file of these notes.
+    fn prefix(&self) -> String {
+        format!("{}/{}/notes/", store::DIR, self.slug)
+    }
+}
+
+/// Whether a decoded path starts in the store. Such a path never names an
+/// image of the repository.
+fn in_store(path: &str) -> bool {
+    path.strip_prefix(store::DIR)
+        .is_some_and(|rest| rest.starts_with('/'))
+}
+
+/// Whether a link names a file of the store, once its escapes are decoded.
+/// Outside a repository, every other image is refused alone.
+pub fn names_the_store(url: &str) -> bool {
+    percent_decode(url).is_some_and(|path| in_store(&path))
+}
+
+/// The error of an image of the repository outside one, at its line: there
+/// is no object database to read it in. `slug` names the notes, where an
+/// image works.
+pub fn outside(line: usize, slug: &str) -> Fault {
     Fault {
         line,
         kind: KIND,
-        message: "take this image out, or draw it in a mermaid fence or a fence of code: a \
-                  course outside a git repository shows no file of a repository"
-            .to_owned(),
+        message: format!(
+            "take this image out, draw it in a mermaid fence or a fence of code, or put the \
+             file under {}/{slug}/notes/: a course outside a git repository shows no file of a \
+             repository",
+            store::DIR
+        ),
     }
 }
 
 /// Read the alt text and the path of an image at `line`, with every fault
-/// at once.
-pub fn spec(alt: &str, path: &str, line: usize) -> Result<Spec, Vec<Fault>> {
+/// at once. `slug` is the course of the page, whose notes the error of a
+/// URL names.
+pub fn spec(alt: &str, path: &str, line: usize, slug: &str) -> Result<Spec, Vec<Fault>> {
     let mut faults = Vec::new();
     let mut fault = |message: String| {
         faults.push(Fault {
@@ -68,8 +124,10 @@ pub fn spec(alt: &str, path: &str, line: usize) -> Result<Spec, Vec<Fault>> {
 
     let found = if has_scheme(path) {
         fault(format!(
-            "{path:?} is a URL, and an image comes from the repository: give the path of a \
-             file from the top level directory of the worktree"
+            "{path:?} is a URL, and qlearn fetches nothing: give the path of a file of the \
+             repository from the top level directory of the worktree, or save the image under \
+             {}/{slug}/notes/ and give that path",
+            store::DIR
         ));
         None
     } else {
@@ -153,25 +211,148 @@ pub async fn read(
     let file = object::read_file_within(git, &commit, &spec.path, Some(MAX_BYTES))
         .await
         .map_err(|e| match e {
-            ReadError::TooLarge { path, size, .. } => fault(format!(
-                "{path} holds {} at HEAD, and an image holds 5 MB at most: show a smaller file",
-                megabytes(size)
-            )),
+            ReadError::TooLarge { path, size, .. } => fault(too_large(&path, size, AT_HEAD)),
             e => fault(e.to_string()),
         })?;
 
-    let Some(found) = sniff(&file.bytes) else {
+    let source = Source::Repository {
+        repo: file.repo,
+        commit: file.commit,
+    };
+    block(id, spec, file.bytes, source)
+}
+
+/// Read the image of a spec in the notes of the course, on disk. Answers
+/// its block, and the bytes to store under the name that the block gives
+/// in `media`.
+///
+/// The agent writes the notes with its own tools, so a file there may be a
+/// link that leads anywhere. Only a regular file whose real path lies in
+/// the notes is read.
+pub fn read_notes(id: String, spec: &Spec, notes: &Notes) -> Result<(Block, Vec<u8>), Fault> {
+    let fault = |message: String| Fault {
+        line: spec.line,
+        kind: KIND,
+        message,
+    };
+    let path = &spec.path;
+    let prefix = notes.prefix();
+    let Some(inside) = path.strip_prefix(&prefix) else {
+        let other = path
+            .strip_prefix(&format!("{}/", store::DIR))
+            .and_then(|rest| rest.split_once('/'))
+            .filter(|(_, rest)| rest.starts_with("notes/"))
+            .map(|(course, _)| course);
+        return Err(fault(match other {
+            Some(course) => format!(
+                "{path} is in the notes of the course {course}, and this page belongs to the \
+                 course {slug}: put the file under {prefix}",
+                slug = notes.slug
+            ),
+            None => format!(
+                "{path} is a file of the store of qlearn, and a page shows only the notes of \
+                 its course: put the image under {prefix}"
+            ),
+        }));
+    };
+
+    let missing = || {
+        fault(format!(
+            "{path} is not there: write the file before the push"
+        ))
+    };
+    let unreadable = |e: std::io::Error| match e.kind() {
+        ErrorKind::NotFound => missing(),
+        _ => fault(format!("cannot read {path}: {e}")),
+    };
+    // A link in place of notes/ would move the bound along with it. The
+    // store refuses a link in place of pages/ or media/ too.
+    if std::fs::symlink_metadata(&notes.dir).is_ok_and(|meta| meta.file_type().is_symlink()) {
+        return Err(fault(format!(
+            "{prefix} is a symbolic link: put a directory in its place, and the image in it"
+        )));
+    }
+    let real_notes = notes.dir.canonicalize().map_err(unreadable)?;
+    let real = notes.dir.join(inside).canonicalize().map_err(unreadable)?;
+    if !real.starts_with(&real_notes) {
+        return Err(fault(format!(
+            "{path} leads out of the notes of the course: copy the file into {prefix} in place \
+             of a link"
+        )));
+    }
+    let meta = std::fs::metadata(&real).map_err(unreadable)?;
+    if meta.is_dir() {
+        return Err(fault(format!(
+            "{path} is a directory: name an image file inside it"
+        )));
+    }
+    if !meta.is_file() {
+        return Err(fault(format!(
+            "{path} is not a regular file: put the image itself there"
+        )));
+    }
+    // From the metadata first, so a large file is never read.
+    if meta.len() > MAX_BYTES {
+        return Err(fault(too_large(path, meta.len(), "")));
+    }
+    let mut bytes = Vec::new();
+    std::fs::File::open(&real)
+        .and_then(|file| file.take(MAX_BYTES + 1).read_to_end(&mut bytes))
+        .map_err(unreadable)?;
+    // The file may grow between the metadata and the read.
+    if bytes.len() as u64 > MAX_BYTES {
+        return Err(fault(too_large(path, bytes.len() as u64, "")));
+    }
+
+    block(id, spec, bytes, Source::Notes)
+}
+
+/// Where the bytes of an image came from.
+enum Source {
+    Repository { repo: String, commit: String },
+    Notes,
+}
+
+/// What an error adds to the name of a file of the repository: its bytes
+/// were read at `HEAD`, not on disk.
+const AT_HEAD: &str = " at HEAD";
+
+fn too_large(path: &str, size: u64, at: &str) -> String {
+    format!(
+        "{path} holds {}{at}, and an image holds 5 MB at most: show a smaller file",
+        megabytes(size)
+    )
+}
+
+/// The block of an image from its bytes, once its type and its name agree.
+fn block(
+    id: String,
+    spec: &Spec,
+    bytes: Vec<u8>,
+    source: Source,
+) -> Result<(Block, Vec<u8>), Fault> {
+    let fault = |message: String| Fault {
+        line: spec.line,
+        kind: KIND,
+        message,
+    };
+    let at = match source {
+        Source::Repository { .. } => AT_HEAD,
+        Source::Notes => "",
+    };
+
+    let Some(found) = sniff(&bytes) else {
         // A file named as an SVG gets the reason of its refusal, so the
         // agent knows what to change.
-        let why = match (spec.named, svg_root(&file.bytes)) {
-            (ImageType::Svg, Err(NotSvg::Entities)) => {
-                "declares entities in its doctype at HEAD, and an entity can make a small SVG \
-                 a large one to draw: show an SVG whose doctype declares none"
-            }
+        let why = match (spec.named, svg_root(&bytes)) {
+            (ImageType::Svg, Err(NotSvg::Entities)) => format!(
+                "declares entities in its doctype{at}, and an entity can make a small SVG a \
+                 large one to draw: show an SVG whose doctype declares none"
+            ),
             (ImageType::Svg, Err(NotSvg::NotUtf8)) => {
-                "is not UTF-8 text at HEAD: show an SVG saved in UTF-8"
+                format!("is not UTF-8 text{at}: show an SVG saved in UTF-8")
             }
-            _ => "is not a PNG, JPEG, GIF, WebP or SVG image at HEAD",
+            _ => format!("is not a PNG, JPEG, GIF, WebP or SVG image{at}"),
         };
         return Err(fault(format!("{} {why}", spec.path)));
     };
@@ -185,24 +366,25 @@ pub async fn read(
         )));
     }
 
-    let (width, height) = size(found, &file.bytes).unzip();
-    let media = format!(
-        "{}.{}",
-        hex::encode(Sha256::digest(&file.bytes)),
-        found.ext()
-    );
+    let (width, height) = size(found, &bytes).unzip();
+    let media = format!("{}.{}", hex::encode(Sha256::digest(&bytes)), found.ext());
+    let (origin, repo, commit) = match source {
+        Source::Repository { repo, commit } => (ImageOrigin::Repository, Some(repo), Some(commit)),
+        Source::Notes => (ImageOrigin::Notes, None, None),
+    };
     let block = Block::Image {
         id,
         alt: spec.alt.clone(),
         media,
         path: spec.path.clone(),
-        repo: file.repo,
-        commit: file.commit,
+        origin,
+        repo,
+        commit,
         format: found,
         width,
         height,
     };
-    Ok((block, file.bytes))
+    Ok((block, bytes))
 }
 
 /// Whether a link names a scheme, such as `https:` or `data:`, or a host,
@@ -460,7 +642,7 @@ mod tests {
     use crate::testutil::{PNG, SVG};
 
     fn messages(alt: &str, path: &str) -> Vec<String> {
-        match spec(alt, path, 3) {
+        match spec(alt, path, 3, "raft") {
             Ok(spec) => panic!("{spec:?}"),
             Err(faults) => faults.into_iter().map(|fault| fault.message).collect(),
         }
@@ -468,7 +650,7 @@ mod tests {
 
     #[test]
     fn a_spec_takes_a_path_of_the_tree_with_an_image_extension() {
-        let spec = spec("  The states ", "docs/States.SVG", 3).unwrap();
+        let spec = spec("  The states ", "docs/States.SVG", 3, "raft").unwrap();
 
         assert_eq!(spec.alt, "The states");
         assert_eq!(spec.named, ImageType::Svg);
@@ -487,7 +669,14 @@ mod tests {
             let found = messages("A figure", url);
 
             assert_eq!(found.len(), 1, "{url}");
-            assert!(found[0].contains("is a URL"), "{url}: {found:?}");
+            assert_eq!(
+                found[0],
+                format!(
+                    "{url:?} is a URL, and qlearn fetches nothing: give the path of a file of \
+                     the repository from the top level directory of the worktree, or save the \
+                     image under .learn/raft/notes/ and give that path"
+                ),
+            );
         }
     }
 
@@ -516,11 +705,13 @@ mod tests {
     #[test]
     fn a_path_is_percent_decoded_before_its_checks() {
         assert_eq!(
-            spec("A figure", "docs/my%20figure%2epng", 3).unwrap().path,
+            spec("A figure", "docs/my%20figure%2epng", 3, "raft")
+                .unwrap()
+                .path,
             "docs/my figure.png"
         );
         assert_eq!(
-            spec("A figure", "docs/100%.png", 3).unwrap().path,
+            spec("A figure", "docs/100%.png", 3, "raft").unwrap().path,
             "docs/100%.png",
             "a % that starts no escape stays"
         );
@@ -538,6 +729,15 @@ mod tests {
               of the file between `<` and `>`, such as ![A figure](<docs/my figure.png>)"
             ]
         );
+    }
+
+    #[test]
+    fn a_link_names_the_store_by_its_first_directory() {
+        assert!(names_the_store(".learn/raft/notes/ring.svg"));
+        assert!(names_the_store("%2elearn/raft/ring.svg"));
+        assert!(!names_the_store(".learned/ring.svg"));
+        assert!(!names_the_store("docs/.learn/raft/notes/ring.svg"));
+        assert!(!names_the_store("https://example.com/.learn/ring.svg"));
     }
 
     #[test]

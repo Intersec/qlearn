@@ -137,9 +137,9 @@ export interface StepsBlock {
 }
 
 /**
- * An image of the repository, read by the server at the push and copied
- * into `media/` (section 4.6 of the design). The page draws it from an
- * `<img>`, so an SVG runs no script.
+ * An image of the repository or of the notes of the course, read by the
+ * server at the push and copied into `media/` (section 4.6 of the design).
+ * The page draws it from an `<img>`, so an SVG runs no script.
  */
 export interface ImageBlock {
   id: string;
@@ -148,11 +148,13 @@ export interface ImageBlock {
   alt: string;
   /** `<sha256>.<ext>`: the name that `GET /api/media/:name` takes. */
   media: string;
+  /** From the top level directory, as the page writes it. */
   path: string;
-  /** "" for the main repository, or the path of the submodule. */
-  repo: string;
-  /** The full hash of HEAD at the push, in the repository that holds the file. */
-  commit: string;
+  origin: 'repository' | 'notes';
+  /** "" for the main repository, or the path of the submodule. Null for the notes. */
+  repo: string | null;
+  /** The full hash of HEAD at the push, in the repository that holds the file. Null for the notes. */
+  commit: string | null;
   type: 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp' | 'image/svg+xml';
   /** In pixels, or null when the file does not say. */
   width: number | null;

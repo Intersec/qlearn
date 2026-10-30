@@ -535,8 +535,9 @@ pub enum Block {
     /// A state that changes over time, which the learner plays step by
     /// step. Checked by the server, drawn by the page.
     Steps { id: String, steps: Steps },
-    /// An image of the repository, read by the server at the push and
-    /// copied into `media/`. See section 4.6 of the design.
+    /// An image of the repository or of the notes of the course, read by
+    /// the server at the push and copied into `media/`. See section 4.6 of
+    /// the design.
     Image {
         id: String,
         /// The text of the image for a reader who cannot see it.
@@ -544,12 +545,18 @@ pub enum Block {
         /// The name of the file in `media/`: the hash of its bytes and the
         /// extension of its type.
         media: String,
-        /// From the top level directory of the worktree.
+        /// From the top level directory, as the page writes it.
         path: String,
-        /// "" for the main repository, or the path of the submodule.
-        repo: String,
-        /// The full hash, in the repository that holds the file.
-        commit: String,
+        /// A page stored before the notes could hold an image has none,
+        /// and every image of it came from the repository.
+        #[serde(default)]
+        origin: ImageOrigin,
+        /// "" for the main repository, or the path of the submodule. None
+        /// for the notes, which no repository holds.
+        repo: Option<String>,
+        /// The full hash, in the repository that holds the file. None for
+        /// the notes.
+        commit: Option<String>,
         #[serde(rename = "type")]
         format: ImageType,
         /// In pixels, from the header of the file, so the page keeps the
@@ -585,6 +592,17 @@ impl Block {
             Self::Image { .. } => "image",
         }
     }
+}
+
+/// Where an image comes from. See section 4.6 of the design.
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum ImageOrigin {
+    /// A file that a commit holds, read at `HEAD`.
+    #[default]
+    Repository,
+    /// A file of `.learn/<slug>/notes/`, read on disk.
+    Notes,
 }
 
 /// The type of an image, as its bytes say. It goes on the wire as the media
@@ -1908,8 +1926,9 @@ mod tests {
             alt: "The states of a server".to_owned(),
             media: format!("{}.svg", "a".repeat(64)),
             path: "docs/states.svg".to_owned(),
-            repo: String::new(),
-            commit: "c".repeat(40),
+            origin: ImageOrigin::Repository,
+            repo: Some(String::new()),
+            commit: Some("c".repeat(40)),
             format: ImageType::Svg,
             width: Some(120),
             height: None,
@@ -1919,13 +1938,64 @@ mod tests {
             serde_json::to_value(&block).unwrap(),
             json!({ "id": "0123456789ab", "kind": "image", "alt": "The states of a server",
                     "media": format!("{}.svg", "a".repeat(64)), "path": "docs/states.svg",
-                    "repo": "", "commit": "c".repeat(40), "type": "image/svg+xml",
-                    "width": 120, "height": null })
+                    "origin": "repository", "repo": "", "commit": "c".repeat(40),
+                    "type": "image/svg+xml", "width": 120, "height": null })
         );
         assert_eq!(block.kind(), "image");
         for kind in ImageType::ALL {
             assert_eq!(serde_json::to_value(kind).unwrap(), json!(kind.mime()));
         }
+    }
+
+    #[test]
+    fn an_image_of_the_notes_has_no_repository_and_no_commit() {
+        let block = Block::Image {
+            id: "0123456789ab".to_owned(),
+            alt: "The magic ring".to_owned(),
+            media: format!("{}.svg", "a".repeat(64)),
+            path: ".learn/crochet/notes/ring.svg".to_owned(),
+            origin: ImageOrigin::Notes,
+            repo: None,
+            commit: None,
+            format: ImageType::Svg,
+            width: None,
+            height: None,
+        };
+
+        assert_eq!(
+            serde_json::to_value(&block).unwrap(),
+            json!({ "id": "0123456789ab", "kind": "image", "alt": "The magic ring",
+                    "media": format!("{}.svg", "a".repeat(64)),
+                    "path": ".learn/crochet/notes/ring.svg", "origin": "notes",
+                    "repo": null, "commit": null, "type": "image/svg+xml",
+                    "width": null, "height": null })
+        );
+    }
+
+    /// A page stored before the notes could hold an image has no origin:
+    /// its images came from the repository, and the store keeps its
+    /// version.
+    #[test]
+    fn an_image_stored_with_no_origin_comes_from_the_repository() {
+        let stored = json!({ "id": "0123456789ab", "kind": "image", "alt": "The states",
+                             "media": format!("{}.svg", "a".repeat(64)),
+                             "path": "docs/states.svg", "repo": "", "commit": "c".repeat(40),
+                             "type": "image/svg+xml", "width": 120, "height": 40 });
+
+        let block: Block = serde_json::from_value(stored).unwrap();
+
+        let Block::Image {
+            origin,
+            repo,
+            commit,
+            ..
+        } = block
+        else {
+            panic!("{block:?}");
+        };
+        assert_eq!(origin, ImageOrigin::Repository);
+        assert_eq!(repo.as_deref(), Some(""));
+        assert_eq!(commit, Some("c".repeat(40)));
     }
 
     #[test]

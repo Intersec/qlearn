@@ -104,6 +104,7 @@ const SHEET: Cheatsheet = {
       alt: 'Six blue pixels',
       media: `${'a'.repeat(64)}.png`,
       path: 'docs/pixels.png',
+      origin: 'repository',
       repo: '',
       commit: COMMIT,
       type: 'image/png',
@@ -111,11 +112,25 @@ const SHEET: Cheatsheet = {
       height: 2,
     },
     {
+      id: 'ring',
+      kind: 'image',
+      alt: 'The magic ring',
+      media: `${'c'.repeat(64)}.svg`,
+      path: '.learn/crochet/notes/ring.svg',
+      origin: 'notes',
+      repo: null,
+      commit: null,
+      type: 'image/svg+xml',
+      width: null,
+      height: null,
+    },
+    {
       id: 'big',
       kind: 'image',
       alt: 'A huge figure',
       media: `${'b'.repeat(64)}.png`,
       path: 'docs/huge.png',
+      origin: 'repository',
       repo: '',
       commit: COMMIT,
       type: 'image/png',
@@ -174,9 +189,9 @@ let drawn = 0;
 const sources: Sources = {
   draw: vi.fn(async () => svg(`diagram-file-${(drawn += 1)}`)),
   media: vi.fn(async (name: string) =>
-    name.startsWith('a')
-      ? new Blob([new Uint8Array([137, 80, 78, 71])], { type: 'image/png' })
-      : new Blob([new Uint8Array(MEDIA_BUDGET)], { type: 'image/png' }),
+    name.startsWith('b')
+      ? new Blob([new Uint8Array(MEDIA_BUDGET)], { type: 'image/png' })
+      : new Blob([new Uint8Array([137, 80, 78, 71])], { type: 'image/png' }),
   ),
 };
 
@@ -357,8 +372,16 @@ describe('sheetFile', () => {
     // The caption still says where the image comes from.
     expect(images[0]!.querySelector('.image-path')?.textContent).toBe('docs/pixels.png');
 
-    expect(images[1]!.querySelector('img')).toBeNull();
-    expect(images[1]!.querySelector('.image-left-out')?.textContent).toBe(
+    // An image of the notes is a file of the store like any other.
+    const ring = images[1]!;
+    expect(ring.querySelector('img')!.getAttribute('src')).toBe(
+      'data:image/svg+xml;base64,iVBORw==',
+    );
+    expect(ring.querySelector('.image-path')?.textContent).toBe('.learn/crochet/notes/ring.svg');
+    expect(ring.querySelector('.image-commit')).toBeNull();
+
+    expect(images[2]!.querySelector('img')).toBeNull();
+    expect(images[2]!.querySelector('.image-left-out')?.textContent).toBe(
       'Image left out of this file, which holds 8 MB of images at most: A huge figure',
     );
   });
