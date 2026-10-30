@@ -451,7 +451,7 @@ graph LR
             .submodule("vendor/lib", &lib)])
         .await;
         let git = Git::discover(top.path()).await.unwrap();
-        let mut blocks = crate::lesson::parse_cheatsheet(SHEET, &git, Highlighter::shared())
+        let mut blocks = crate::lesson::parse_cheatsheet(SHEET, Some(&git), Highlighter::shared())
             .await
             .unwrap()
             .blocks;

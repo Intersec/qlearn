@@ -23,7 +23,7 @@ use crate::quiz::StoredQuiz;
 use crate::thread::StoredThread;
 
 /// The name of the store, in the worktree and in `.git/info/exclude`.
-const DIR: &str = ".learn";
+pub const DIR: &str = ".learn";
 
 /// The source of the cheatsheet, as the agent wrote it.
 pub const CHEATSHEET: &str = "cheatsheet.md";
@@ -91,6 +91,19 @@ impl Store {
         self.save(&course)?;
 
         Ok(course)
+    }
+
+    /// What `open` would refuse, checked with no write: a `qlearn` that
+    /// fails then leaves no `.learn/` behind.
+    pub fn check_open(&self, slug: Option<&str>) -> Result<()> {
+        let Some(slug) = slug else {
+            return self.only_slug().map(drop);
+        };
+        self.check_slug(slug)?;
+        if self.load(slug)?.is_none() {
+            self.check_command(slug)?;
+        }
+        Ok(())
     }
 
     /// The only course of `.learn/`, as `qlearn` with no slug finds it, and

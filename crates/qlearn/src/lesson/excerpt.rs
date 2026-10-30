@@ -55,6 +55,18 @@ struct Lines {
 /// `HEAD` show the same commit, even when a commit lands during the push.
 pub type Revs = HashMap<String, Result<String, String>>;
 
+/// The error of an excerpt outside a repository, at the line of its
+/// fence: there is no object database to read its lines in.
+pub fn outside(fence: usize) -> Fault {
+    Fault {
+        line: fence,
+        kind: KIND,
+        message: "show the code as a sketch in a fence of code, such as ```c: a course \
+                  outside a git repository shows no code of a repository"
+            .to_owned(),
+    }
+}
+
 /// Read the keys of a fence. `fence` is the line of its opening, so the
 /// first key is on the next line.
 pub fn spec(body: &str, fence: usize) -> Result<Spec, Vec<Fault>> {

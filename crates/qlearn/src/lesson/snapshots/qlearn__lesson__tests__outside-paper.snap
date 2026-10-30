@@ -1,0 +1,48 @@
+---
+source: crates/qlearn/src/lesson/mod.rs
+description: "# The leader election of Raft\n\nThe paper, section 5.2, gives each server a random election timeout.\n\n> [!hook]\n> The first server to time out usually wins.\n\nA sketch of the timer, not the code of a repository:\n\n```c\nif (now > deadline)\n    become_candidate();\n```\n\n```mermaid\ngraph LR\n  Follower -->|timeout| Candidate\n  Candidate -->|majority| Leader\n```\n\n```chart\n{\n  \"kind\": \"bar\",\n  \"title\": \"Election time, by timeout range\",\n  \"x\": { \"label\": \"Timeout range (ms)\", \"values\": [\"150-300\", \"150-151\"] },\n  \"y\": { \"label\": \"Median election time\", \"unit\": \"ms\" },\n  \"series\": [{ \"name\": \"5 servers\", \"values\": [283, 1520] }]\n}\n```\n"
+---
+title: The leader election of Raft
+
+text b181d9ea3d5a
+<h1>The leader election of Raft</h1>
+<p>The paper, section 5.2, gives each server a random election timeout.</p>
+
+callout a8078efeab46 hook
+<p>The first server to time out usually wins.</p>
+
+text 241420959732
+<p>A sketch of the timer, not the code of a repository:</p>
+<pre class="md-code"><code><span class="tok-keyword tok-control">if</span> <span class="tok-punctuation tok-section">(</span>now <span class="tok-keyword tok-operator">&gt;</span> deadline<span class="tok-punctuation tok-section">)</span>
+    <span class="tok-variable tok-function">become_candidate</span><span class="tok-punctuation tok-section">()</span><span class="tok-punctuation tok-terminator">;</span></code></pre>
+
+diagram 49f7b595e8de
+graph LR
+  Follower -->|timeout| Candidate
+  Candidate -->|majority| Leader
+
+chart 3a2e63f8f1d0
+{
+  "kind": "bar",
+  "title": "Election time, by timeout range",
+  "x": {
+    "label": "Timeout range (ms)",
+    "values": [
+      "150-300",
+      "150-151"
+    ]
+  },
+  "y": {
+    "label": "Median election time",
+    "unit": "ms"
+  },
+  "series": [
+    {
+      "name": "5 servers",
+      "values": [
+        283,
+        1520
+      ]
+    }
+  ]
+}

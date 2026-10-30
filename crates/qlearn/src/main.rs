@@ -23,8 +23,8 @@ use qlearn::agent::client::{Client, Refusal};
 use qlearn::agent::{self, Claim, Home, socket};
 use qlearn::api::{self, AppState, auth};
 use qlearn::events::Events;
-use qlearn::git::exec::Git;
 use qlearn::model::{Course, CourseChange, CourseStatus, Export, Point, QuizMode};
+use qlearn::root::Root;
 use qlearn::status::{self, Agent, Snapshot, Terminal};
 use qlearn::store::{self, Store};
 use qlearn::trace;
@@ -50,13 +50,15 @@ async fn main() -> Result<()> {
 
     let cwd = std::env::current_dir().context("cannot read the working directory")?;
     let started = trace::start();
-    let git = Git::discover(&cwd).await?;
+    // Outside a repository, the directory of the course stands for the
+    // worktree, for the server and for the commands of the agent alike.
+    let root = Root::discover(&cwd).await?;
     trace::since(started, || "find the worktree".to_owned());
-    let home = Home::of(git.root());
+    let home = Home::of(root.dir());
     if let Some(code) = agent_command(&cli, &home).await? {
         std::process::exit(code);
     }
-    let store = Store::at(git.root()).refusing(cli::command_names());
+    let store = Store::at(root.dir()).refusing(cli::command_names());
 
     match &cli.command {
         Some(cli::Command::List) => {
@@ -80,6 +82,11 @@ async fn main() -> Result<()> {
     // One server per worktree. An agent that starts qlearn twice gets the
     // course that is open, not a second server and a second tab. This comes
     // before the course is opened, so a new slug creates nothing.
+    // With no `.learn/`, no server runs, and the claim would make one:
+    // outside a repository, a stray one takes every course below it.
+    if !store.dir().exists() {
+        store.check_open(cli.slug.as_deref())?;
+    }
     let Some(claim) = agent::claim(&home)? else {
         return report_running(&home, cli.slug.as_deref()).await;
     };
@@ -87,7 +94,10 @@ async fn main() -> Result<()> {
     let started = trace::start();
     let mut course = store.open(cli.slug.as_deref(), OffsetDateTime::now_utc())?;
     api::settle(&store, &mut course)?;
-    store::exclude(&git).await?;
+    // Outside a repository, the server writes nothing to git.
+    if let Some(git) = root.git() {
+        store::exclude(git).await?;
+    }
     trace::since(started, || format!("open the course {}", course.slug));
 
     if cli.verbose {
@@ -96,7 +106,7 @@ async fn main() -> Result<()> {
     }
 
     let current = store.current(&course)?;
-    let state = |token, port| AppState::new(git, store, course, current, token, port);
+    let state = |token, port| AppState::new(root, store, course, current, token, port);
 
     serve(cli.port, state, cli.no_open, &home, claim).await
 }
@@ -309,13 +319,17 @@ enum Reader {
 /// the worktree is held meanwhile: a server writes the store as it starts,
 /// before it answers, and none can start while the claim is held.
 async fn reader(store: &Store, home: &Home) -> Result<Reader> {
+    const ONLY: &str = "no qlearn server runs on this worktree, so qlearn export reads the \
+         only course of .learn/. Open the course to export with `qlearn <slug>`, then run \
+         qlearn export again";
+
+    // As for `qlearn`: with no `.learn/`, fail before the claim makes one.
+    if !store.dir().exists() {
+        store.only().context(ONLY)?;
+    }
     match agent::claim(home)? {
         Some(claim) => {
-            let course = store.only().context(
-                "no qlearn server runs on this worktree, so qlearn export reads the only \
-                 course of .learn/. Open the course to export with `qlearn <slug>`, then \
-                 run qlearn export again",
-            )?;
+            let course = store.only().context(ONLY)?;
             let points = store.load_points(&course.slug)?;
             let (course, points) = api::settled(store, &course, points)?;
             Ok(Reader::Store {

@@ -20,7 +20,7 @@ This procedure comes in four parts:
 
 1. "Rules that matter most", "The page replaces the terminal", "Start"
    and "Resume a course".
-2. The teaching, from "Know the learner" to "The end".
+2. The teaching, from "Know the learner" to "A subject with no code".
 3. The formats, from "The syllabus" to "The cheatsheet".
 4. The loop, and the answer to each request of the learner.
 
@@ -82,11 +82,13 @@ letters, digits and hyphens, such as `raft-election`.
    qlearn <slug>
    ```
 
-   It creates the course when it is new, opens the page in the browser,
-   and prints its address. Ask the learner to run it, and to tell you when
-   the page is open.
+   Outside a git repository, the learner starts it from the directory of
+   the course (see "A subject with no code"). It creates the course when
+   it is new, opens the page in the browser, and prints its address. Ask
+   the learner to run it, and to tell you when the page is open.
    - If your commands do not run in a sandbox, you may start it yourself,
-     in the background, from the worktree.
+     in the background, from the worktree, or from the directory of the
+     course outside a repository.
    - If your commands run in a sandbox, never start the server yourself. A
      server that starts in the sandbox runs in a network of its own, and
      the browser of the learner cannot reach it. Your commands reach the
@@ -475,7 +477,8 @@ When the learner says that the course is over:
    agrees. Put it where the repository keeps its developer docs, or in a
    `doc/` directory next to the code. Check each line against the code.
    Leave it uncommitted, for the learner to review. The next course on
-   the subject starts from this doc.
+   the subject starts from this doc. For a subject with no code, skip this
+   step.
 4. Offer a follow-up quiz with a choice. If the learner needs the subject
    within a week, plan it in one or two days. Otherwise, plan it in about a
    week. If the learner accepts, set its date. The learner starts it with
@@ -508,6 +511,43 @@ HTML or as Markdown.
    names what it removes and asks for a confirmation.
 3. If the learner asks you to run it, run `qlearn delete <slug> --yes`:
    your commands have no terminal to answer the question.
+
+## A subject with no code
+
+Some subjects have no code, such as a paper, a protocol or a chapter of a
+book. Teach them as any other course, inside a repository or outside one.
+
+- **Find out where you are.** If `git rev-parse --is-inside-work-tree`
+  fails in your working directory, you are outside a git repository. The
+  course then lives in the nearest directory, from the current directory
+  up, that holds `.learn/`, or in the current directory. Ask the learner
+  which directory to use, such as the directory of the paper. The learner
+  runs `qlearn <slug>` there. Run your commands from that directory or
+  from a directory below it.
+- **The sources take the place of the code.** Ask the learner for them: a
+  paper, a spec, a URL that the learner opens, a book. Read each source
+  that you can reach. For a source that you cannot reach, such as a
+  printed book, ask the learner for the passages.
+- **Check each claim against the sources** before you teach it, as you
+  check a claim against the code. If no source says it, say in the page
+  that the claim comes from you.
+- **Cite the sources by name and place** in the lesson: the section, the
+  page or the figure, such as "the Raft paper, section 5.2, figure 4".
+- **Show a sketch in a fence of code**, such as a fence with the info
+  string `c`, or pseudo-code in a fence with no info string. Say in the
+  text that it is a sketch.
+- **Outside a repository, show no excerpt and no image.** There is no
+  repository to read them in, so the server refuses the page. Draw a
+  figure with a diagram, a chart or steps.
+- **Skip the steps that read code**: the history of the learner in
+  `git log`, the code map of the research, and the developer doc at the
+  end.
+- **A finding is a gap or a contradiction in the sources**, such as a
+  case that the paper leaves out, or two sections that disagree. Cite
+  each place in its body.
+- **The cheatsheet shows no code.** Put the citations of the sources in
+  it. The server adds Map of the code with the line "The course showed
+  no code."
 
 ## The syllabus
 
@@ -645,7 +685,9 @@ box with the sign of its marker.
 
 Show the code of the repository with an `excerpt` fence only. Never copy
 the code into a code fence: the server reads the lines of an excerpt in the
-repository, and refuses the page if the file does not hold them.
+repository, and refuses the page if the file does not hold them. Outside a
+git repository, the server refuses every excerpt: show a sketch in a fence
+of code (see "A subject with no code").
 
 ````
 ```excerpt
@@ -849,6 +891,7 @@ diagram, a chart or steps instead.
   image in a line of text shows as its alt text. An image alone in a
   list, a quote, a callout or a table is refused.
 - Say in the text what the learner should look at in the image.
+- Outside a git repository, the server refuses every image.
 
 ## Quizzes
 

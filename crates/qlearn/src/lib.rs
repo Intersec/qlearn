@@ -19,6 +19,7 @@ pub mod lesson;
 pub mod model;
 pub mod quiz;
 pub mod report;
+pub mod root;
 pub mod status;
 pub mod store;
 pub mod syllabus;

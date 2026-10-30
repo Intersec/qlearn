@@ -22,28 +22,78 @@ pub struct Git {
     root: PathBuf,
 }
 
+/// What git says of a directory.
+#[derive(Debug)]
+pub enum Found {
+    /// The directory is in the worktree of this repository.
+    Repository(Git),
+    /// git says that no repository holds the directory, with its message.
+    NoRepository(String),
+    /// git is not on the PATH.
+    NoGit,
+}
+
+/// git is not on the PATH. A type of its own, so a caller tells it from a
+/// git that ran and failed.
+#[derive(Debug)]
+pub struct NoGit;
+
+impl std::fmt::Display for NoGit {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("git is not on the PATH")
+    }
+}
+
+impl std::error::Error for NoGit {}
+
 impl Git {
     /// Find the repository that contains `cwd`.
     pub async fn discover(cwd: &Path) -> Result<Self> {
-        let out = raw(cwd, &["rev-parse", "--show-toplevel"]).await?;
+        match Self::find(cwd, &[]).await? {
+            Found::Repository(git) => Ok(git),
+            Found::NoRepository(message) => bail!(
+                "{} is not in the work tree of a git repository: {message}",
+                cwd.display()
+            ),
+            Found::NoGit => Err(NoGit.into()),
+        }
+    }
+
+    /// Ask git which repository holds `cwd`, with `env` added to its
+    /// environment. Any answer but "no repository" or "no git" is an error,
+    /// such as a repository that git refuses to read.
+    pub async fn find(cwd: &Path, env: &[(&str, &OsStr)]) -> Result<Found> {
+        let out = match raw_with(cwd, &["rev-parse", "--show-toplevel"], env, TIMEOUT).await {
+            Ok(out) => out,
+            Err(error) if error.is::<NoGit>() => return Ok(Found::NoGit),
+            Err(error) => return Err(error),
+        };
         // Only the newline is git's: a directory name may end with a space.
         let mut root = out.stdout;
         if root.last() == Some(&b'\n') {
             root.pop();
         }
+        let err = String::from_utf8_lossy(&out.stderr).trim().to_owned();
 
-        // Outside a work tree, one git fails and an older one prints nothing.
-        if !out.status.success() || root.is_empty() {
-            let err = String::from_utf8_lossy(&out.stderr);
-            bail!(
-                "{} is not in the work tree of a git repository: {}",
-                cwd.display(),
-                err.trim()
-            );
+        if out.status.success() && !root.is_empty() {
+            return Ok(Found::Repository(Self {
+                root: PathBuf::from(OsString::from_vec(root)),
+            }));
         }
-        Ok(Self {
-            root: PathBuf::from(OsString::from_vec(root)),
-        })
+        // LC_ALL=C keeps the message in English. Each variant starts with
+        // these words: no parent directory, a mount point, a `.git` file
+        // that names nothing. A trace or a warning may come before it.
+        let fatal = err
+            .lines()
+            .find(|line| line.starts_with("fatal: not a git repository"));
+        if let (Some(128), Some(fatal)) = (out.status.code(), fatal) {
+            return Ok(Found::NoRepository(fatal.to_owned()));
+        }
+        // Inside `.git`, one git fails and an older one prints nothing.
+        bail!(
+            "{} is not in the work tree of a git repository: {err}",
+            cwd.display()
+        )
     }
 
     pub fn root(&self) -> &Path {
@@ -116,9 +166,19 @@ async fn raw_within<S: AsRef<OsStr>>(
     args: &[S],
     timeout: Duration,
 ) -> Result<std::process::Output> {
+    raw_with(dir, args, &[], timeout).await
+}
+
+async fn raw_with<S: AsRef<OsStr>>(
+    dir: &Path,
+    args: &[S],
+    env: &[(&str, &OsStr)],
+    timeout: Duration,
+) -> Result<std::process::Output> {
     let mut cmd = Command::new("git");
     cmd.current_dir(dir)
         .args(args)
+        .envs(env.iter().copied())
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -139,9 +199,7 @@ async fn raw_within<S: AsRef<OsStr>>(
         Ok(Err(e)) if e.kind() == std::io::ErrorKind::NotFound && !dir.is_dir() => {
             Err(anyhow!("{} does not exist", dir.display()))
         }
-        Ok(Err(e)) if e.kind() == std::io::ErrorKind::NotFound => {
-            Err(anyhow!("git is not on the PATH"))
-        }
+        Ok(Err(e)) if e.kind() == std::io::ErrorKind::NotFound => Err(NoGit.into()),
         Ok(Err(e)) => Err(e).with_context(|| format!("cannot run `git {}`", describe(args))),
         Err(_) => Err(anyhow!(
             "`git {}` did not answer in {}s",
@@ -198,6 +256,29 @@ mod tests {
         assert!(
             err.contains("is not in the work tree of a git repository"),
             "{err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn no_repository_is_found_through_the_lines_of_a_trace() {
+        // GIT_TRACE writes to stderr before the fatal line.
+        let top = tempfile::tempdir().unwrap();
+        let ceiling = top.path().canonicalize().unwrap();
+        let dir = ceiling.join("paper");
+        std::fs::create_dir(&dir).unwrap();
+        let env = [
+            ("GIT_CEILING_DIRECTORIES", ceiling.as_os_str()),
+            ("GIT_TRACE", OsStr::new("1")),
+        ];
+
+        let found = Git::find(&dir, &env).await.unwrap();
+
+        let Found::NoRepository(message) = found else {
+            panic!("{found:?}");
+        };
+        assert!(
+            message.starts_with("fatal: not a git repository"),
+            "{message}"
         );
     }
 

@@ -70,9 +70,11 @@ first. `qlearn delete` names what it removes and asks before it removes
 it. `--yes` skips the question.
 
 A subject with no code, such as a paper, needs no repository. Outside a
-git repository, the course lives in the nearest `.learn/` above the
-current directory, or in the current directory when there is none. Such a
-course shows no excerpt and no image of a repository.
+git repository, the course lives in the nearest directory, from the
+current directory up, that holds `.learn/`, or in the current directory
+when there is none. Such a course shows no excerpt and no image of a
+repository. Without git on the PATH, every directory is outside a
+repository.
 
 `qlearn export` asks the server of the worktree for the course. With no
 server, it reads the only course of `.learn/`.

@@ -33,6 +33,18 @@ pub struct Spec {
     line: usize,
 }
 
+/// The error of an image outside a repository, at its line: there is no
+/// object database to read it in.
+pub fn outside(line: usize) -> Fault {
+    Fault {
+        line,
+        kind: KIND,
+        message: "take this image out, or draw it in a mermaid fence or a fence of code: a \
+                  course outside a git repository shows no file of a repository"
+            .to_owned(),
+    }
+}
+
 /// Read the alt text and the path of an image at `line`, with every fault
 /// at once.
 pub fn spec(alt: &str, path: &str, line: usize) -> Result<Spec, Vec<Fault>> {

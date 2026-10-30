@@ -1339,8 +1339,8 @@ sources of the learner take the place of the code.
 
 **Why.** A course on a paper or a protocol has no code. A course taught
 in the terminal of an agent runs in any directory, but qlearn refused to
-start outside a repository, so those subjects lost the page. Every widget of a page but the excerpt and the image needs no
-git.
+start outside a repository, so those subjects lost the page. Every
+widget of a page but the excerpt and the image needs no git.
 
 **Rejected:**
 
@@ -1354,6 +1354,40 @@ git.
 - **The current directory alone, with no walk up.** An agent command run
   from a directory below would not find the server, where a repository
   finds it.
+
+**Code.** `Root` in `root.rs` is the outcome of the discovery: a
+`Repository` with its `Git`, or a `Directory`. The parser takes the `Git`
+as an `Option`, so no code reads the object database without a
+repository. Outside one, each excerpt and each image is refused with no
+check of its keys, since the fix is to take it out.
+
+A broken repository stays an error. qlearn falls back to a `Directory`
+only when `git rev-parse --show-toplevel` exits with 128 and says
+`fatal: not a git repository`, or when git is not on the PATH. git says
+the same of a `.git` that it cannot read, such as an empty directory or
+a file that names no directory. So qlearn also looks for a `.git` from
+the current directory up, where git looks: it stops below a directory of
+`GIT_CEILING_DIRECTORIES`, and at the edge of the file system. A `.git`
+found there, or a `GIT_DIR` that is set, is an error. Any other message
+of git, such as a `safe.directory` refusal, is an error too.
+
+git may write a trace or a warning before its fatal line, so qlearn
+looks for that line in all of stderr, not at its start.
+
+Outside a repository, qlearn refuses a `.learn/` that another user owns.
+git refuses a repository of another user for the same reason: in a
+directory such as `/tmp`, that user could hold the claim, or write the
+`server.json` that the agent commands trust.
+
+A stray empty `.learn/` above a directory would take every course below
+it. So a command that fails with no `.learn/` does not create one:
+`qlearn` checks its slug, and `qlearn export` looks for a course, before
+the claim makes the directory.
+
+The cheatsheet keeps Map of the code outside a repository, with the line
+"The course showed no code.". The page, the HTML file and the Markdown
+export then show the same sections in every course, and nothing that
+crosses the wire changes.
 
 ## Open questions
 

@@ -1,0 +1,10 @@
+---
+source: crates/qlearn/src/lesson/mod.rs
+description: "# Code of a repository\n\nA good excerpt, a broken one, an image, and a URL, each refused alone.\n\n```excerpt\npath: src/raft.c\nlines: 1-3\n```\n\n```excerpt\nlines: 900\nmark: 1000\n```\n\n![The states of a server](docs/states.svg)\n\n![A logo](https://example.com/logo.png)\n\nAn image in a line of text stays text: ![a dot](dot.png).\n\n```mermaid\n```\n"
+---
+refused
+refused-code.md:5: excerpt: show the code as a sketch in a fence of code, such as ```c: a course outside a git repository shows no code of a repository
+refused-code.md:10: excerpt: show the code as a sketch in a fence of code, such as ```c: a course outside a git repository shows no code of a repository
+refused-code.md:15: image: take this image out, or draw it in a mermaid fence or a fence of code: a course outside a git repository shows no file of a repository
+refused-code.md:17: image: take this image out, or draw it in a mermaid fence or a fence of code: a course outside a git repository shows no file of a repository
+refused-code.md:21: diagram: the fence holds no Mermaid source: write the diagram inside it

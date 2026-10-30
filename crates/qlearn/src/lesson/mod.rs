@@ -85,10 +85,11 @@ type Item<'a> = (Event<'a>, Range<usize>);
 /// every error that it holds.
 ///
 /// Nothing is stored before this returns `Ok`, so a page with one error
-/// leaves the course as it was.
+/// leaves the course as it was. `git` is None outside a repository, where
+/// each excerpt and each image is an error.
 pub async fn parse(
     source: &str,
-    git: &Git,
+    git: Option<&Git>,
     highlighter: &Highlighter,
 ) -> Result<Parsed, Vec<Fault>> {
     parse_with(source, Within::Lesson, git, highlighter).await
@@ -103,7 +104,7 @@ pub async fn parse(
 pub async fn parse_debrief(
     source: &str,
     n: usize,
-    git: &Git,
+    git: Option<&Git>,
     highlighter: &Highlighter,
 ) -> Result<Parsed, Vec<Fault>> {
     parse_with(source, Within::Debrief(n), git, highlighter).await
@@ -115,7 +116,7 @@ pub async fn parse_debrief(
 /// quiz to answer for the line.
 pub async fn parse_cheatsheet(
     source: &str,
-    git: &Git,
+    git: Option<&Git>,
     highlighter: &Highlighter,
 ) -> Result<Parsed, Vec<Fault>> {
     parse_with(source, Within::Cheatsheet, git, highlighter).await
@@ -124,7 +125,7 @@ pub async fn parse_cheatsheet(
 async fn parse_with(
     source: &str,
     within: Within,
-    git: &Git,
+    git: Option<&Git>,
     highlighter: &Highlighter,
 ) -> Result<Parsed, Vec<Fault>> {
     let Split {
@@ -132,7 +133,12 @@ async fn parse_with(
         title,
         mut faults,
         ..
-    } = split(source, highlighter, within);
+    } = split(source, highlighter, within, git.is_some());
+    // Outside a repository, the split refused every excerpt and image, so
+    // none is left to read.
+    let Some(git) = git else {
+        return finish(pieces, title, faults);
+    };
 
     // Every excerpt is read, even on a page already refused, so the agent
     // gets every error in one pass.
@@ -183,6 +189,34 @@ async fn parse_with(
         }
     }
 
+    done(blocks, title, hidden, media, faults)
+}
+
+/// The page of a source that holds no excerpt and no image to read.
+fn finish(
+    pieces: Vec<Piece>,
+    title: Option<String>,
+    faults: Vec<Fault>,
+) -> Result<Parsed, Vec<Fault>> {
+    let blocks = pieces
+        .into_iter()
+        .filter_map(|piece| match piece {
+            Piece::Block(block) => Some(block),
+            Piece::Excerpt(..) | Piece::Image(..) => None,
+        })
+        .collect();
+
+    done(blocks, title, BTreeMap::new(), BTreeMap::new(), faults)
+}
+
+/// The page, or every fault in the order of the lines.
+fn done(
+    blocks: Vec<Block>,
+    title: Option<String>,
+    hidden: BTreeMap<String, Line>,
+    media: BTreeMap<String, Vec<u8>>,
+    mut faults: Vec<Fault>,
+) -> Result<Parsed, Vec<Fault>> {
     match faults.is_empty() {
         true => Ok(Parsed {
             blocks,
@@ -210,7 +244,7 @@ enum Piece {
 /// hands the agent the source of its block. A block that fails a check has
 /// no id, so it is left out.
 pub fn sources(source: &str, within: Within) -> Vec<BlockSource> {
-    split(source, Highlighter::shared(), within).sources
+    split(source, Highlighter::shared(), within, true).sources
 }
 
 /// A source cut into blocks that each read alone, for an export.
@@ -224,7 +258,7 @@ pub struct Cut {
 
 /// The blocks of a source as Markdown that reads alone, by id.
 pub fn cut(source: &str, within: Within) -> Cut {
-    let split = split(source, Highlighter::shared(), within);
+    let split = split(source, Highlighter::shared(), within, true);
     let blocks = split
         .sources
         .into_iter()
@@ -277,7 +311,10 @@ struct Split {
 }
 
 /// The pieces of a page, its title, and the errors that need no git call.
-fn split(source: &str, highlighter: &Highlighter, within: Within) -> Split {
+/// `repository` is false outside a repository: each excerpt and each image
+/// is then an error of its own, with no check of its keys, since the fix
+/// is to take it out.
+fn split(source: &str, highlighter: &Highlighter, within: Within, repository: bool) -> Split {
     let items: Vec<Item> = Parser::new_ext(source, OPTIONS)
         .into_offset_iter()
         .collect();
@@ -364,6 +401,10 @@ fn split(source: &str, highlighter: &Highlighter, within: Within) -> Split {
                     }
                 }
             }
+            Role::Excerpt if !repository => {
+                page.close();
+                faults.push(excerpt::outside(line_of(range.start)));
+            }
             Role::Excerpt => {
                 page.close();
                 let fence = line_of(range.start);
@@ -412,6 +453,10 @@ fn split(source: &str, highlighter: &Highlighter, within: Within) -> Split {
                     }
                     Err(found) => faults.extend(found),
                 }
+            }
+            Role::Image if !repository => {
+                page.close();
+                faults.push(image::outside(line_of(range.start)));
             }
             Role::Image => {
                 page.close();
@@ -1307,7 +1352,7 @@ bool grant_vote(struct server *s, int term, int candidate)
 
     impl Corpus {
         async fn parse(&self, source: &str) -> Result<Parsed, Vec<Fault>> {
-            super::parse(source, &self.git, Highlighter::shared()).await
+            super::parse(source, Some(&self.git), Highlighter::shared()).await
         }
 
         /// A text with each known hash, whole or cut short, by its name.
@@ -1348,7 +1393,11 @@ bool grant_vote(struct server *s, int term, int candidate)
     /// What a case of the corpus gives, in a form that a reader checks at
     /// a glance: each block with its id, or each error as the agent reads it.
     async fn outcome(corpus: &Corpus, file: &str, source: &str) -> String {
-        let out = match corpus.parse(source).await {
+        render(corpus, file, corpus.parse(source).await)
+    }
+
+    fn render(corpus: &Corpus, file: &str, parsed: Result<Parsed, Vec<Fault>>) -> String {
+        let out = match parsed {
             Ok(parsed) => {
                 let mut out = format!("title: {}\n", parsed.title.as_deref().unwrap_or("(none)"));
                 for block in &parsed.blocks {
@@ -1477,6 +1526,64 @@ bool grant_vote(struct server *s, int term, int candidate)
                 insta::assert_snapshot!(name, out);
             });
         }
+    }
+
+    /// Outside a repository, every block but the excerpt and the image
+    /// passes, and each excerpt and image is an error of its own.
+    #[tokio::test]
+    async fn the_corpus_of_pages_outside_a_repository() {
+        let corpus = plain().await;
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data/outside");
+        let mut files: Vec<_> = std::fs::read_dir(&dir)
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .filter(|path| path.extension().is_some_and(|ext| ext == "md"))
+            .collect();
+        files.sort();
+        assert!(!files.is_empty(), "no case in {}", dir.display());
+
+        for path in files {
+            let file = path.file_name().unwrap().to_string_lossy().into_owned();
+            let name = path.file_stem().unwrap().to_string_lossy().into_owned();
+            let source = std::fs::read_to_string(&path).unwrap();
+            let parsed = super::parse(&source, None, Highlighter::shared()).await;
+            let out = render(&corpus, &file, parsed);
+
+            insta::with_settings!({ description => source.clone(), omit_expression => true }, {
+                insta::assert_snapshot!(format!("outside-{name}"), out);
+            });
+        }
+    }
+
+    /// A debrief and a cheatsheet read the repository as a page does, so
+    /// outside one they refuse an excerpt and an image too.
+    #[tokio::test]
+    async fn a_debrief_and_a_cheatsheet_outside_a_repository_show_no_code() {
+        let source = "# Recap\n\n```excerpt\npath: src/raft.c\nlines: 1-3\n```\n\n\
+                      ![The states](docs/states.svg)\n\n```c\nint term;\n```\n";
+
+        let debrief = parse_debrief(source, 1, None, Highlighter::shared())
+            .await
+            .unwrap_err();
+        let sheet = parse_cheatsheet(source, None, Highlighter::shared())
+            .await
+            .unwrap_err();
+
+        for faults in [debrief, sheet] {
+            let lines: Vec<_> = faults
+                .iter()
+                .map(|fault| (fault.line, fault.kind))
+                .collect();
+            assert_eq!(lines, [(3, "excerpt"), (8, "image")], "{faults:?}");
+        }
+        let kept = parse_cheatsheet(
+            "# Recap\n\n```c\nint term;\n```\n",
+            None,
+            Highlighter::shared(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(kept.blocks.len(), 1);
     }
 
     #[tokio::test]
@@ -1672,13 +1779,13 @@ bool grant_vote(struct server *s, int term, int candidate)
                      \"y\": { \"label\": \"Votes\" }, \
                      \"series\": [{ \"name\": \"S1\", \"values\": [3, null] }] }\n```\n";
 
-        let parsed = parse_debrief(chart, 1, &corpus.git, Highlighter::shared())
+        let parsed = parse_debrief(chart, 1, Some(&corpus.git), Highlighter::shared())
             .await
             .unwrap();
         let refused = parse_debrief(
             &chart.replace("[3, null]", "[3]"),
             1,
-            &corpus.git,
+            Some(&corpus.git),
             Highlighter::shared(),
         )
         .await
@@ -1701,13 +1808,13 @@ bool grant_vote(struct server *s, int term, int candidate)
                      \"steps\": [{ \"label\": \"t = 0\", \"body\": \"S2 votes.\", \
                      \"rows\": [[\"S2\", \"S1\"]] }] }\n```";
 
-        let parsed = parse_debrief(fence, 1, &corpus.git, Highlighter::shared())
+        let parsed = parse_debrief(fence, 1, Some(&corpus.git), Highlighter::shared())
             .await
             .unwrap();
         let refused = parse_debrief(
             &fence.replace("[\"S2\", \"S1\"]", "[\"S2\"]"),
             1,
-            &corpus.git,
+            Some(&corpus.git),
             Highlighter::shared(),
         )
         .await
@@ -1834,7 +1941,7 @@ bool grant_vote(struct server *s, int term, int candidate)
         let source = format!("- {}x\n", "> ".repeat(40_000));
         let start = std::time::Instant::now();
 
-        let found = split(&source, Highlighter::shared(), Within::Lesson);
+        let found = split(&source, Highlighter::shared(), Within::Lesson, true);
 
         assert_eq!((found.pieces.len(), found.faults.len()), (1, 0));
         let spent = start.elapsed();
@@ -1994,7 +2101,7 @@ bool grant_vote(struct server *s, int term, int candidate)
         let source = format!("{}![a](b.png)\n", "- ".repeat(40_000));
         let start = std::time::Instant::now();
 
-        let found = split(&source, Highlighter::shared(), Within::Lesson);
+        let found = split(&source, Highlighter::shared(), Within::Lesson, true);
 
         assert_eq!(found.faults.len(), 1);
         let spent = start.elapsed();
@@ -2009,13 +2116,13 @@ bool grant_vote(struct server *s, int term, int candidate)
         let source = "# Almost\n\n```excerpt\npath: src/raft.c\nlines: 12-14\nmark: 13\nhide: 13\n\
                       ```\n\n```excerpt\npath: src/raft.c\nlines: 900\n```\n";
 
-        let faults = parse_debrief(source, 1, &corpus.git, Highlighter::shared())
+        let faults = parse_debrief(source, 1, Some(&corpus.git), Highlighter::shared())
             .await
             .unwrap_err();
         let shown = parse_debrief(
             &source.replace("hide: 13\n", ""),
             1,
-            &corpus.git,
+            Some(&corpus.git),
             Highlighter::shared(),
         )
         .await;
@@ -2049,10 +2156,10 @@ bool grant_vote(struct server *s, int term, int candidate)
         let source = "# Raft\n\n```excerpt\npath: src/raft.c\nlines: 12-14\nhide: 13\n```\n\n\
                       > [!tip]\n> A typo.\n";
 
-        let faults = parse_cheatsheet(source, &corpus.git, Highlighter::shared())
+        let faults = parse_cheatsheet(source, Some(&corpus.git), Highlighter::shared())
             .await
             .unwrap_err();
-        let parsed = parse_cheatsheet("# Raft\n", &corpus.git, Highlighter::shared())
+        let parsed = parse_cheatsheet("# Raft\n", Some(&corpus.git), Highlighter::shared())
             .await
             .unwrap();
 

@@ -21,7 +21,6 @@ use tokio::sync::RwLock;
 
 use crate::choice::{self, StoredChoosing};
 use crate::events::{self, Events};
-use crate::git::exec::Git;
 use crate::highlight::Highlighter;
 use crate::lesson::{self, Fault};
 use crate::model::{
@@ -31,6 +30,7 @@ use crate::model::{
     StatusText, Thread, ThreadOpened,
 };
 use crate::quiz::{Refusal, StoredDebrief};
+use crate::root::Root;
 use crate::store::{self, PageFile, Store};
 use crate::thread::{self, StoredComment, StoredThread};
 
@@ -46,8 +46,9 @@ pub struct AppState {
     /// lock of the course.
     pub current: Arc<Mutex<Option<String>>>,
     pub store: Arc<Store>,
-    /// The repository that the excerpts are read in.
-    pub git: Git,
+    /// The directory of the course. Its repository, when it has one, is
+    /// where the excerpts are read.
+    pub root: Root,
     pub events: Arc<Events>,
     /// The broken blocks that the agent heard of, by page and block, with
     /// the request. A push of the page forgets its own.
@@ -57,7 +58,7 @@ pub struct AppState {
 impl AppState {
     /// `current` is the page that the agent pushed last, as the store says.
     pub fn new(
-        git: Git,
+        root: Root,
         store: Store,
         course: Course,
         current: Option<String>,
@@ -70,7 +71,7 @@ impl AppState {
             course: Arc::new(RwLock::new(course)),
             current: Arc::new(Mutex::new(current)),
             store: Arc::new(store),
-            git,
+            root,
             events: Arc::new(Events::default()),
             broken: Arc::default(),
         }
@@ -266,7 +267,7 @@ async fn push_page(
     })?;
 
     let started = crate::trace::start();
-    let parsed = lesson::parse(&source, &state.git, Highlighter::shared())
+    let parsed = lesson::parse(&source, state.root.git(), Highlighter::shared())
         .await
         .map_err(|faults| ApiError::invalid_page(&id, &faults))?;
     crate::trace::since(started, || {
@@ -563,7 +564,7 @@ async fn write_debrief(
     let read = crate::quiz::read_debrief(&body, &quiz);
     let parsed = match &read.source {
         Some(source) => {
-            Some(lesson::parse_debrief(source, at, &state.git, Highlighter::shared()).await)
+            Some(lesson::parse_debrief(source, at, state.root.git(), Highlighter::shared()).await)
         }
         None => None,
     };
@@ -1338,7 +1339,7 @@ async fn write_cheatsheet(
         code: "badRequest",
         message: rejection.body_text(),
     })?;
-    let parsed = lesson::parse_cheatsheet(&source, &state.git, Highlighter::shared())
+    let parsed = lesson::parse_cheatsheet(&source, state.root.git(), Highlighter::shared())
         .await
         .map_err(|faults| ApiError::invalid_cheatsheet(&faults))?;
 
@@ -1624,6 +1625,7 @@ mod tests {
     use time::OffsetDateTime;
     use tower::ServiceExt;
 
+    use crate::git::exec::Git;
     use crate::model::{PageRef, PageState, Part};
     use crate::testutil::{Repo, build_repo, commit};
 
@@ -1656,7 +1658,7 @@ mod tests {
         }];
 
         AppState::new(
-            Git::at(root),
+            Root::Repository(Git::at(root)),
             Store::at(root),
             course,
             None,
@@ -2217,6 +2219,41 @@ mod tests {
         assert_eq!(files(dir.path()), Vec::<String>::new());
     }
 
+    /// Outside a repository, the page names each excerpt and each image,
+    /// and stores nothing. A page with neither is stored.
+    #[tokio::test]
+    async fn a_course_outside_a_repository_refuses_an_excerpt_and_an_image() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut state = state_in(dir.path());
+        state.root = Root::Directory(dir.path().to_path_buf());
+        let source = "# Raft\n\n```excerpt\npath: a.c\nlines: 1\n```\n\n\
+                      ![The states](docs/states.svg)\n";
+
+        let (status, body) = json(app(state.clone()), put("/api/pages/1", source)).await;
+
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+        assert_eq!(body["error"]["code"], "invalidPage");
+        let message = body["error"]["message"].as_str().unwrap();
+        let lines: Vec<_> = message
+            .lines()
+            .map(|line| &line[..line.find(": ").unwrap()])
+            .collect();
+        assert_eq!(lines, ["1.md:3", "1.md:8"], "{message}");
+        assert_eq!(files(dir.path()), Vec::<String>::new());
+
+        let sketch = "# Raft\n\n```c\nint term;\n```\n";
+        let (status, body) = json(app(state), put("/api/pages/1", sketch)).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(
+            files(dir.path()),
+            [
+                ".learn/raft/course.json",
+                ".learn/raft/pages/1.json",
+                ".learn/raft/pages/1.md"
+            ]
+        );
+    }
+
     /// The media route sends the bytes with the type of the name, and
     /// tells the browser never to guess another type or run a script.
     #[tokio::test]
@@ -2548,7 +2585,7 @@ mod tests {
     async fn a_page_file_that_the_course_does_not_hold_is_not_found() {
         let dir = repo().await;
         let state = state_in(dir.path());
-        let parsed = lesson::parse(LESSON, &state.git, Highlighter::shared())
+        let parsed = lesson::parse(LESSON, state.root.git(), Highlighter::shared())
             .await
             .unwrap();
         let page = PageFile {
@@ -3990,7 +4027,7 @@ mod tests {
 
             // The page holds the choices, so a resend changes nothing.
             let restarted = AppState::new(
-                Git::at(dir.path()),
+                Root::Repository(Git::at(dir.path())),
                 Store::at(dir.path()),
                 course,
                 None,
@@ -4165,7 +4202,7 @@ mod tests {
             let state = state.clone();
             let (uri, body, code) = (uri.to_owned(), body.to_owned(), code.to_owned());
             async move {
-                let before = stored(state.git.root());
+                let before = stored(state.root.dir());
                 let course = state.course.read().await.clone();
                 let after = state.events.after(None, events::HOLD).await.next;
 
@@ -4180,7 +4217,7 @@ mod tests {
                 assert_eq!(status, expected, "{uri} {body}: {answer}");
                 assert_eq!(answer["error"]["code"], code.as_str(), "{uri} {body}");
                 assert!(answer["error"]["message"].is_string(), "{answer}");
-                assert_eq!(stored(state.git.root()), before, "{uri} {body}");
+                assert_eq!(stored(state.root.dir()), before, "{uri} {body}");
                 assert_eq!(*state.course.read().await, course, "{uri} {body}");
                 assert_eq!(state.events.after(None, events::HOLD).await.next, after);
                 answer
@@ -4771,7 +4808,7 @@ mod tests {
             let state = state.clone();
             let (uri, body, code) = (uri.to_owned(), body.to_owned(), code.to_owned());
             async move {
-                let before = stored(state.git.root());
+                let before = stored(state.root.dir());
                 let course = state.course.read().await.clone();
                 let after = state.events.after(None, events::HOLD).await.next;
 
@@ -4786,7 +4823,7 @@ mod tests {
                 assert_eq!(status, expected, "{uri} {body}: {answer}");
                 assert_eq!(answer["error"]["code"], code.as_str(), "{uri} {body}");
                 assert!(answer["error"]["message"].is_string(), "{answer}");
-                assert_eq!(stored(state.git.root()), before, "{uri} {body}");
+                assert_eq!(stored(state.root.dir()), before, "{uri} {body}");
                 assert_eq!(*state.course.read().await, course, "{uri} {body}");
                 assert_eq!(state.events.after(None, events::HOLD).await.next, after);
                 answer
