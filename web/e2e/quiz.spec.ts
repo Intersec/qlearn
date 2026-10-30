@@ -191,3 +191,25 @@ test('the agent debriefs the quiz, and the page and the column follow', async ({
   await expect(quiz).toHaveAttribute('data-step', 'debriefed');
   await expect(entry.locator('.syllabus-score')).toHaveText('1.5/2');
 });
+
+// A text for screen readers sits out of the flow. The page under the bar
+// must hold it, or it lengthens the document and gives a second scroll bar.
+test('a graded quiz scrolls with its page, never the document', async ({ page }) => {
+  const { agent } = server;
+  await agent.page('1', PAGE_1);
+  await agent.quiz('1', QUIZ_1);
+  await page.setViewportSize({ width: 1280, height: 500 });
+  await page.goto(server.url);
+  const quiz = page.locator('.quiz[data-quiz="1"]');
+
+  await quiz.getByRole('textbox').fill('Two followers rarely time out at once.');
+  await quiz.getByRole('button', { name: 'Send' }).click();
+  await quiz.getByRole('radio').nth(1).check();
+  await quiz.getByRole('button', { name: 'Send' }).click();
+  await expect(quiz).toHaveAttribute('data-step', 'graded');
+
+  const overflow = await page.evaluate(
+    () => document.scrollingElement!.scrollHeight - window.innerHeight,
+  );
+  expect(overflow).toBe(0);
+});

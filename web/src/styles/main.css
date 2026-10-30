@@ -246,7 +246,10 @@ body {
   flex: 1;
   min-height: 0;
 }
+/* Positioned, so that a text out of the flow scrolls with the page and
+   does not lengthen the document. */
 .course {
+  position: relative;
   flex: 1;
   min-width: 0;
   overflow-y: auto;
