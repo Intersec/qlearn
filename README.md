@@ -5,6 +5,19 @@ terminal.
 
 One binary, no runtime to install, nothing leaves your machine.
 
+## Install
+
+One link, always the newest release, for Linux x86-64:
+
+```sh
+curl -fLO https://github.com/Intersec/qlearn/releases/latest/download/qlearn-linux-x86_64.gz
+gzip -d qlearn-linux-x86_64.gz
+install -m 755 qlearn-linux-x86_64 ~/.local/bin/qlearn
+qlearn --version
+```
+
+On another system, [build it from source](#build-from-source).
+
 ## Why
 
 An agent such as Claude Code can teach a subject of a code base as a
@@ -184,6 +197,8 @@ make dist          # one static x86_64-unknown-linux-musl binary
 | [`roadmap/stack.md`](./roadmap/stack.md) | The technology decisions, with a date each |
 | [`roadmap/testing.md`](./roadmap/testing.md) | The test policy |
 | [`skills/qlearn/SKILL.md`](./skills/qlearn/SKILL.md) | The skill for Claude Code. It runs `qlearn skill` |
+| [`CONTRIBUTING.md`](./CONTRIBUTING.md) | The commits, the changelog, the versions, the release |
+| [`CHANGELOG.md`](./CHANGELOG.md) | What each release changed |
 | [`CLAUDE.md`](./CLAUDE.md) | What a Claude session must do |
 
 ## License

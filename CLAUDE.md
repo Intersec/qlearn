@@ -165,6 +165,13 @@ way the project does a thing. Keep each line short.
   `refactor`, `perf`, `chore`, `ci`, `style`.
 - End with a `Co-Authored-By: Claude …` trailer.
 
+## Changelog
+
+A change that a user can see drops one file under `changelog/`, in the
+commit of the change. [`changelog/README.md`](./changelog/README.md) says
+how to write it. Never edit `CHANGELOG.md`: `cargo xtask release` writes
+it, and the user cuts the release.
+
 ## Documentation
 
 `roadmap/` holds the design, the decisions, and the test policy.

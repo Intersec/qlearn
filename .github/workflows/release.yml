@@ -1,0 +1,77 @@
+# A tag publishes a release.
+#
+# The gate runs again on the commit that the tag names. Then the job builds
+# the static Linux x86-64 binary, and attaches it to the release with the
+# notes of that version from CHANGELOG.md. A tag whose gate is red publishes
+# nothing.
+
+name: release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      # The notes come from CHANGELOG.md at the tag, and nothing else needs
+      # the history.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      # `.tool-versions` is the one place that names the versions. The
+      # pipeline reads it, so asdf and the pipeline cannot drift apart.
+      - name: Read the pinned versions
+        id: tools
+        run: |
+          {
+            echo "node=$(awk '/^nodejs /{print $2}' .tool-versions)"
+            echo "rust=$(awk '/^rust /{print $2}' .tool-versions)"
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ steps.tools.outputs.node }}
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install the pinned Rust
+        run: |
+          rustup toolchain install '${{ steps.tools.outputs.rust }}' \
+            --profile minimal --component clippy,rustfmt
+          rustup default '${{ steps.tools.outputs.rust }}'
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: cargo-${{ runner.os }}-
+
+      - name: Install the interface dependencies
+        run: make setup
+
+      - name: The gate
+        run: make check
+
+      # No C toolchain: Rust links musl with its own linker.
+      - name: Build the static binary
+        run: make dist
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          scripts/release-notes.sh "$GITHUB_REF_NAME" > notes.md
+          gh release create "$GITHUB_REF_NAME" \
+            --title "qlearn $GITHUB_REF_NAME" \
+            --notes-file notes.md \
+            dist/qlearn-linux-x86_64.gz

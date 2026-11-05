@@ -1450,6 +1450,32 @@ README clones it.
 **Why.** The repository now exists, so the open question of its URL is
 closed. Intersec publishes qlearn, so the docs may name it.
 
+## 2026-11-05 — A tag publishes a release
+
+**Decision.** `cargo xtask release <version>` cuts a version on the
+machine of the developer. It collects the entries of `changelog/`, writes
+them in `CHANGELOG.md`, bumps `Cargo.toml`, commits, and makes an
+annotated tag. The developer pushes the tag. The `release` workflow of
+GitHub Actions runs the gate on the tagged commit, builds the binary of
+`make dist`, and publishes `qlearn-linux-x86_64.gz` with the notes of the
+version. The `check` workflow runs the gate on every push to `main` and
+on every pull request.
+
+**Why.** The README can now give one link to the newest binary, which
+needs neither Rust nor Node. One file per changelog entry does not
+conflict on a rebase, where a shared `Unreleased` section does. The
+pipeline runs `make check`, so it cannot disagree with the gate of the
+developer.
+
+**Rules.**
+
+- **The release commit holds only what the release writes**: `Cargo.toml`,
+  `Cargo.lock`, `CHANGELOG.md` and `changelog/`. An untracked file of the
+  developer stays out.
+- **A tag whose gate is red publishes nothing.**
+- **The file name carries no version**, so the link to the newest release
+  never changes.
+
 ## Open questions
 
 None.

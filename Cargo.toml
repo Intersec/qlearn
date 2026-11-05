@@ -1,5 +1,7 @@
 [workspace]
-members = ["crates/qlearn"]
+members = ["crates/qlearn", "crates/xtask"]
+# `cargo run` and `make dev` mean the tool, not the chore runner.
+default-members = ["crates/qlearn"]
 resolver = "3"
 
 [workspace.package]

@@ -1038,6 +1038,12 @@ its own.
 whole gate, `make shots` takes screenshots of both themes, and `make dist`
 builds one static `x86_64-unknown-linux-musl` binary.
 
+`cargo xtask release` cuts a version: it collects the entries of
+`changelog/`, writes `CHANGELOG.md`, bumps `Cargo.toml`, commits and tags.
+A pushed tag starts the `release` workflow of GitHub Actions. It runs the
+gate, builds the binary of `make dist`, and publishes it with the notes of
+the version. [`CONTRIBUTING.md`](../CONTRIBUTING.md) holds the procedure.
+
 The interface uses Vue 3, Pinia, Tailwind, DOMPurify, and Mermaid.
 Mermaid is the largest dependency of the interface. The page
 loads it in a chunk of its own, the first time that a page holds a diagram.

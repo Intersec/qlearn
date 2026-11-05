@@ -22,6 +22,12 @@ concurrency:
 jobs:
   check:
     runs-on: ubuntu-latest
+    # A release commit is pushed with its tag, and the release workflow runs
+    # this same gate before it publishes. Two runs on one commit cost twice
+    # the time, and give a flaky test two chances to stop a release.
+    if: >-
+      github.event_name == 'pull_request' ||
+      !startsWith(github.event.head_commit.message, 'chore(release): v')
 
     steps:
       - uses: actions/checkout@v4
