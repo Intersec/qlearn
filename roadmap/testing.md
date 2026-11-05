@@ -123,7 +123,9 @@ not a test. They are how a person, or an agent with no eyes on the screen,
 sees what the interface looks like: a lesson, a quiz, a diagram, a chart, the
 cheatsheet.
 
-## Before the CI exists
+## The pipeline
 
-Run `make check` before every commit. The day a pipeline lands, it runs the
-same command, so nothing in this document changes.
+Run `make check` before every commit. GitHub Actions runs the same command
+on every push to `main` and on every pull request
+(`.github/workflows/check.yml`). It reads the versions of Rust and Node in
+`.tool-versions`, and drives the Google Chrome of the runner.
