@@ -1441,7 +1441,15 @@ already the place where the agent writes with its own tools.
 - **An image fetched by the server from a URL.** qlearn never calls a
   network service, and the page loads nothing from the network.
 
+## 2026-11-05 — The repository is github.com/Intersec/qlearn
+
+**Decision.** The public repository is
+<https://github.com/Intersec/qlearn>. `Cargo.toml` names it, and the
+README clones it.
+
+**Why.** The repository now exists, so the open question of its URL is
+closed. Intersec publishes qlearn, so the docs may name it.
+
 ## Open questions
 
-- **The URL of the repository.** The host is decided: a public repository
-  on GitHub. Until the repository exists, no document holds its URL.
+None.

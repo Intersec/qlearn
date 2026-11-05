@@ -171,8 +171,9 @@ way the project does a thing. Keep each line short.
 `README.md` holds the use.
 
 **This is an open-source project.** Write for a reader who has never seen
-your code base. Never commit the name of a host, a repository, a branch, or
-a service that belongs to one organization. Examples use `myproject`.
+your code base. Never commit the name of an internal host, repository,
+branch, or service of one organization. A public repository may be named,
+such as qlearn itself: <https://github.com/Intersec/qlearn>. Examples use
+`myproject`.
 
-Write in English, in short sentences, with one term per concept. The public
-repository on GitHub does not exist yet, so no document holds its URL.
+Write in English, in short sentences, with one term per concept.

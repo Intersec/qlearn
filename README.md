@@ -161,6 +161,8 @@ and qlearn refuses it. Start a new course with a new slug.
 Rust and Node. Node builds the interface. It is not needed to run the tool.
 
 ```sh
+git clone https://github.com/Intersec/qlearn.git
+cd qlearn
 make setup         # the interface dependencies, once
 make build         # the interface, then the binary
 make check         # the gate: lint, format, tests, build

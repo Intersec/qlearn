@@ -4,6 +4,7 @@ description = "A course on a code base, in the browser, taught by an agent in a 
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
+repository.workspace = true
 
 [dependencies]
 anyhow.workspace = true
