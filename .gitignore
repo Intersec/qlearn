@@ -10,6 +10,8 @@
 # Browser tests
 /web/e2e/.results/
 /web/e2e/.shots/
+# The recording of `make demo`. Only the WebP that it makes is committed.
+/web/e2e/.demo/
 
 # Editors
 *.swp

@@ -1476,6 +1476,29 @@ developer.
 - **The file name carries no version**, so the link to the newest release
   never changes.
 
+## 2026-11-05 — The README shows a recording of a course
+
+**Decision.** `make demo` records a course in a browser and writes
+`docs/demo.webp`, which the README shows at the top. The script
+`web/e2e/demo.ts` plays a course on the repository of the browser
+tests. The agent runs the real commands of the release binary, and the
+learner reads, asks and answers in the page. Nothing passes or fails: it
+is not a test, and `make check` does not run it.
+
+**Why.** A reader sees what the tool does before reading a line of the
+README. The script records the real binary, so the recording shows the
+interface as it is, and a new recording after a change of the interface
+is one command.
+
+**Rules.**
+
+- **An animated WebP, not a GIF.** A GitHub README plays it like an image.
+  A video needs a player, and a GIF of the same seconds is several times
+  larger.
+- **The width is the one that the browser recorded**, 1280 pixels. A
+  smaller picture blurs the code.
+- **The video before the first page is cut**, so the loop starts on a page.
+
 ## Open questions
 
 None.

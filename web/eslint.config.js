@@ -19,10 +19,10 @@ export default defineConfigWithVueTs(
     },
   },
   {
-    // A script whose whole job is to say where the pictures went. This
+    // Scripts whose whole job is to say where the pictures went. This
     // block is last on purpose: in a flat configuration the later one wins.
     name: 'app/scripts',
-    files: ['e2e/shots.ts'],
+    files: ['e2e/shots.ts', 'e2e/demo.ts'],
     rules: { 'no-console': 'off' },
   },
 );

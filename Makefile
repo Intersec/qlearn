@@ -12,8 +12,17 @@ MUSL_TARGET := x86_64-unknown-linux-musl
 DIST_NAME := qlearn-linux-x86_64.gz
 # The port that web/vite.config.ts proxies the API to.
 DEV_PORT := 7420
+# What the recording of `make demo` becomes: an animated WebP. A README
+# plays it like an image, where a video needs a player that the page may
+# not have, and a GIF of the same seconds is several times larger.
+#
+# The width is the one that the browser recorded. A smaller picture blurs
+# the code, and a page that shows it narrower scales it down better.
+DEMO_FPS := 10
+DEMO_WIDTH := 1280
+DEMO_QUALITY := 65
 
-.PHONY: all setup web build check test e2e shots fmt lint install dist musl-target dev clean
+.PHONY: all setup web build check test e2e shots demo fmt lint install dist musl-target dev clean
 
 all: build
 
@@ -45,6 +54,29 @@ e2e: build
 ## Screenshots of both themes, into web/e2e/.shots.
 shots: build
 	cd web && $(NPM) run shots
+
+## The recording that the README shows, into docs/demo.webp.
+##
+## It plays a course on the repository of the browser tests: the agent runs
+## the real commands, the learner reads, asks and answers in a browser. The
+## video before the page is ready is cut, at the time that the script
+## writes in web/e2e/.demo/start.
+##
+## It needs two things that the gate does not: `npx playwright install
+## ffmpeg`, once, for the browser to write a video, and an ffmpeg on the
+## PATH that can write WebP.
+demo: build
+	@ffmpeg -hide_banner -encoders 2>/dev/null | grep -q libwebp_anim || { \
+		echo "ffmpeg with the libwebp encoder is missing. It writes docs/demo.webp."; \
+		exit 1; \
+	}
+	cd web && $(NPM) run demo
+	@mkdir -p docs
+	@ffmpeg -v error -y -ss $$(cat web/e2e/.demo/start) -i web/e2e/.demo/demo.webm \
+		-vf "fps=$(DEMO_FPS),scale=$(DEMO_WIDTH):-1:flags=lanczos" \
+		-c:v libwebp_anim -lossless 0 -q:v $(DEMO_QUALITY) -compression_level 6 \
+		-loop 0 -an docs/demo.webp
+	@ls -lh docs/demo.webp
 
 ## Correct the format of everything.
 fmt:

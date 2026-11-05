@@ -1035,8 +1035,9 @@ its own.
 ## 13. Build and distribution
 
 `make` is the entry point, `make check` is the
-whole gate, `make shots` takes screenshots of both themes, and `make dist`
-builds one static `x86_64-unknown-linux-musl` binary.
+whole gate, `make shots` takes screenshots of both themes, `make demo`
+records the animated WebP of the README, and `make dist` builds one static
+`x86_64-unknown-linux-musl` binary.
 
 `cargo xtask release` cuts a version: it collects the entries of
 `changelog/`, writes `CHANGELOG.md`, bumps `Cargo.toml`, commits and tags.

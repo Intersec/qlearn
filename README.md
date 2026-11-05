@@ -5,6 +5,8 @@ terminal.
 
 One binary, no runtime to install, nothing leaves your machine.
 
+![A course in the browser: the learner asks about a phrase and the agent answers, a quiz is graded and debriefed, the agent writes the next page, and the course ends on a cheatsheet](docs/demo.webp)
+
 ## Install
 
 One link, always the newest release, for Linux x86-64:
@@ -184,6 +186,7 @@ make e2e           # the browser tests alone
 make fmt           # correct the format of everything
 make dev           # the server and Vite together, with hot reload
 make shots         # screenshots of both themes, into web/e2e/.shots
+make demo          # the recording of the README, into docs/demo.webp
 make install       # into ~/.local/bin
 make dist          # one static x86_64-unknown-linux-musl binary
 ```
