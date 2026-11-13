@@ -267,7 +267,7 @@ mod tests {
     #[tokio::test]
     async fn a_broken_repository_stays_an_error() {
         // A `.git` file that names no directory, and an empty `.git`
-        // directory: git calls both "not a git repository".
+        // directory. The words of git differ between its releases.
         let place = outside();
         std::fs::write(place.dir.join(".git"), "gitdir: /nonexistent/qlearn\n").unwrap();
         let other = outside();
@@ -280,8 +280,7 @@ mod tests {
 
             assert!(
                 err.starts_with(&format!(
-                    "fix the repository at {}: git cannot read {}/.git (fatal: not a git \
-                     repository",
+                    "fix the repository at {}: git cannot read {}/.git (fatal: ",
                     place.dir.display(),
                     place.dir.display()
                 )),

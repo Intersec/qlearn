@@ -80,13 +80,7 @@ impl Git {
                 root: PathBuf::from(OsString::from_vec(root)),
             }));
         }
-        // LC_ALL=C keeps the message in English. Each variant starts with
-        // these words: no parent directory, a mount point, a `.git` file
-        // that names nothing. A trace or a warning may come before it.
-        let fatal = err
-            .lines()
-            .find(|line| line.starts_with("fatal: not a git repository"));
-        if let (Some(128), Some(fatal)) = (out.status.code(), fatal) {
+        if let Some(fatal) = no_repository(out.status.code(), &err) {
             return Ok(Found::NoRepository(fatal.to_owned()));
         }
         // Inside `.git`, one git fails and an older one prints nothing.
@@ -216,10 +210,55 @@ fn describe<S: AsRef<OsStr>>(args: &[S]) -> String {
         .join(" ")
 }
 
+/// The line where git says that no repository holds the directory, or
+/// None. LC_ALL=C keeps it in English. A trace or a warning may come
+/// before it.
+fn no_repository(code: Option<i32>, err: &str) -> Option<&str> {
+    // No parent directory, a mount point and an empty `.git` say the
+    // first. For a `.git` file that names nothing, an older git says the
+    // first, and a newer one the second.
+    const SAID: [&str; 2] = [
+        "fatal: not a git repository",
+        "fatal: gitfile does not point to a valid repository",
+    ];
+
+    if code != Some(128) {
+        return None;
+    }
+    err.lines()
+        .find(|line| SAID.iter().any(|said| line.starts_with(said)))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::testutil::{build_repo, commit};
+
+    #[test]
+    fn each_way_that_git_says_no_repository_is_no_repository() {
+        for err in [
+            "fatal: not a git repository (or any of the parent directories): .git",
+            "fatal: not a git repository: /tmp/paper/.git",
+            "warning: a trace\nfatal: gitfile does not point to a valid repository: /tmp/paper/.git",
+        ] {
+            let fatal = no_repository(Some(128), err);
+
+            assert_eq!(fatal, err.lines().last(), "{err}");
+        }
+    }
+
+    #[test]
+    fn another_failure_of_git_is_not_no_repository() {
+        assert_eq!(
+            no_repository(Some(128), "fatal: detected dubious ownership in repository"),
+            None
+        );
+        assert_eq!(
+            no_repository(Some(1), "fatal: not a git repository"),
+            None,
+            "git dies with 128"
+        );
+    }
 
     #[tokio::test]
     async fn discover_finds_the_top_level() {
