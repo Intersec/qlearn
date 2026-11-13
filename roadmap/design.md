@@ -652,8 +652,11 @@ follow-up quiz at the end.
 }
 ```
 
-The page shows the choice at the end of its page, or at the top of the
-syllabus without `page`. Each question also takes free text. The answer
+The page shows the choice at the end of its page. Without `page`, the
+page shows it at the top of the main column, above the page that the
+learner reads, or alone before any page exists. Once the learner answers
+it, the page shows a summary of the answer at the top of the syllabus
+column. Each question also takes free text. The answer
 writes a `chosen` request. A choice is never graded.
 
 ## 8. HTTP API

@@ -377,8 +377,9 @@ pub struct Session {
     /// The release and the commit under it, as `qlearn --version` says.
     pub version: String,
     /// The choices that name no page, open or answered, in the order that
-    /// the agent asked them. The page shows them at the top of the syllabus
-    /// column, and finds an open one again after a reload.
+    /// the agent asked them. The page shows an open one at the top of the
+    /// main column, and an answered one in the syllabus column. It finds an
+    /// open one again after a reload.
     // A server of an earlier release sends none.
     #[serde(default)]
     pub choices: Vec<Choosing>,
@@ -858,7 +859,7 @@ pub struct Choosing {
     /// `choice-<n>`, such as `choice-2`.
     pub id: String,
     /// The page at whose end the choice shows, or None for the top of the
-    /// syllabus column.
+    /// main column.
     pub page: Option<String>,
     pub questions: Vec<ChoosingQuestion>,
     /// None until the learner answers. Then one answer per question, in

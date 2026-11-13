@@ -1820,11 +1820,11 @@ a.syllabus-entry:focus-visible {
   padding: 1px 4px;
 }
 
-/* A choice of the column waits, and the column hides behind its button. */
-.syllabus-toggle-asks {
-  margin-left: 4px;
-  color: var(--action);
-  font-weight: 700;
+/* A choice that names no page waits above the page, in its width. */
+.course-choices {
+  max-width: 48rem;
+  margin: 0 auto;
+  padding: 8px 24px 0;
 }
 
 /* ---------------------------------------------------------- the threads */

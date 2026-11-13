@@ -32,7 +32,7 @@ pub const OPTIONS: std::ops::RangeInclusive<usize> = 2..=4;
 pub struct StoredChoosing {
     /// See [`id`].
     pub id: String,
-    /// None: the choice shows at the top of the syllabus column.
+    /// None: the choice shows at the top of the main column.
     pub page: Option<String>,
     pub questions: Vec<ChoosingQuestion>,
     /// When the agent asked it, in RFC 3339.
@@ -237,14 +237,14 @@ fn read_page(value: Option<&Value>, course: &Course, faults: &mut Vec<String>) -
     if PageKind::of_id(page).is_none() {
         faults.push(format!(
             "page: {page:?} is not a page id. Name a page of the syllabus, such as c1, or leave \
-             page out to ask at the top of the syllabus column"
+             page out to ask at the top of the main column"
         ));
         return None;
     }
     if !course.holds(page) {
         faults.push(format!(
             "page: the syllabus holds no page {page}. Name a page of the syllabus, or leave \
-             page out to ask at the top of the syllabus column"
+             page out to ask at the top of the main column"
         ));
         return None;
     }

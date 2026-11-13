@@ -1499,6 +1499,21 @@ is one command.
   smaller picture blurs the code.
 - **The video before the first page is cut**, so the loop starts on a page.
 
+## 2026-11-13 — A choice with no page waits above the page
+
+**Decision.** A choice without `page` shows at the top of the main
+column, above the page that the learner reads, or alone before any page
+exists. Once the learner answers it, it moves to the top of the syllabus
+column, as a summary of the answer. Section 7 of the design said that it
+showed at the top of the syllabus column, open or answered. The API, the
+storage and the commands do not change.
+
+**Why.** The first choice, the level and the quiz mode, comes before any
+page. The main column was empty, and it said only that the agent asked
+in the column. A learner looks at the middle of the screen, and the
+column is narrow for a form. On a narrow screen, the column hides behind
+a button, so the form was out of sight.
+
 ## Open questions
 
 None.

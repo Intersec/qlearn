@@ -169,8 +169,7 @@ pub enum Command {
     },
 
     /// Ask the learner to choose, in the page, as the agent: at the end of a
-    /// page, or at the top of the syllabus column. Prints the id of the
-    /// choice. A refused choice prints every error, each with its place in
+    /// page, or at the top of the main column. Prints the id of the choice. A refused choice prints every error, each with its place in
     /// the JSON, and exits 1.
     Choose {
         /// The JSON file. `-` reads it from standard input.

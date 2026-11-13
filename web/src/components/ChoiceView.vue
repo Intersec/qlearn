@@ -1,7 +1,8 @@
 <script setup lang="ts">
 // A choice that the agent asks, in place of a dialog of its terminal
-// (section 7 of the design): at the end of its page, or at the top of the
-// syllabus column. Each question takes radio buttons, or checkboxes when
+// (section 7 of the design): at the end of its page, or above the page
+// when it names none. Once answered, the latter moves to the syllabus
+// column. Each question takes radio buttons, or checkboxes when
 // it takes several picks, and free text. Once sent, the answer shows read
 // only. A choice is never graded, so nothing here says right or wrong.
 

@@ -70,8 +70,10 @@ What the browser shows:
 - A **Copy** button beside Ask, on a block of text, a callout, an excerpt
   or a diagram. It copies the text, the code without the line numbers, or
   the Mermaid source of the diagram.
-- The choices that the agent asks you to make, such as the next step, at
-  the end of a page or at the top of the syllabus.
+- The choices that the agent asks you to make, such as your level at the
+  start or the next step. A choice shows at the end of a page, or above
+  the page. Your answers to the questions of the start stay in the
+  syllabus column.
 - A line in the top bar that says what the agent does now.
 - The grade of each point of an open question, under the debrief of its
   quiz.

@@ -32,11 +32,16 @@ const {
   choosing,
 } = storeToRefs(store);
 
-/** On a narrow screen, the syllabus covers the page until the learner picks one. */
 /** An agent waits on the server, so a request of the learner reaches it. */
 const listening = computed(() => presence.value === 'connected' || presence.value === 'working');
 
+/** On a narrow screen, the syllabus covers the page until the learner picks one. */
 const syllabusOpen = ref(false);
+
+// A choice that names no page waits above the page, where the learner
+// reads. Once answered, it moves to the column as a summary.
+const openChoices = computed(() => choices.value.filter((choice) => choice.answers === null));
+const answeredChoices = computed(() => choices.value.filter((choice) => choice.answers !== null));
 
 /** The column of the page, which scrolls alone. */
 const pane = ref<HTMLElement | null>(null);
@@ -137,13 +142,9 @@ onBeforeUnmount(() => {
         class="syllabus-toggle"
         aria-controls="syllabus"
         :aria-expanded="syllabusOpen"
-        :data-choosing="choosing || undefined"
         @click="syllabusOpen = !syllabusOpen"
       >
         Syllabus
-        <span v-if="choosing" class="syllabus-toggle-asks">
-          <span aria-hidden="true">•</span><span class="sr-only">: the agent asks you</span>
-        </span>
       </button>
       <h1 :title="course?.title">{{ course?.title ?? 'qlearn' }}</h1>
       <span class="bar-end">
@@ -184,11 +185,8 @@ onBeforeUnmount(() => {
         @open="openPage"
         @cheatsheet="openCheatsheet"
       >
-        <!-- The open ones first: an answer stays below, read only. -->
         <ChoiceView
-          v-for="choice in [...choices].sort(
-            (a, b) => Number(a.answers !== null) - Number(b.answers !== null),
-          )"
+          v-for="choice in answeredChoices"
           :key="choice.id"
           :choice="choice"
           compact
@@ -199,6 +197,14 @@ onBeforeUnmount(() => {
         </template>
       </SyllabusView>
       <main ref="pane" class="course">
+        <div v-if="openChoices.length" class="course-choices">
+          <ChoiceView
+            v-for="choice in openChoices"
+            :key="choice.id"
+            :choice="choice"
+            :send="(answers) => store.choose(choice.id, answers)"
+          />
+        </div>
         <CheatsheetView
           v-if="sheetShown && cheatsheet && course"
           :cheatsheet="cheatsheet"
@@ -253,10 +259,7 @@ onBeforeUnmount(() => {
         <p v-else-if="course && presence === 'working'" role="status" class="preparing empty">
           The agent prepares the first page<template v-if="status">: {{ status }}</template>
         </p>
-        <p v-else-if="course && choosing" class="empty">
-          The agent asks you to choose, in the syllabus column.
-        </p>
-        <p v-else-if="course" class="empty">
+        <p v-else-if="course && !choosing" class="empty">
           No page yet. The first page shows here when the agent writes it.
         </p>
       </main>

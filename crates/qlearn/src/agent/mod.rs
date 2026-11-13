@@ -234,7 +234,7 @@ pub async fn quiz(client: &Client, id: &str, text: &str, shown: &str) -> Result<
 }
 
 /// Ask the learner to choose, at the end of a page or at the top of the
-/// syllabus column. Answers the id of the choice.
+/// main column. Answers the id of the choice.
 ///
 /// The text is read as JSON here, so a file that is not JSON names the
 /// file that the agent gave: `shown`.

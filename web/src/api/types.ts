@@ -72,7 +72,8 @@ export interface Session {
   version: string;
   /**
    * The choices that name no page, open or answered, in the order that the
-   * agent asked them. They show at the top of the syllabus column.
+   * agent asked them. An open one shows above the page, an answered one in
+   * the syllabus column.
    */
   choices: Choosing[];
   /**
@@ -251,7 +252,7 @@ export interface Page {
 export interface Choosing {
   /** `choice-<n>`, such as `choice-2`. */
   id: string;
-  /** The page at whose end it shows, or null for the top of the syllabus column. */
+  /** The page at whose end it shows, or null: above the page, then in the column. */
   page: string | null;
   questions: ChoosingQuestion[];
   /** null until the learner answers. Then one answer per question, in order. */

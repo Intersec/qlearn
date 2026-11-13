@@ -1,7 +1,7 @@
 // The choices of step 3: the agent asks the learner to choose, in place of
-// a dialog of its terminal, at the end of a page or at the top of the
-// syllabus column. The learner answers in the page, and the wait of the
-// agent gets the labels of the picks.
+// a dialog of its terminal, at the end of a page or above the page. The
+// learner answers in the page, and the wait of the agent gets the labels of
+// the picks. An answered choice with no page moves to the syllabus column.
 
 import { expect, test } from '@playwright/test';
 import { CHOICE_LEVEL, CHOICE_NEXT, PAGE_2 } from './agent.ts';
@@ -31,7 +31,7 @@ test.afterEach(async ({ page }) => {
   expect(complaints).toEqual([]);
 });
 
-test('the learner answers a choice in the column and one on a page', async ({ page }) => {
+test('the learner answers a choice above the page and one on a page', async ({ page }) => {
   const { agent } = server;
   const first = agent.wait(0);
   await page.goto(server.url);
@@ -40,21 +40,25 @@ test('the learner answers a choice in the column and one on a page', async ({ pa
   // The agent asks while the learner reads: both show at once.
   expect(await agent.choose(CHOICE_LEVEL)).toEqual({ id: 'choice-1' });
   expect(await agent.choose(CHOICE_NEXT)).toEqual({ id: 'choice-2' });
+  const above = page.locator('.course-choices .choice');
   const column = page.getByRole('navigation', { name: 'Syllabus' }).locator('.choice');
   const onPage = page.locator('.lesson .choice');
-  await expect(column).toHaveAttribute('data-choice', 'choice-1');
+  await expect(above).toHaveAttribute('data-choice', 'choice-1');
+  await expect(column).toHaveCount(0);
   await expect(onPage).toHaveAttribute('data-choice', 'choice-2');
-  await expect(column.locator('.choice-header')).toHaveText('Level');
-  await expect(column.locator('.choice-description').first()).toHaveText('I start from the paper');
+  await expect(above.locator('.choice-header')).toHaveText('Level');
+  await expect(above.locator('.choice-description').first()).toHaveText('I start from the paper');
   await expect(onPage.getByRole('radio')).toHaveCount(2);
   await expect(onPage.getByRole('checkbox')).toHaveCount(3);
 
-  // The column: words of the learner beside a pick.
-  const send = column.getByRole('button', { name: 'Send' });
+  // Above the page: words of the learner beside a pick. The answer moves
+  // to the column, as a summary.
+  const send = above.getByRole('button', { name: 'Send' });
   await expect(send).toBeDisabled();
-  await column.getByRole('radio', { name: /Read the paper/ }).check();
-  await column.getByRole('textbox', { name: 'Other' }).fill('Only the first half');
+  await above.getByRole('radio', { name: /Read the paper/ }).check();
+  await above.getByRole('textbox', { name: 'Other' }).fill('Only the first half');
   await send.click();
+  await expect(above).toHaveCount(0);
   await expect(column).toHaveAttribute('data-answered', 'true');
   await expect(column.locator('.choice-pick')).toHaveText(['✓Read the paper']);
 
@@ -110,24 +114,45 @@ test('the learner answers a choice in the column and one on a page', async ({ pa
   await expect(page.locator('.choice input')).toHaveCount(0);
 });
 
-test('an open choice of the column comes back after a reload', async ({ page }) => {
+test('an open choice with no page comes back after a reload', async ({ page }) => {
   const { agent } = server;
   await agent.choose(CHOICE_LEVEL);
   await page.goto(server.url);
+  const above = page.locator('.course-choices .choice');
   const column = page.getByRole('navigation', { name: 'Syllabus' }).locator('.choice');
-  await expect(column).toHaveAttribute('data-answered', 'false');
+  await expect(above).toHaveAttribute('data-answered', 'false');
 
   // Free text alone answers a question.
   const waited = agent.wait(0);
-  await column.getByRole('textbox', { name: 'Other' }).fill('I wrote a toy one in Go');
+  await above.getByRole('textbox', { name: 'Other' }).fill('I wrote a toy one in Go');
   await page.reload();
-  await expect(column).toHaveAttribute('data-answered', 'false');
-  await column.getByRole('textbox', { name: 'Other' }).fill('I wrote a toy one in Go');
-  await column.getByRole('button', { name: 'Send' }).click();
+  await expect(above).toHaveAttribute('data-answered', 'false');
+  await above.getByRole('textbox', { name: 'Other' }).fill('I wrote a toy one in Go');
+  await above.getByRole('button', { name: 'Send' }).click();
   await expect(column.locator('.choice-other-sent')).toContainText('I wrote a toy one in Go');
 
   const { events } = await waited;
   expect((events[0].detail as { answers: unknown }).answers).toEqual([
     { header: 'Level', picked: [], labels: [], other: 'I wrote a toy one in Go' },
   ]);
+});
+
+test('the first choice shows in the middle before any page', async ({ page }) => {
+  // A course of its own: the one of beforeEach already has a page.
+  const fresh = await start();
+  try {
+    await fresh.agent.course('Raft elections');
+    await fresh.agent.choose(CHOICE_LEVEL);
+    await page.goto(fresh.url);
+
+    const above = page.locator('main .course-choices .choice');
+    await expect(above).toHaveAttribute('data-answered', 'false');
+    await expect(page.getByText('No page yet')).toHaveCount(0);
+    await expect(page.getByRole('navigation', { name: 'Syllabus' }).locator('.choice')).toHaveCount(
+      0,
+    );
+  } finally {
+    await page.close();
+    await fresh.stop();
+  }
 });

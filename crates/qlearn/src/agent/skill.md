@@ -1036,8 +1036,10 @@ EOF
 - `page` names the page that you pushed last, which the learner reads: the
   choice shows at its end, and nowhere else. Never name an older page: the
   learner may never come back to it. Leave `page` out to show the choice
-  at the top of the syllabus column, such as the level at the start,
-  before any page exists.
+  at the top of the main column, above the page that the learner reads,
+  such as the level at the start, before any page exists. Once the
+  learner answers it, the page keeps a summary of the answer in the
+  syllabus column.
 - `questions` holds 1 to 4 questions. Each one has a short `header`, a
   `prompt`, and 2 to 4 `options`. Each option has a `label` and an
   optional `description`.

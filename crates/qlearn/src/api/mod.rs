@@ -1185,7 +1185,7 @@ fn block_source(
 }
 
 /// Ask the learner to choose, at the end of a page or at the top of the
-/// syllabus column. Answers the id of the choice.
+/// main column. Answers the id of the choice.
 ///
 /// A refused choice gets every fault at once, so the agent fixes them in
 /// one pass.
@@ -5564,7 +5564,7 @@ mod tests {
         "author": "agent"
     }"#;
 
-    /// The level at the start, with no page: the top of the syllabus column.
+    /// The level at the start, with no page: the top of the main column.
     const LEVEL: &str = r#"{
         "questions": [
             {
@@ -5593,7 +5593,7 @@ mod tests {
         .await
     }
 
-    /// The agent asks a choice at the end of a page and one in the column,
+    /// The agent asks a choice at the end of a page and one with no page,
     /// the page finds both, the learner answers, and the agent gets the
     /// labels of the picks.
     #[tokio::test]

@@ -57,11 +57,24 @@ for (const scheme of ['light', 'dark'] as const) {
   try {
     await agent.course('Raft elections');
     await agent.syllabus(SYLLABUS);
-    await agent.page('1', PAGE_1);
-    const waited = agent.wait(0);
 
-    // The first page, with an agent that listens.
+    // The first choice, before any page: in the middle of the screen.
+    await agent.choose(CHOICE_LEVEL);
+    const chosen = agent.wait(0);
     await page.goto(server.url);
+    const start = page.locator('.course-choices .choice');
+    await start.getByRole('radio').nth(1).check();
+    await page.screenshot({ path: join(OUT, `${scheme}-choice-start.png`) });
+    await start.getByRole('button', { name: 'Send' }).click();
+    // Answered, it moves to the column as a summary.
+    await page.locator('.syllabus .choice[data-answered="true"]').waitFor();
+    const { next: afterChoice } = await chosen;
+
+    await agent.page('1', PAGE_1);
+    const waited = agent.wait(afterChoice);
+
+    // The first page, with an agent that listens, and the summary of the
+    // first choice in the column.
     await page.locator('.agent-pill', { hasText: 'Agent connected' }).waitFor();
     await page.screenshot({ path: join(OUT, `${scheme}-page.png`) });
 
@@ -236,13 +249,10 @@ for (const scheme of ['light', 'dark'] as const) {
     await page.locator('.diagram-svg svg').nth(1).scrollIntoViewIfNeeded();
     await page.screenshot({ path: join(OUT, `${scheme}-diagram-fixed.png`) });
 
-    // The agent asks two choices: one at the top of the syllabus column,
-    // and one at the end of the page. The learner answers the second one,
-    // which then shows read only.
-    await agent.choose(CHOICE_LEVEL);
+    // The agent asks a choice at the end of the page. The learner answers
+    // it, and it then shows read only.
     await agent.choose({ ...CHOICE_NEXT, page: '3' });
     const choice = page.locator('.lesson .choice');
-    await page.locator('.syllabus .choice').waitFor();
     await choice.waitFor();
     await choice.getByRole('radio').first().check();
     await choice.getByRole('checkbox').nth(1).check();
@@ -320,7 +330,7 @@ for (const scheme of ['light', 'dark'] as const) {
     await page.screenshot({ path: join(OUT, `${scheme}-image-notes.png`) });
 
     // A narrow screen: the syllabus hides behind a button, and opens over
-    // the page. The button says that a choice of the column waits.
+    // the page.
     await page.setViewportSize({ width: 420, height: 860 });
     await images.first().scrollIntoViewIfNeeded();
     await page.screenshot({ path: join(OUT, `${scheme}-narrow-image.png`) });

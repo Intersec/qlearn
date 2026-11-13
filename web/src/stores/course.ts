@@ -62,7 +62,7 @@ export const useCourse = defineStore('course', () => {
   const version = ref('');
   /** The page that the agent pushed last. */
   const current = ref<string | null>(null);
-  /** The choices that name no page: the top of the syllabus column. */
+  /** The choices that name no page: above the page, then in the column once answered. */
   const choices = ref<Choosing[]>([]);
   /** Why the server cannot read the choices. Only the learner can repair it. */
   const choicesError = ref<string | null>(null);
