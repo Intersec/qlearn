@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-// The Ask button of each block, and the threads that a page places.
+// The Ask and Copy buttons of each block, and the threads that a page places.
 import { describe, expect, it, vi } from 'vitest';
 import { flushPromises, mount } from '@vue/test-utils';
 import PageView from './PageView.vue';
@@ -277,5 +277,103 @@ describe('an image block', () => {
 
     expect(anchor.find('[data-block="c"] img').attributes('alt')).toBe('The flow of a vote');
     expect(anchor.find('.ask').exists()).toBe(true);
+  });
+});
+
+describe('the Copy button', () => {
+  /** A clipboard that keeps what it gets, or refuses it. */
+  function clipboard(refuse = false) {
+    const writeText = refuse
+      ? vi.fn().mockRejectedValue(new Error('denied'))
+      : vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    return writeText;
+  }
+
+  function pageOf(blocks: Page['blocks']): Page {
+    return { id: '1', blocks, quizzes: [], threads: [], choices: [] };
+  }
+
+  it('copies the text of a text block', async () => {
+    const writeText = clipboard();
+    const wrapper = mount(PageView, { props: { page: pageWith(), ask: vi.fn() } });
+
+    await wrapper.find('[data-anchor="b"] .copy').trigger('click');
+    await flushPromises();
+
+    expect(writeText).toHaveBeenCalledWith('The vote.');
+    expect(wrapper.find('[data-anchor="b"] .copy').text()).toBe('Copied');
+  });
+
+  it('copies the code of an excerpt, with no line number and the hidden line empty', async () => {
+    const writeText = clipboard();
+    const line = (text: string) => ({ text, spans: [] });
+    const page = pageOf([
+      {
+        id: 'x',
+        kind: 'excerpt',
+        excerpt: {
+          path: 'src/election.c',
+          repo: '',
+          commit: 'c'.repeat(40),
+          from: 4,
+          to: 6,
+          lang: 'c',
+          lines: [line('{'), null, line('}')],
+          marked: [],
+        },
+      },
+    ]);
+    const wrapper = mount(PageView, { props: { page, ask: vi.fn() } });
+
+    await wrapper.find('[data-anchor="x"] .copy').trigger('click');
+    await flushPromises();
+
+    expect(writeText).toHaveBeenCalledWith('{\n\n}');
+  });
+
+  it('copies the body of a callout, without the name of its marker', async () => {
+    const writeText = clipboard();
+    const page = pageOf([
+      { id: 'h', kind: 'callout', marker: 'hook', html: '<p>A random wait breaks the tie.</p>' },
+    ]);
+    const wrapper = mount(PageView, { props: { page, ask: vi.fn() } });
+
+    await wrapper.find('[data-anchor="h"] .copy').trigger('click');
+    await flushPromises();
+
+    expect(writeText).toHaveBeenCalledWith('A random wait breaks the tie.');
+  });
+
+  it('says so when the browser refuses the clipboard', async () => {
+    clipboard(true);
+    const wrapper = mount(PageView, { props: { page: pageWith(), ask: vi.fn() } });
+
+    await wrapper.find('[data-anchor="a"] .copy').trigger('click');
+    await flushPromises();
+
+    expect(wrapper.find('[data-anchor="a"] .copy').text()).toBe('Cannot copy');
+  });
+
+  it('has no Copy button on an image, whose text means nothing pasted', () => {
+    const page = pageOf([
+      {
+        id: 'c',
+        kind: 'image',
+        alt: 'The flow of a vote',
+        media: `${'a'.repeat(64)}.png`,
+        path: 'docs/flow.png',
+        origin: 'repository',
+        repo: '',
+        commit: 'c'.repeat(40),
+        type: 'image/png',
+        width: 3,
+        height: 2,
+      },
+    ]);
+    const wrapper = mount(PageView, { props: { page, ask: vi.fn() } });
+
+    expect(wrapper.find('[data-anchor="c"] .ask').exists()).toBe(true);
+    expect(wrapper.find('[data-anchor="c"] .copy').exists()).toBe(false);
   });
 });

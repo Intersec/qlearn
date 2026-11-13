@@ -2,9 +2,9 @@
 // Blocks in the order the agent wrote them: those of a lesson, or those of
 // the debrief of a quiz, which is a page source too (section 5.4 of the
 // design). Each block takes questions: an Ask button, and its threads
-// under it (section 6).
+// under it (section 6). A block of text or of code also has a Copy button.
 
-import { computed, inject } from 'vue';
+import { computed, inject, onBeforeUnmount, ref } from 'vue';
 import type { Block } from '@/api/types';
 import { clean } from '@/html';
 import { THREADS, quoteIn } from '@/threads';
@@ -43,7 +43,7 @@ const shown = computed(() =>
   ),
 );
 
-/** The block element of an Ask button. */
+/** The block element of an Ask or a Copy button. */
 function blockOf(event: Event): Element | null {
   const anchor = (event.currentTarget as Element | null)?.closest('.thread-anchor');
   return anchor?.querySelector(':scope > [data-block]') ?? null;
@@ -66,6 +66,53 @@ function ask(block: string, event: Event) {
   threads?.open(block, quote);
 }
 
+/** The kinds whose text means something once pasted. */
+const COPIED = new Set<Block['kind']>(['text', 'callout', 'excerpt', 'diagram']);
+
+/**
+ * The text of a block, as the learner reads it. The code of an excerpt
+ * comes from its lines, without the numbers of the gutter, and a hidden
+ * line stays an empty line. A diagram gives its Mermaid source.
+ */
+function textOf(block: Block, element: HTMLElement | null): string {
+  if (block.kind === 'excerpt') {
+    return block.excerpt.lines.map((line) => line?.text ?? '').join('\n');
+  }
+  if (block.kind === 'diagram') {
+    return block.source;
+  }
+  // The body of a callout, without the name of its marker.
+  const body = element?.querySelector<HTMLElement>('.callout-body') ?? element;
+  // jsdom has no innerText.
+  return (body?.innerText ?? body?.textContent ?? '').trim();
+}
+
+/** The block whose Copy button says that it copied, or failed. */
+const copied = ref<{ block: string; ok: boolean } | null>(null);
+let copiedTimer: ReturnType<typeof setTimeout> | undefined;
+
+async function copy(block: Block, event: Event) {
+  const element = blockOf(event) as HTMLElement | null;
+  let ok = true;
+  try {
+    await navigator.clipboard.writeText(textOf(block, element));
+  } catch {
+    ok = false;
+  }
+  copied.value = { block: block.id, ok };
+  clearTimeout(copiedTimer);
+  copiedTimer = setTimeout(() => (copied.value = null), 1500);
+}
+
+onBeforeUnmount(() => clearTimeout(copiedTimer));
+
+function copyLabel(block: string): string {
+  if (copied.value?.block !== block) {
+    return 'Copy';
+  }
+  return copied.value.ok ? 'Copied' : 'Cannot copy';
+}
+
 async function send(block: string, quote: string | null, body: string): Promise<boolean> {
   if (!threads || !(await threads.ask(block, quote, body))) {
     return false;
@@ -76,7 +123,13 @@ async function send(block: string, quote: string | null, body: string): Promise<
 </script>
 
 <template>
-  <div v-for="block in shown" :key="block.id" class="thread-anchor" :data-anchor="block.id">
+  <div
+    v-for="block in shown"
+    :key="block.id"
+    class="thread-anchor"
+    :data-anchor="block.id"
+    :data-copy="(threads && COPIED.has(block.kind)) || undefined"
+  >
     <!-- eslint-disable vue/no-v-html -- written by the server, cleaned in html.ts -->
     <section
       v-if="block.kind === 'text'"
@@ -115,16 +168,32 @@ async function send(block: string, quote: string | null, body: string): Promise<
     </section>
 
     <template v-if="threads">
-      <!-- The press keeps the selection: it is the quote of the question. -->
-      <button
-        type="button"
-        class="ask"
-        title="Ask the agent about this block. Select text in it first to quote it."
-        @mousedown.prevent="press(block.id, $event)"
-        @click="ask(block.id, $event)"
-      >
-        Ask
-      </button>
+      <span class="block-tools">
+        <button
+          v-if="COPIED.has(block.kind)"
+          type="button"
+          class="copy"
+          :data-copied="copied?.block === block.id ? copied.ok : undefined"
+          :title="
+            block.kind === 'diagram'
+              ? 'Copy the Mermaid source of this diagram'
+              : 'Copy the text of this block'
+          "
+          @click="copy(block, $event)"
+        >
+          <span aria-live="polite">{{ copyLabel(block.id) }}</span>
+        </button>
+        <!-- The press keeps the selection: it is the quote of the question. -->
+        <button
+          type="button"
+          class="ask"
+          title="Ask the agent about this block. Select text in it first to quote it."
+          @mousedown.prevent="press(block.id, $event)"
+          @click="ask(block.id, $event)"
+        >
+          Ask
+        </button>
+      </span>
       <div
         v-if="threads.of(block.id).length || threads.asking.value?.block === block.id"
         class="threads"

@@ -601,6 +601,11 @@ text inside a block and presses its Ask, the selection becomes the quote
 of the thread. A question about the whole page has no quote. The page
 shows its thread at its end, under "About this page".
 
+Beside Ask, a **Copy** button copies a block of text or a callout as the
+page shows it, the code of an excerpt without its line numbers, or the
+Mermaid source of a diagram. A hidden line stays an empty line: the page
+does not have it. A chart, steps and an image have no Copy.
+
 ```ts
 type Thread = {
   id: string;

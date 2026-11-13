@@ -67,6 +67,9 @@ What the browser shows:
 - An **Ask** button on each block of a lesson, and one at the end of the
   page for a question about the whole page. Your question opens a thread,
   and the agent answers in it.
+- A **Copy** button beside Ask, on a block of text, a callout, an excerpt
+  or a diagram. It copies the text, the code without the line numbers, or
+  the Mermaid source of the diagram.
 - The choices that the agent asks you to make, such as the next step, at
   the end of a page or at the top of the syllabus.
 - A line in the top bar that says what the agent does now.

@@ -1829,18 +1829,23 @@ a.syllabus-entry:focus-visible {
 
 /* ---------------------------------------------------------- the threads */
 
-/* A block and what hangs under it. The Ask button sits at the top right
-   of the block. It stays in sight in quiet ink, since a touch screen has
-   no hover, and takes the color of the agent on hover or when the
-   keyboard reaches it. */
+/* A block and what hangs under it. The Copy and Ask buttons sit at the
+   top right of the block. They stay in sight in quiet ink, since a touch
+   screen has no hover, and take the color of the agent on hover or when
+   the keyboard reaches them. */
 .thread-anchor {
   position: relative;
 }
-.ask {
+.block-tools {
   position: absolute;
   top: 0;
   right: 0;
   z-index: 1;
+  display: flex;
+  gap: 4px;
+}
+.ask,
+.copy {
   padding: 1px 10px;
   border: 1px solid var(--edge);
   border-radius: 4px;
@@ -1853,26 +1858,40 @@ a.syllabus-entry:focus-visible {
     background-color 0.1s,
     border-color 0.1s;
 }
-.thread-anchor:hover > .ask,
-.thread-anchor:focus-within > .ask {
+.thread-anchor:hover > .block-tools > button,
+.thread-anchor:focus-within > .block-tools > button {
   border-color: var(--agent-edge);
   background: var(--agent);
   color: var(--action);
 }
-/* The first line of a block runs under the button: the text moves clear
-   of it. The commit of an excerpt or an image, whose title holds the full
-   hash, too. */
+/* The width of "Cannot copy" holds the label that comes after a click, so
+   the Ask button does not move. */
+.copy {
+  min-width: 6.5em;
+}
+.copy[data-copied='false'] {
+  color: var(--ink-quiet);
+}
+/* The first line of a block runs under the buttons: the text moves clear
+   of them. The commit of an excerpt or an image, whose title holds the
+   full hash, too. */
 .thread-anchor > .md-doc.block > :first-child,
 .thread-anchor > .block .excerpt-head,
 .thread-anchor > .block .image-head {
   padding-right: 64px;
 }
-.ask:focus-visible {
+.thread-anchor[data-copy] > .md-doc.block > :first-child,
+.thread-anchor[data-copy] > .block .excerpt-head {
+  padding-right: 160px;
+}
+.ask:focus-visible,
+.copy:focus-visible {
   outline: 2px solid var(--action);
   outline-offset: 1px;
 }
 @media (prefers-reduced-motion: reduce) {
   .ask,
+  .copy,
   .ask-page {
     transition: none;
   }
