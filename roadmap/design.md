@@ -631,8 +631,8 @@ quote, under "On an earlier version of this page".
 ## 7. Choices
 
 The agent asks the learner to choose with `qlearn choose`. In the page, a
-choice replaces the dialogs that the agent opens in its terminal: the level
-and the quiz mode at the start, the next step at a checkpoint, the
+choice replaces the dialogs that the agent opens in its terminal: the level,
+the length of the course and the quiz mode at the start, the next step at a checkpoint, the
 follow-up quiz at the end.
 
 ```json
@@ -998,7 +998,8 @@ not have.
 
 The procedure covers the teaching and the page. For the teaching, it says:
 
-- How to know the learner: the profile, the level, the quiz mode.
+- How to know the learner: the profile, the level, the length of the
+  course, the quiz mode.
 - How to prepare the course: the research, the syllabus, and the check of
   each claim against the code.
 - How to teach: the lessons, the quizzes and their debrief, the exercises,

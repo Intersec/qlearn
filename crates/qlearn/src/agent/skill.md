@@ -109,8 +109,8 @@ letters, digits and hyphens, such as `raft-election`.
    The error `no qlearn server runs on this worktree` means that the
    server does not run yet: ask the learner to start it, then run the
    command again.
-4. Ask the level of the learner and the quiz mode with a choice (see
-   "Know the learner"), then start the loop with `qlearn wait --after 0`
+4. Ask the level of the learner, the length of the course and the quiz
+   mode with a choice (see "Know the learner"), then start the loop with `qlearn wait --after 0`
    (see "The loop").
 5. Start the research at once, in the background, while the learner
    answers (see "Research").
@@ -118,7 +118,7 @@ letters, digits and hyphens, such as `raft-election`.
    as running:
 
    ```sh
-   qlearn course --profile "<background and level>" --quiz-mode <mixed|current> --status running
+   qlearn course --profile "<background, level and length>" --quiz-mode <mixed|current> --status running
    ```
 
    If the learner gave the goal in the choice, write it too, with
@@ -213,6 +213,13 @@ out:
   as "Never heard of it", "I know the theory" and "I know some of the
   code". If you are not sure, start from scratch. A learner who knows the
   basics says so quickly.
+- **The length of the course.** Ask it in the same choice as the level,
+  with two options:
+  - **Short**, with the description "2 or 3 lessons: the essentials."
+  - **Complete**, with the description "As many lessons as the subject
+    needs."
+
+  Put Short first if the subject is small, Complete first otherwise.
 - **The quiz mode.** Ask it in the same choice as the level, with two
   options:
   - **Mixed**, with the description "Each quiz also asks one question on
@@ -226,8 +233,8 @@ out:
 Ask these questions before any page exists, so leave `page` out of the
 choice (see "Choices"). Write the answer into the course with
 `qlearn course --profile ... --quiz-mode ...`, and add `--goal` if the
-learner gave the goal in the choice. The quiz mode takes `mixed` or
-`current`.
+learner gave the goal in the choice. The profile holds the length, such
+as "short course". The quiz mode takes `mixed` or `current`.
 
 ## Research
 
@@ -257,8 +264,11 @@ the choice.
 
 ## Plan the course
 
-Size the syllabus to the subject and to the learner: two or three lessons
-for a small subject or a refresher, as many as needed for a large one.
+Size the syllabus to the length that the learner picked. A short course
+holds two or three lessons on the essentials, and no checkpoint. A
+complete course holds as many lessons as the subject needs. If the subject
+is too large for a short course, say so in the first lesson, and name what
+a complete course would add.
 Group a long syllabus into parts, with a checkpoint at the end of each
 part (see "Checkpoints"). A common order:
 
