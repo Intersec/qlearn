@@ -37,6 +37,7 @@ function courseOf(pages: PageRef[]): Course {
     followUp: null,
     parts: [{ title: '', pages }],
     findings: [],
+    reading: null,
     created: '2026-01-01T00:00:00Z',
     updated: '2026-01-01T00:00:00Z',
   };
@@ -100,6 +101,8 @@ class FakeServer {
   /** The error that the next report gets, if any. */
   refuse: ApiError | null = null;
   reads = { session: 0, page: [] as string[], cheatsheet: 0 };
+  /** Each page that the page said the learner opened. */
+  readings: string[] = [];
   /** Reads of a page that wait until the test lets them answer. */
   private gates = new Map<string, Promise<void>>();
   /** Reads of the cheatsheet that wait until the test lets them answer. */
@@ -137,6 +140,11 @@ class FakeServer {
         throw new ApiError('notFound', `page ${id} has no content yet`);
       }
       return structuredClone(page);
+    });
+    vi.spyOn(api, 'reading').mockImplementation(async (page) => {
+      this.readings.push(page);
+      this.course.reading = page;
+      return { page };
     });
     vi.spyOn(api, 'next').mockImplementation(async (id) => {
       this.nexts.push(id);
@@ -253,6 +261,39 @@ describe('the place', () => {
     expect(location.hash).toBe('#page=2');
     // Back from the first page leaves the course.
     expect(push).not.toHaveBeenCalled();
+  });
+
+  it('opens the page that the learner read last, not one pushed since', async () => {
+    server.push('1', 1);
+    server.push('2', 2);
+    server.push('3', 3);
+    server.course.reading = '2';
+
+    const store = await started();
+
+    expect(store.page?.id).toBe('2');
+    expect(location.hash).toBe('#page=2');
+  });
+
+  it('opens the current page when the page read last cannot show', async () => {
+    server.push('1', 1);
+    server.course.reading = '9';
+
+    const store = await started();
+
+    expect(store.page?.id).toBe('1');
+    expect(store.error).toBeNull();
+  });
+
+  it('tells the server each page that the learner opens, once', async () => {
+    server.push('1', 1);
+    server.push('2', 2);
+    const store = await started();
+    expect(server.readings).toEqual(['2']);
+
+    await store.open('1');
+    await store.open('1');
+    await vi.waitFor(() => expect(server.readings).toEqual(['2', '1']));
   });
 
   it('opens the page that the address names, as a reload does', async () => {

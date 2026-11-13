@@ -308,7 +308,8 @@ enum Reader {
     /// The store, with no server, as a server would show it after its
     /// start. The claim keeps a server from starting meanwhile.
     Store {
-        course: Course,
+        // Boxed: a course is large, and a client is not.
+        course: Box<Course>,
         points: Vec<Point>,
         _claim: Claim,
     },
@@ -333,7 +334,7 @@ async fn reader(store: &Store, home: &Home) -> Result<Reader> {
             let points = store.load_points(&course.slug)?;
             let (course, points) = api::settled(store, &course, points)?;
             Ok(Reader::Store {
-                course,
+                course: Box::new(course),
                 points,
                 _claim: claim,
             })

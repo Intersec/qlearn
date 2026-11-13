@@ -29,6 +29,11 @@ pub struct Course {
     pub follow_up: Option<String>,
     pub parts: Vec<Part>,
     pub findings: Vec<Finding>,
+    /// The page that the learner opened last. A course that opens again
+    /// comes back to it, not to the page that the agent pushed last.
+    // A course of an earlier release has none.
+    #[serde(default)]
+    pub reading: Option<String>,
     /// RFC 3339.
     pub created: String,
     pub updated: String,
@@ -51,6 +56,7 @@ impl Course {
             follow_up: None,
             parts: Vec::new(),
             findings: Vec::new(),
+            reading: None,
             created: now.clone(),
             updated: now,
         }
@@ -1286,6 +1292,13 @@ pub struct Broken {
     pub error: String,
 }
 
+/// The page that the learner opened, as the page sends it.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Reading {
+    pub page: String,
+}
+
 /// A page as the agent names it to the learner.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -1520,10 +1533,23 @@ mod tests {
                 "followUp": null,
                 "parts": [],
                 "findings": [],
+                "reading": null,
                 "created": "2026-01-01T00:00:00Z",
                 "updated": "2026-01-01T00:00:00Z",
             })
         );
+    }
+
+    /// `reading` came after the first release: a course of that release
+    /// still reads, with no page read yet.
+    #[test]
+    fn a_course_without_reading_reads_with_none() {
+        let mut value = serde_json::to_value(Course::new("raft", at_new_year())).unwrap();
+        value.as_object_mut().unwrap().remove("reading");
+
+        let course: Course = serde_json::from_value(value).unwrap();
+
+        assert_eq!(course.reading, None);
     }
 
     #[test]

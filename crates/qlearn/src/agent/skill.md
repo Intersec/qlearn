@@ -153,6 +153,9 @@ context was reset in the middle of a course:
      and the score of each page, and the `findings`, with their body in
      Markdown.
    - `current`: the page that you pushed last.
+   - `course.reading`: the page that the learner opened last. It may come
+     before `current`, if you pushed a page that the learner has not
+     read yet.
    - `pages`: each page with content, in the order of the syllabus, with
      its `source` as you pushed it, its `quizzes`, and its `threads`. A
      quiz holds its questions as you wrote them, the open answer of the

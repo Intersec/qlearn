@@ -113,6 +113,7 @@ expression: at_redacted(body)
     ],
     "profile": "",
     "quizMode": "mixed",
+    "reading": null,
     "slug": "raft",
     "status": "new",
     "title": "Raft, the leader election",

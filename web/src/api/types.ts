@@ -24,6 +24,8 @@ export interface Course {
   followUp: string | null;
   parts: Part[];
   findings: Finding[];
+  /** The page that the learner opened last: a course opens on it again. */
+  reading: string | null;
   /** RFC 3339. */
   created: string;
   updated: string;

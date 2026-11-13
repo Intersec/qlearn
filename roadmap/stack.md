@@ -1514,6 +1514,33 @@ in the column. A learner looks at the middle of the screen, and the
 column is narrow for a form. On a narrow screen, the column hides behind
 a button, so the form was out of sight.
 
+## 2026-11-13 — A course opens on the page that the learner read
+
+**Decision.** `course.json` holds `reading`, the page that the learner
+opened last. The page sends it with `PUT /api/reading` each time that it
+shows a page. When the address names no page, the page opens `reading`,
+or the current page before the first read.
+
+**Why.** A learner stopped on page 2 while the agent had already pushed
+page 3. The course opened again on page 3, the current page, which the
+learner had not read. Next from page 3 then skipped page 2. The server
+cannot find the place alone: Next to a page that exists opens it in the
+browser, and sends nothing.
+
+**Rules.**
+
+- **The field is new and optional.** A course of an earlier release reads
+  with `null`, and an earlier release ignores the field, so `version`
+  stays 1.
+- **Only a page with content.** The route refuses another page, as Next
+  does.
+- **A page read again writes nothing.** The page sends each move, so the
+  server compares first.
+- **`updated` does not change.** It dates a change of the course, and a
+  read changes nothing that the agent wrote.
+- **The export gives it**, in `course`, so an agent that resumes knows
+  where the learner stopped.
+
 ## Open questions
 
 None.

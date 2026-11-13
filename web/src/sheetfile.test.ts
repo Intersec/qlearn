@@ -32,6 +32,7 @@ const COURSE: Course = {
   followUp: null,
   parts: [],
   findings: [],
+  reading: null,
   created: '2026-01-01T00:00:00Z',
   updated: '2026-01-01T00:00:00Z',
 };

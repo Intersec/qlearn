@@ -355,7 +355,25 @@ export const useCourse = defineStore('course', () => {
     if (move !== 'none') {
       write(id, move);
     }
+    void remember(id);
     return 'shown';
+  }
+
+  /**
+   * Tell the server the page on the screen, so that the course opens on it
+   * again. The agent may push the next page before the learner reads it.
+   */
+  async function remember(id: string) {
+    if (!course.value || course.value.reading === id) {
+      return;
+    }
+    course.value.reading = id;
+    try {
+      await api.reading(id);
+    } catch {
+      // Only the place of a later visit is lost, and a server that stopped
+      // says so in the loop of the events.
+    }
   }
 
   /**
@@ -405,9 +423,10 @@ export const useCourse = defineStore('course', () => {
   }
 
   /**
-   * Open the page that the address names, or the current page when it
-   * names none. A page with no content leaves the current page in its
-   * place, with the reason.
+   * Open the page that the address names. With none, open the page that
+   * the learner read last, or the current page before the first read. A
+   * page with no content leaves the current page in its place, with the
+   * reason.
    */
   async function openAddress(move: Move | 'none') {
     if (location.hash === CHEATSHEET) {
@@ -427,14 +446,15 @@ export const useCourse = defineStore('course', () => {
     }
     const place = parse(location.hash);
     const named = place?.page;
-    const id = named ?? current.value;
+    const id = named ?? course.value?.reading ?? current.value;
     if (!id || (await show(id, move, place?.block ?? null)) !== 'failed') {
       return;
     }
 
     const reason = error.value;
-    if (named && current.value && named !== current.value) {
-      if ((await show(current.value, 'replace')) === 'shown') {
+    if (current.value && id !== current.value) {
+      // The reason of a page that the address named: the learner asked for it.
+      if ((await show(current.value, 'replace')) === 'shown' && named) {
         error.value = reason;
       }
     }

@@ -145,6 +145,7 @@ type Course = {
   followUp: string | null;  // a date, YYYY-MM-DD
   parts: Part[];
   findings: Finding[];
+  reading: string | null;   // the page that the learner opened last
   created: string;          // RFC 3339
   updated: string;
 };
@@ -183,6 +184,15 @@ pushes a page and the learner reads another one, the page says that the new
 one is ready. It does not move the learner. `GET /api/session` gives its id
 as `current`, or `null` before the first push. After a restart, the server
 finds it from the newest page source, because only a push writes one.
+
+**The page that the learner reads** is `reading`. The agent may push the
+next page before the learner gets to it, so the current page is not
+always the page that the learner reads. Each time that the learner opens
+a page, the page sends it with `PUT /api/reading`, and the server writes
+it in `course.json`. When the address names no page, the page opens
+`reading`, or the current page before the first read. A course of an
+earlier release has no `reading`, and reads with `null`, so `version`
+stays 1.
 
 **A course with no parts** is one implicit part with no title. The syllabus
 then shows a flat list.
@@ -671,6 +681,7 @@ writer, and grants no permission.
 | `GET /api/session` | page | The course, the syllabus, the current page, the tool version, the id of the server |
 | `GET /api/pages/:id` | page | The blocks, the quizzes without their answers until answered, the threads |
 | `POST /api/pages/:id/next` | page | Ask the agent for the next page. Answers the request |
+| `PUT /api/reading` | page | The learner opened a page. Body: `{ page }`, a page with content. Answers it |
 | `POST /api/pages/:id/quizzes/:n/open` | page | Send the open answer. Body: `{ text }`. Answers the page |
 | `POST /api/pages/:id/quizzes/:n/choices` | page | Send the choices. Body: `{ choices: [{ option, other }] }`, one per choice. The server grades them, and answers the page |
 | `POST /api/pages/:id/threads` | both | Open a thread. Body: `{ block, quote, body }` |

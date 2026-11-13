@@ -57,6 +57,14 @@ export const api = {
   /** The cheatsheet, with the sections that the server builds. */
   cheatsheet: () => call<Cheatsheet>('/api/cheatsheet'),
 
+  /** Tell the server the page that the learner opened. Answers it. */
+  reading: (page: string) =>
+    call<{ page: string }>('/api/reading', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ page }),
+    }),
+
   /** Ask the agent for the page after this one. Answers the request. */
   next: (id: string) =>
     call<Event>(`/api/pages/${encodeURIComponent(id)}/next`, { method: 'POST' }),

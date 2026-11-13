@@ -26,8 +26,8 @@ use crate::lesson::{self, Fault, Notes};
 use crate::model::{
     self, AgentStatus, Author, Batch, Block, BlockSource, Broken, Cheatsheet, ChoiceId, ChoiceSent,
     ChoicesSent, Choosing, Course, CourseChange, Detail, Event, EventKind, Export, Finding, Graded,
-    GradedPoint, OpenSent, Page, PageKind, Point, PointResult, QuizNumber, ReplySent, Session,
-    StatusText, Thread, ThreadOpened,
+    GradedPoint, OpenSent, Page, PageKind, Point, PointResult, QuizNumber, Reading, ReplySent,
+    Session, StatusText, Thread, ThreadOpened,
 };
 use crate::quiz::{Refusal, StoredDebrief};
 use crate::root::Root;
@@ -110,6 +110,7 @@ pub fn app(state: AppState) -> Router {
         .route("/api/points", get(points))
         .route("/api/export", get(export))
         .route("/api/pages/{id}/next", post(next))
+        .route("/api/reading", put(set_reading))
         .route("/api/pages/{id}/broken", post(broken))
         .route("/api/pages/{id}/threads", post(open_thread))
         .route("/api/threads/{id}", post(reply))
@@ -935,6 +936,33 @@ async fn next(
 
     event.detail = None;
     Ok(Json(event))
+}
+
+/// The learner opened a page. The course keeps it, so a course that opens
+/// again comes back to the page that the learner read. The agent may push
+/// the next page before the learner gets to it. Answers the page.
+async fn set_reading(
+    State(state): State<AppState>,
+    body: Result<Json<Reading>, JsonRejection>,
+) -> Result<Json<Reading>, ApiError> {
+    let Json(body) = body.map_err(bad_json)?;
+
+    let mut course = state.course.write().await;
+    // The page opens only a page with content.
+    if !course.has_content(&body.page) {
+        return Err(ApiError::not_found(format!(
+            "page {} has no content yet",
+            body.page
+        )));
+    }
+    // Each move of the learner calls this: a page read again writes nothing.
+    if course.reading.as_deref() != Some(body.page.as_str()) {
+        let mut changed = course.clone();
+        changed.reading = Some(body.page.clone());
+        state.store.save(&changed)?;
+        *course = changed;
+    }
+    Ok(Json(body))
 }
 
 /// The page cannot draw a block of a page or of a debrief. Answers the
@@ -3335,6 +3363,62 @@ mod tests {
             assert_eq!(body["error"]["code"], "notFound", "{uri}");
         }
         assert_eq!(state.events.after(None, events::HOLD).await.next, 0);
+    }
+
+    #[tokio::test]
+    async fn the_page_that_the_learner_reads_is_kept_for_the_next_server() {
+        let dir = repo().await;
+        let state = state_in(dir.path());
+        let (_, _) = json(app(state.clone()), put("/api/pages/1", LESSON)).await;
+
+        let (status, body) = json(
+            app(state.clone()),
+            send_json("PUT", "/api/reading", r#"{"page":"1"}"#),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK, "{body}");
+        insta::assert_json_snapshot!("reading", body);
+        let (_, session) = json(app(state), get_with_cookie("/api/session", TOKEN)).await;
+        assert_eq!(session["course"]["reading"], "1");
+        // A new server reads the course from the store.
+        let stored = Store::at(dir.path()).load("raft").unwrap().unwrap();
+        assert_eq!(stored.reading.as_deref(), Some("1"));
+    }
+
+    #[tokio::test]
+    async fn reading_a_page_with_no_content_is_not_found() {
+        let state = state();
+        let mut course = state.course.write().await;
+        course.parts[0].pages.push(PageRef {
+            id: "2".to_owned(),
+            kind: PageKind::Lesson,
+            title: "The vote".to_owned(),
+            state: PageState::Planned,
+            score: None,
+        });
+        drop(course);
+
+        for page in ["2", "9", "../course"] {
+            let body = format!(r#"{{"page":"{page}"}}"#);
+            let (status, answer) =
+                json(app(state.clone()), send_json("PUT", "/api/reading", &body)).await;
+
+            assert_eq!(status, StatusCode::NOT_FOUND, "{page}");
+            assert_eq!(answer["error"]["code"], "notFound", "{page}");
+        }
+        assert_eq!(state.course.read().await.reading, None);
+    }
+
+    #[tokio::test]
+    async fn a_reading_with_another_shape_is_refused() {
+        let (status, body) = json(
+            app(state()),
+            send_json("PUT", "/api/reading", r#"{"page":"1","block":"a"}"#),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
     }
 
     const DIAGRAM: &str = "# The states\n\nA server changes state.\n\n\

@@ -23,6 +23,7 @@ expression: body
   ],
   "profile": "C, no Raft yet.",
   "quizMode": "current",
+  "reading": null,
   "slug": "raft",
   "status": "running",
   "title": "Raft, the election",
