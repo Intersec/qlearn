@@ -5,7 +5,7 @@ terminal.
 
 One binary, no runtime to install, nothing leaves your machine.
 
-![A course in the browser: the learner asks about a phrase and the agent answers, a quiz is graded and debriefed, the agent writes the next page, and the course ends on a cheatsheet](docs/demo.webp)
+![A course in the browser: the learner picks a level and a short course, asks about a phrase and the agent answers, copies an excerpt, a quiz is graded and debriefed, the agent writes the next page, and the course ends on a cheatsheet](docs/demo.webp)
 
 ## Install
 

@@ -39,6 +39,29 @@ const ANSWER =
   'votes for **itself**, so no one gets a majority, and the next term starts the same way.';
 const OPEN_ANSWER = 'So that two followers rarely time out at once.';
 
+/** The first choice of the procedure: the level and the length of the course. */
+const START = {
+  questions: [
+    {
+      header: 'Level',
+      prompt: 'How well do you know Raft?',
+      options: [
+        { label: 'Never heard of it', description: 'Start from scratch' },
+        { label: 'I know the theory', description: 'The paper, not this code' },
+        { label: 'I know some of the code', description: 'The details of this code base' },
+      ],
+    },
+    {
+      header: 'Length',
+      prompt: 'How long should the course be?',
+      options: [
+        { label: 'Short', description: '2 or 3 lessons: the essentials.' },
+        { label: 'Complete', description: 'As many lessons as the subject needs.' },
+      ],
+    },
+  ],
+};
+
 mkdirSync(OUT, { recursive: true });
 // The video of an earlier run would be taken for this one at the end.
 for (const name of readdirSync(OUT).filter((name) => name.endsWith('.webm'))) {
@@ -50,7 +73,7 @@ const { agent } = server;
 
 await agent.course('Raft elections');
 await agent.syllabus(SYLLABUS);
-await agent.page('1', PAGE_1);
+await agent.choose(START);
 let waiting = agent.wait(0, 300);
 
 const browser = await chromium.launch(config.use?.launchOptions);
@@ -58,6 +81,8 @@ const context = await browser.newContext({
   viewport: SIZE,
   colorScheme: 'dark',
   recordVideo: { dir: OUT, size: SIZE },
+  // The Copy button writes to the clipboard, and a refusal would show.
+  permissions: ['clipboard-read', 'clipboard-write'],
 });
 const page = await context.newPage();
 // The video starts with the page, and the page starts empty.
@@ -94,11 +119,25 @@ async function select(phrase: string) {
 try {
   await page.goto(server.url);
   await page.locator('.agent-pill', { hasText: 'Agent connected' }).waitFor();
-  await page.getByRole('heading', { name: 'The election timer', level: 1 }).waitFor();
+  const choice = page.locator('.course-choices .choice');
+  await choice.waitFor();
   // The empty page is cut: the README plays the recording in a loop, and
   // the loop starts here.
   writeFileSync(join(OUT, 'start'), `${(Date.now() - filmed) / 1000}\n`);
-  // The syllabus, and the first page with an agent that listens.
+  // Before any page, the agent asks the level and the length of the course.
+  await beat(2000);
+  await choice.getByRole('radio', { name: /I know the theory/ }).check();
+  await beat(700);
+  await choice.getByRole('radio', { name: /Short/ }).check();
+  await beat(900);
+  await choice.getByRole('button', { name: 'Send' }).click();
+  const chosen = await waiting;
+  // The answer stays in the column, and the agent writes the first page.
+  await agent.status('Writing page 1: the election timer');
+  await beat(2200);
+  waiting = agent.wait(chosen.next, 300);
+  await agent.page('1', PAGE_1);
+  await page.getByRole('heading', { name: 'The election timer', level: 1 }).waitFor();
   await beat(2200);
 
   // A question on a phrase of the lesson, and the answer of the agent in
@@ -122,8 +161,16 @@ try {
   await beat(2800);
 
   // The code, read from git: a marked line, and a hidden one to complete.
-  await show(page.locator('.excerpt'));
-  await beat(1800);
+  // Copy takes the code without the line numbers.
+  const excerpt = page.locator('.thread-anchor', { has: page.locator('.excerpt') });
+  await show(excerpt);
+  await beat(900);
+  await excerpt.hover();
+  await beat(400);
+  await excerpt.locator('.copy').click();
+  await beat(1400);
+  await page.mouse.move(0, 0);
+  await beat(600);
 
   // A quiz under the lesson: an open question, then a choice graded at once.
   waiting = agent.wait(asked.next, 300);
