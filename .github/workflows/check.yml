@@ -30,7 +30,7 @@ jobs:
       !startsWith(github.event.head_commit.message, 'chore(release): v')
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # `.tool-versions` is the one place that names the versions. The
       # pipeline reads it, so asdf and the pipeline cannot drift apart.
@@ -42,7 +42,7 @@ jobs:
             echo "rust=$(awk '/^rust /{print $2}' .tool-versions)"
           } >> "$GITHUB_OUTPUT"
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: ${{ steps.tools.outputs.node }}
           cache: npm
@@ -54,7 +54,7 @@ jobs:
             --profile minimal --component clippy,rustfmt
           rustup default '${{ steps.tools.outputs.rust }}'
 
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry

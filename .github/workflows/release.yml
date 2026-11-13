@@ -21,7 +21,7 @@ jobs:
     steps:
       # The notes come from CHANGELOG.md at the tag, and nothing else needs
       # the history.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 1
 
@@ -35,7 +35,7 @@ jobs:
             echo "rust=$(awk '/^rust /{print $2}' .tool-versions)"
           } >> "$GITHUB_OUTPUT"
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: ${{ steps.tools.outputs.node }}
           cache: npm
@@ -47,7 +47,7 @@ jobs:
             --profile minimal --component clippy,rustfmt
           rustup default '${{ steps.tools.outputs.rust }}'
 
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
